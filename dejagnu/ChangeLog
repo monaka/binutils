@@ -1,3 +1,881 @@
+2002-09-26  Richard Earnshaw  <rearnsha@arm.com>
+
+	* lib/libgloss.exp (build_wrapper): Use a tool-specific filename on
+	the host for the testglue.
+
+2002-08-30  Nick Clifton  <nickc@redhat.com>
+
+        * acinclude.m4: Provide alternative definition of AC_PROG_CXX
+        which does not call AC_PROG_CXX_WORKS.  This allows dejagnu to
+        be configured and built without a working C++ compiler.
+
+2002-08-28  Catherine Moore  <clm@redhat.com>
+
+	* baseboards/v850-sim.exp (target_install): Add v850e-elf.
+
+2002-08-23  Andrew Cagney  <ac131313@redhat.com>
+
+	* config.guess: Import version 2002-08-23.
+	* config.sub: Import version 2002-08-22.
+
+2002-07-27  Ian Dall  <ian@sibyl.beware.dropbear.id.au>
+
+	* testsuite/Makefile.in (site.exp): Fix typo.
+	
+2002-07-19  Chris Demetriou  <cgd@broadcom.com>
+
+	* config.guess: Update from ../config.guess.
+	* config.sub: Update from ../config.sub.
+
+2002-06-28  Nick Clifton  <nickc@cambridge.redhat.com>
+
+	* runtest.exp: Extend search path for config.guess to include
+	$libdir/../../libexec.  This is where an install from the top
+	level build directory will place it, because the top level
+	Makefile overrides the definition of $(libexecdir).
+
+2002-06-18  Dave Brolley  <brolley@redhat.com>
+
+	From Catherine Moore, Michael Meissner, Mark Salter, Jim Blandy:
+	* baseboards/frv-elf.exp: New board description.
+	* baseboards/frv-sim.exp: New board description.
+	* baseboards/frv-tiger.exp: New board description.
+	* baseboards/frv-tomcat.exp: New board description.
+
+2002-05-02  Fernando Nasser  <fnasser@localhost.localdomain>
+
+	* runtest.exp: Add kfail_flag and kfail_prms variable
+	initializations.
+	* lib/framework.exp (setup_kfail): New proc. Like setup_xfail, but  
+	for known tool bugs already registered in a bug database.
+	(kfail): New proc. Record that a test has failed due to a known bug.
+	(kpass): New proc. Record that a test for a known bug has passed
+	unexpectedly.
+	(clear_kfail): Like clear_xfail, but for known bugs.
+	(record_test): Handle KFAIL and KPASS.
+	(pass, fail): Test for known failures.
+	(clone_output): Add KFAIL to list of message types to be cloned.
+	og_summary): Add summary for KFAIL and KPASS.
+	(unknown): Update comment.
+	* doc/dejagnu.texi: Document the above.
+	* testsuite/lib/libsup.exp: Add counters for KFAIL and KPASS.
+	* testsuite/runtest.all/stats-sub.exp: Test kfail and kpass.
+	* testsuite/runtest.all/stats.exp: Ditto.
+
+2002-04-25    <Matthew Bemis <bemis@iol.unh.edu>
+
+	* lib/framework.exp: new procs check_xml{}, insertdtd{}, xml_output{},
+	plus a few hooks to xml_output in the other logging procs to produce
+	XML output.
+	* runtest.exp: Add support for the --x option for XML output.
+
+2002-04-25  Nick Clifton  <nickc@cambridge.redhat.com>
+
+	* example/calc/configure.in (AM_MAINTAINER_MODE): Add invocation.
+	* example/calc/aclocal.m4: Regenerate.
+	* example/calc/configure: Regenerate.
+	* example/calc/Makefile.in: Regenerate.
+
+2002-04-21  Nick Clifton  <nickc@cambridge.redhat.com>
+
+	* Finish off import of new files and changes from the savanah
+	dejagnu repository.  Updated or regenerated files are:
+
+	ChangeLog  Makefile.am  Makefile.in  NEWS  README  TODO
+	aclocal.m4  configure  configure.in  runtest  runtest.exp
+	baseboards/arc-sim.exp  baseboards/fr30-sim.exp
+	baseboards/h8300-sim.exp  baseboards/m32r-sim.exp
+	baseboards/mcore-sim.exp  baseboards/mn10200-sim.exp
+	baseboards/mn10300-sim.exp  baseboards/sh-hms-sim.exp
+	baseboards/sh-hms.exp  baseboards/unix.exp
+	config/arc.exp  config/arm-ice.exp  config/base-config.exp
+	config/base68k.exp  config/bug.exp  config/cfdbug.exp
+	config/cygmon.exp  config/d10v.exp  config/ddb-ether.exp
+	config/ddb.exp  config/dos.exp  config/dve.exp
+	config/gdb-comm.exp  config/gdb_stub.exp  config/h8300.exp
+	config/i386-bozo.exp  config/i960.exp  config/m32r-stub.exp
+	config/m32r.exp  config/mips-idt.exp  config/mn10200-eval.exp
+	config/mn10300-eval.exp  config/netware.exp
+	config/powerpc-bug.exp  config/proelf.exp  config/rom68k.exp
+	config/sh.exp  config/sim.exp  config/slite.exp
+	config/sparclet.exp  config/udi.exp  config/unix.exp
+	config/vr4100.exp config/vr4300.exp  config/vr5000.exp
+	config/vrtx.exp  config/vxworks.exp  doc/Makefile.am
+	doc/Makefile.in  doc/dejagnu.texi  doc/overview.sgml  doc/ref.sgml
+	doc/user.sgml  example/Makefile.am  example/Makefile.in
+	example/calc/Makefile.in  example/calc/calc.c
+	example/calc/calc.h.in  example/calc/configure 
+	example/calc/configure.in
+	example/calc/testsuite/calc.test/calc.exp 
+	example/calc/testsuite/config/unix.exp  lib/debugger.exp
+	lib/dg.exp  lib/framework.exp lib/ftp.exp lib/kermit.exp
+	lib/libgloss.exp  lib/mondfe.exp lib/remote.exp lib/rlogin.exp
+	lib/rsh.exp lib/standard.exp  lib/target.exp  lib/targetdb.exp
+	lib/telnet.exp 	lib/tip.exp  lib/util-defs.exp  lib/utils.exp
+	lib/xsh.exp testsuite/config/default.exp  testsuite/lib/libsup.exp
+	testsuite/runtest.all/libs.exp testsuite/runtest.all/options.exp
+	testsuite/runtest.all/stats-sub.exp
+	testsuite/runtest.all/stats.exp
+
+	The following files have been added:
+	
+	baseboards/mmixware-sim.exp  baseboards/xtensa-sim.exp
+	baseboards/m68hc11-sim.exp  config/default.exp  config/m68hc11.exp
+	contrib/bluegnu2.0.3/Makefile.in
+	contrib/bluegnu2.0.3/README.bluegnu
+	contrib/bluegnu2.0.3/README.dejagnu
+	contrib/bluegnu2.0.3/TODO.dejagnu  contrib/bluegnu2.0.3/aclocal.m4
+	contrib/bluegnu2.0.3/bluegnu  contrib/bluegnu2.0.3/bluegnutk
+	contrib/bluegnu2.0.3/bluegnutk.itcl
+	contrib/bluegnu2.0.3/bluegnutk.rc
+	contrib/bluegnu2.0.3/bluegnutkUtils.itcl
+	contrib/bluegnu2.0.3/config.guess  contrib/bluegnu2.0.3/configure
+	contrib/bluegnu2.0.3/configure.in  contrib/bluegnu2.0.3/contents
+	contrib/bluegnu2.0.3/dejagnu  contrib/bluegnu2.0.3/install-sh
+	contrib/bluegnu2.0.3/mkinstalldirs  contrib/bluegnu2.0.3/runtest
+	contrib/bluegnu2.0.3/runtest.exp  contrib/bluegnu2.0.3/site.tmpl
+	contrib/bluegnu2.0.3/tcl-mode.el
+	contrib/bluegnu2.0.3/contrib/README
+	contrib/bluegnu2.0.3/contrib/test-g++
+	contrib/bluegnu2.0.3/contrib/test-tool
+	contrib/bluegnu2.0.3/contrib/testit
+	contrib/bluegnu2.0.3/doc/Makefile.in
+	contrib/bluegnu2.0.3/doc/README.tex
+	contrib/bluegnu2.0.3/doc/READMEdvi.dvi
+	contrib/bluegnu2.0.3/doc/READMEdvi.tex
+	contrib/bluegnu2.0.3/doc/READMEdvi.title
+	contrib/bluegnu2.0.3/doc/READMEtxt.dvi
+	contrib/bluegnu2.0.3/doc/READMEtxt.tex
+	contrib/bluegnu2.0.3/doc/configure
+	contrib/bluegnu2.0.3/doc/configure.in
+	contrib/bluegnu2.0.3/doc/dejagnu.1
+	contrib/bluegnu2.0.3/doc/dejagnu.dvi
+	contrib/bluegnu2.0.3/doc/dejagnu.pdf
+	contrib/bluegnu2.0.3/doc/dejagnu.ps
+	contrib/bluegnu2.0.3/doc/dejagnu.texi
+	contrib/bluegnu2.0.3/doc/notice.html
+	contrib/bluegnu2.0.3/doc/notice.pdf
+	contrib/bluegnu2.0.3/doc/notice.ps
+	contrib/bluegnu2.0.3/example/Makefile.in
+	contrib/bluegnu2.0.3/example/configure
+	contrib/bluegnu2.0.3/example/configure.in
+	contrib/bluegnu2.0.3/example/calc/Makefile.in
+	contrib/bluegnu2.0.3/example/calc/calc.1
+	contrib/bluegnu2.0.3/example/calc/calc.c
+	contrib/bluegnu2.0.3/example/calc/calc.h.in
+	contrib/bluegnu2.0.3/example/calc/configure
+	contrib/bluegnu2.0.3/example/calc/configure.in
+	contrib/bluegnu2.0.3/example/calc/testsuite/calc.test/calc.exp
+	contrib/bluegnu2.0.3/example/calc/testsuite/config/unix.exp
+	contrib/bluegnu2.0.3/lib/BlueGnu_target.itcl
+	contrib/bluegnu2.0.3/lib/Default_target.itcl
+	contrib/bluegnu2.0.3/lib/Types.itcl
+	contrib/bluegnu2.0.3/lib/bluegnu.itcl
+	contrib/bluegnu2.0.3/lib/bug.exp
+	contrib/bluegnu2.0.3/lib/debugger.exp
+	contrib/bluegnu2.0.3/lib/dejagnu.itcl
+	contrib/bluegnu2.0.3/lib/dejagnu.tcl
+	contrib/bluegnu2.0.3/lib/dg.exp  contrib/bluegnu2.0.3/lib/foo.itcl
+	contrib/bluegnu2.0.3/lib/framework.exp
+	contrib/bluegnu2.0.3/lib/libgloss.exp
+	contrib/bluegnu2.0.3/lib/nonexpect.itcl
+	contrib/bluegnu2.0.3/lib/remote.exp
+	contrib/bluegnu2.0.3/lib/serverUtils.itcl
+	contrib/bluegnu2.0.3/lib/target.exp
+	contrib/bluegnu2.0.3/lib/tclIndex
+	contrib/bluegnu2.0.3/lib/testSessionApplication.itcl
+	contrib/bluegnu2.0.3/lib/testSessionClasses.itcl
+	contrib/bluegnu2.0.3/lib/testSessionFramework.itcl
+	contrib/bluegnu2.0.3/lib/testSessionUtils.itcl
+	contrib/bluegnu2.0.3/lib/udi.exp
+	contrib/bluegnu2.0.3/lib/util-defs.exp
+	contrib/bluegnu2.0.3/lib/utils.exp
+	contrib/bluegnu2.0.3/lib/vrtx.exp
+	contrib/bluegnu2.0.3/lib/vxworks.exp
+	contrib/bluegnu2.0.3/testsets/tclIndex
+	contrib/bluegnu2.0.3/testsets/BlueGnu/appendQueue.itcl
+	contrib/bluegnu2.0.3/testsets/BlueGnu/clone_output.itcl
+	contrib/bluegnu2.0.3/testsets/BlueGnu/locateFile.itcl
+	contrib/bluegnu2.0.3/testsets/BlueGnu/namespaceVariables.itcl
+	contrib/bluegnu2.0.3/testsets/BlueGnu/prependQueue.itcl
+	contrib/bluegnu2.0.3/testsets/BlueGnu/runtest.itcl
+	contrib/bluegnu2.0.3/testsets/BlueGnu/testNaming.itcl
+	contrib/bluegnu2.0.3/testsets/BlueGnu/types.itcl
+	contrib/bluegnu2.0.3/testsets/BlueGnu/verbose.itcl
+	contrib/bluegnu2.0.3/testsets/BlueGnu/ts001/A.itcl
+	contrib/bluegnu2.0.3/testsets/BlueGnu/ts002/A.itcl
+	contrib/bluegnu2.0.3/testsets/examples/tc001
+	contrib/bluegnu2.0.3/testsets/examples/tc002
+	contrib/bluegnu2.0.3/testsets/examples/ts_001
+	contrib/bluegnu2.0.3/testsets/examples/ts_002
+	contrib/bluegnu2.0.3/testsets/examples/ts_003
+	contrib/bluegnu2.0.3/testsets/examples/versionTcl.itcl
+	contrib/bluegnu2.0.3/testsets/examples/lib/benchmark.itcl
+	contrib/bluegnu2.0.3/testsuite/Makefile.in
+	contrib/bluegnu2.0.3/testsuite/configure
+	contrib/bluegnu2.0.3/testsuite/configure.in
+	contrib/bluegnu2.0.3/testsuite/T/env.exp
+	contrib/bluegnu2.0.3/testsuite/T/env.iexp
+	contrib/bluegnu2.0.3/testsuite/T/foo.exp
+	contrib/bluegnu2.0.3/testsuite/T/test_000.exp
+	contrib/bluegnu2.0.3/testsuite/T/test_001.exp
+	contrib/bluegnu2.0.3/testsuite/T/test_002.exp
+	contrib/bluegnu2.0.3/testsuite/T/test_003.exp
+	contrib/bluegnu2.0.3/testsuite/T/test_004.exp
+	contrib/bluegnu2.0.3/testsuite/T/subT/test_002.exp
+	contrib/bluegnu2.0.3/testsuite/bluegnu.all/clone_output.test
+	contrib/bluegnu2.0.3/testsuite/bluegnu.all/config.test
+	contrib/bluegnu2.0.3/testsuite/bluegnu.all/default_procs.tcl
+	contrib/bluegnu2.0.3/testsuite/bluegnu.all/libs.exp
+	contrib/bluegnu2.0.3/testsuite/bluegnu.all/options.exp
+	contrib/bluegnu2.0.3/testsuite/bluegnu.all/remote.test
+	contrib/bluegnu2.0.3/testsuite/bluegnu.all/stats-sub.exp
+	contrib/bluegnu2.0.3/testsuite/bluegnu.all/stats.exp
+	contrib/bluegnu2.0.3/testsuite/bluegnu.all/target.test
+	contrib/bluegnu2.0.3/testsuite/bluegnu.all/utils.test
+	contrib/bluegnu2.0.3/testsuite/bluegnu.all/topdir/subdir1/subfile1
+	contrib/bluegnu2.0.3/testsuite/bluegnu.all/topdir/subdir1/subfile2
+	contrib/bluegnu2.0.3/testsuite/bluegnu.all/topdir/subdir1/subsubdir1/subsubfile1  contrib/bluegnu2.0.3/testsuite/bluegnu.all/topdir/subdir2/subfile2  contrib/bluegnu2.0.3/testsuite/config/default.exp  contrib/bluegnu2.0.3/testsuite/lib/libsup.exp  contrib/bluegnu2.0.3/testsuite/tools/env.exp 
+	example/calc/AUTHORS  example/calc/COPYING  example/calc/INSTALL
+	example/calc/Makefile.am  example/calc/NEWS  example/calc/README
+	example/calc/aclocal.m4  example/calc/config.h.in
+	example/calc/stamp-h.in  lib/dejagnu.exp
+
+2002-04-19  Nick Clifton  <nickc@cambridge.redhat.com>
+
+	Import the following files from the dejagnu repository:
+	* .clean: New file.
+	* Clean.tcl: New file.
+	* config.sub: New file.
+	* dejagnu.h: New file.
+	* missing: New file
+	* redhat: New directory.
+	* redhat/dejagnu.spec: New file.
+	* debian: New file.
+	* debian/ChangeLog: New file.
+	* debian/conffiles : New file.
+	* debian/control : New file.
+	* debian/copyright : New file.
+	* debian/postinst : New file.
+	* debian/preinst : New file.
+	* debian/rules : New file.
+	* debian/site.exp : New file.
+        * testsuite/libdejagnu: New directory.
+        * testsuite/libdejagnu/Makefile.am: New file.
+        * testsuite/libdejagnu/Makefile.in: New file.
+        * testsuite/libdejagnu/tunit.exp: New file.
+        * testsuite/libdejagnu/unit.cc: New file.
+
+2002-04-14  Elena Zannoni  <ezannoni@redhat.com>
+
+	* baseboards/powerpc-sim.exp: Don't disable inferior
+	function calls.
+
+2002-04-14  Jason Merrill  <jason@redhat.com>
+
+	* lib/remote.exp (check_for_board_status): Remove both CR and LF
+	at the beginning of the status wrapper output.
+
+2002-04-14  Hans-Peter Nilsson  <hp@bitrange.com>
+
+	* lib/libgloss.exp (build_wrapper): Wrap _exit too, unless
+	wrap_m68k_aout, uses_underscores or is_vxworks are defined in
+	target_info.
+
+	* testglue.c [!VXWORKS && !UNDERSCORES && !WRAP_M68K_AOUT]
+	(REAL__EXIT): Define.
+	[!UNDERSCORES && !WRAP_M68K_AOUT] (ORIG__EXIT): Define.
+	[REAL__EXIT] (REAL__EXIT): Prototype.
+	[ORIG__EXIT] (ORIG__EXIT): New function wrapper.
+	(done_exit_message): New static variable.
+	(ORIG_EXIT): Set done_exit_message.
+
+2002-03-31  Hans-Peter Nilsson  <hp@bitrange.com>
+
+        * lib/remote.exp (check_for_board_status): Also strip a \r before
+        a \n before the exit message.
+
+2002-03-26  Hans-Peter Nilsson  <hp@bitrange.com>
+
+        * lib/libgloss.exp (build_wrapper): Wrap _exit too, unless
+        wrap_m68k_aout, uses_underscores or is_vxworks are defined in
+        target_info.
+
+        * testglue.c [!VXWORKS && !UNDERSCORES && !WRAP_M68K_AOUT]
+        (REAL__EXIT): Define.
+        [!UNDERSCORES && !WRAP_M68K_AOUT] (ORIG__EXIT): Define.
+        [REAL__EXIT] (REAL__EXIT): Prototype.
+        [ORIG__EXIT] (ORIG__EXIT): New function wrapper.
+        (done_exit_message): New static variable.
+        (ORIG_EXIT): Set done_exit_message.
+
+2002-03-22  Elena Zannoni  <ezannoni@redhat.com>
+ 
+	* baseboards/powerpc-sim.exp: Don't disable inferior
+        function calls.
+
+2002-03-15  Chris Demetriou  <cgd@broadcom.com>
+
+	* baseboards/mips-sim-idt32.exp: New file.
+
+2002-03-11  Chris Demetriou  <cgd@broadcom.com>
+
+        * baseboards/mips-sim-idt32.exp: New file.
+
+2002-02-28  Jason Merrill  <jason@redhat.com>
+
+	* example/calc/Makefile.in (check): Add ./ to CALC value to avoid
+	PATH issues.  Add missing ../.
+
+2002-02-23  Daniel Jacobowitz  <drow@mvista.com>
+
+	* config.guess: Import from master sources, rev 1.232.
+	* config.sub: Import from master sources, rev 1.246.
+
+2002-02-22  Bob Wilson  <bob.wilson@acm.org>
+
+        * baseboards/xtensa-sim.exp: New file.
+
+2002-02-20  Richard Henderson  <rth@redhat.com>
+
+	* lib/target.exp (prune_warnings): Revert early "In function" strip,
+	as this breaks g++.dg tests.  Match dangerous regexp without the
+	"In function" header.
+
+2002-02-09  Richard Henderson  <rth@redhat.com>
+
+	* lib/target.exp (prune_warnings): Strip "In function" etc early.
+	Adjust "dangerous" regexp for glibc's tmpnam warning.
+
+2002-02-09  Alexandre Oliva  <aoliva@redhat.com>
+
+	* lib/libgloss.exp [get_multilibs]: Compute multitop earlier, and
+	use --print-multi-directory if available.
+
+2002-02-05  Nick Clifton  <nickc@cambridge.redhat.com>
+
+	* lib/libgloss.exp (g++_include_flags): Add top level
+	libstdc++-v3 build include path, remove duplicate src path.
+	(libstdc++_include_flags): Add top level libstdc++-v3 build
+	include path.
+
+2002-01-21  Ben Elliston  <bje@redhat.com>
+
+	* baseboards/sh-sid.exp: New file.
+
+2002-01-17  H.J. Lu  (hjl@gnu.org)
+
+	* config.guess: Import from master sources, rev 1.225.
+
+2002-01-17  Nick Clifton  <nickc@cambridge.redhat.com>
+
+	* lib/libgloss.exp (g++_include_flags): Add libstdc++-v3
+	include paths.
+	(libstdc++_include_flags): Add libstdc++-v3 include paths.
+
+2001-11-26  Thomas Fitzsimmons  <fitzsim@redhat.com>
+
+	* baseboards/i386-sid.exp: New file.
+
+2001-11-21  Brendan Conoboy <blc@redhat.com>
+
+	* lib/rsh.exp: Obey rsh_prog/rcp_prog, support username
+	* lib/remote.exp: same.
+
+2001-11-19  Elena Zannoni  <ezannoni@redhat.com>
+
+	* lib/libgloss.exp (g++_link_flags): Libstdc++ is now in
+	libstdc++-v3/src/.libs.
+
+2001-11-12  Andrew Cagney  <ac131313@redhat.com>
+
+	* lib/remote.exp (local_exec, standard_close): Use SHELL
+	background instead of tcl background to background the kill
+	processes.  Work around problem found by Nick Duffek in older
+	CYGWINs.
+
+2001-11-02  Alexandre Oliva  <aoliva@redhat.com>
+
+        * lib/libgloss.exp [get_multilibs]: Compute multitop earlier, and
+        use --print-multi-directory if available.
+
+2001-10-10  Frank Ch. Eigler  <fche@redhat.com>
+
+	* config/sid.exp (set_host_info): New proc.  Call it to set
+	gdb,nointerrupt flag to work around framework problems.
+
+2001-11-10  Hans-Peter Nilsson  <hp@bitrange.com>  
+
+        * baseboards/mmixware-sim.exp: New file.   
+	* lib/remote.exp (check_for_board_status): Return 2 if the board
+	uses a status wrapper and there was no match for the expected
+        pattern.
+
+2001-11-02  Philip A. Wilsey  <philip.wilsey@cliftonlabs.com>
+
+	* lib/utils.exp: Need to pass -all to getdirs, so it descends
+	through all the subdirectories.
+	
+2001-09-14  Eric Christopher  <echristo@redhat.com>
+
+	* baseboards/mips-sim-idt64.exp: New file.
+
+2001-10-08  Gwenole Beauchesne  <gbeauchesne@mandrakesoft.com>
+
+        * runtest.exp: Don't fail at processing Makefile style args in the
+        second command line parsing pass. Actually, skip them in this pass
+        since they are already processed in the first one for possible use
+        by init scripts.
+
+2001-10-02  Nick Clifton  <nickc@cambridge.redhat.com>
+
+        * lib/remote.exp (proc file_on_host): Fix typo in construction
+        of file argument.
+
+2001-09-12  Rob Savoye  <rob@peggyo.welcomehome.org>
+
+	* Makefile.am: Add a clean-local target, and nuke example and
+	testsuite from SUBDIRS, so they don't get built via "make all".
+	* Makefile: All Makefiles regenerated.
+	* debian/changelog: Update version for 1.4.2 release.
+	* redhat/dejagnu.spec: Update version for 1.4.2 release.
+
+2001-09-10  Jim Blandy  <jimb@redhat.com>
+
+	* baseboards/rom68k-idp.exp: Use -Tidpgdb.ld as the linker script,
+	so we get the version of the `outbyte' function that does console
+	output in a way that GDB's rom68k target recognizes.  Note that
+	the board can now do output.
+
+2001-09-07  Will Cohen  <wcohen@redhat.com>
+
+        * lib/target.exp: Ignore ld's warning about alternative functions
+        to use.
+
+2001-09-07  Frank Ch. Eigler  <fche@redhat.com>
+
+	* lib/target.exp (prune_warnings): Tolerate g++ cpplib warnings
+	for -isystem vs. -I duplication.
+
+2001-08-31  J"orn Rennecke <amylaar@redhat.com>
+
+        * baseboards/h8300-sim.exp: set_board_info uses_underscores 1
+        set_board_info gcc,text_size 60000
+
+2001-08-24  Frank Ch. Eigler  <fche@redhat.com>
+
+	* baseboards/basic-sid.exp (find_sid_conf): Tolerate not finding
+	path to pregen configuration file.
+
+2001-07-30  Paul A. Houghton <houghton@wcomnet.com>
+
+	* dejagnu.h, testsuite/libdejagnu/unit.cc: Make the outstate array
+	be a const to work with Sun's compiler.
+	* runtest.exp: Move the command line variable instantiation to the
+	first block of command line option tests, so command line
+	variables can be used in tool init scripts.
+
+2001-07-25  Will Cohen  <wcohen@redhat.com>
+
+        * runtest.exp: Removed puts statement.
+
+2001-07-17  Jason Merrill  <jason_merrill@redhat.com>
+
+	* lib/utils.exp (runtest_file_p): An argument can match trailing
+	directories as well as the basename.
+
+2001-07-16  Andrew Cagney  <ac131313@redhat.com>
+
+	* config.guess: Duplicate ../config.guess.
+
+2001-06-08 John Cotton <john.cotton@nrc.ca>
+  
+        * testglue.c: 
+        * lib/remote.exp: 
+        * lib/standard.exp: 
+        * lib/target.exp: 
+        * lib/utils.exp:    
+        * baseboards/mbx821_001.exp:
+        * baseboards/mbx860_002.exp:
+        * baseboards/mbx8xx.exp:
+        * baseboards/mvme167.exp:  
+         Added support for automated testing of RTEMS targets,
+         specifically the mbx821, mbx860 and mvme167.
+  
+2001-06-08 John Cotton <john.cotton@nrc.ca> 
+  
+         */lib/libgloss.exp: fixed regexp bug.
+
+2001-05-30  Jeffrey Oldham  <oldham@codesourcery.com>
+        
+        * doc/dejagnu.texi: Fix typographical errors.
+        * doc/ref.sgml: Likewise.
+        * doc/user.sgml: Likewise.
+
+2001-05-30  Rob Savoye  <rob@peggyo.welcomehome.org>
+
+	* dejagnu.h: Remove the iostream headers, so now we have no
+	conditional compilation problems with libstdc++-v3 or v2.
+
+2001-05-28  Rob Savoye  <rob@peggyo.welcomehome.org>
+
+	* acinclude.m4(DJ_AC_STL): Also use
+	AC_LANG_CPLUSPLUS so we build this test case with G++.
+	* aclocal.m4, configure: Regenerated.
+	* dejagnu.h: Don't use testout(), have each method print the array
+	value directly, which is much simpler.
+
+2001-05-27  Jeffrey Oldham  <oldham@codesourcery.com>
+
+        * acinclude.m4(DJ_AC_STL): s/for for/for/.
+        * dejagnu.h: Add conditional support for sstream.
+        (testout): Likewise. Make return type `const'.
+
+2001-05-25  Rob Savoye  <rob@peggyo.welcomehome.org>
+
+	* acinclude.m4: Add DJ_AC_STL, which figures out if we're running
+	libstdc++ version 2 or 3.
+	* aclocal.m4: Regenerated.
+	* configure.in: Add DJ_AC_STL.
+	* configure: Regenerated.
+	* dejagnu.h: Add the use of the std namespace, so we work with
+	libstdc++ version 2 or 3.
+	* testsuite/libdejagnu/unit.cc: Use setbuf() or pubsetbuff(),
+	depending on the version.
+
+2001-05-20  Stephane Carrez  <Stephane.Carrez@worldnet.fr>
+  
+        * baseboards/m68hc11-sim.exp: New file for 68HC11/68HC12 validation.
+        * config/m68hc11.exp: New file.
+
+2001-05-16  Rob Savoye  <rob@peggyo.welcomehome.org>
+
+	* lib/target.exp: Reverse when add_flags gets set, so it actually
+	links with the libraries being tested. From J. David Anglin
+	<dave@hiauly1.hia.nrc.ca>.
+
+2001-05-14  Rob Savoye  <rob@peggyo.welcomehome.org>
+
+	* runtest.exp: Conditionally set the exit_status so we don't stomp
+	on FAIL. Rearrange --status so it works correctly with --strace.
+
+2001-05-13  Rob Savoye  <rob@peggyo.welcomehome.org>
+
+	* lib/target.exp: Fix the regsub line where it prunes -fPIC
+	warnings so the text variable is on the same line.
+
+2001-05-09  Rob Savoye  <rob@peggyo.welcomehome.org>
+
+	* runtest.exp: Add new command line option, --status (or -sta) to
+	toggle whether Tcl script bugs in test drivers should be
+	propogated as an error to the shell.
+
+2001-05-08  Rob Savoye  <rob@peggyo.welcomehome.org>
+
+	* lib/dejagnu.exp: Trim off test state part of the message, so we
+	don't duplicate it.
+	* runtest.exp: Set the exit status when their are Tcl script bugs,
+	so make notices the errors. (contributed by Martin Muenstermann
+	<muenstermann@trustcenter.de>)
+
+2001-05-06  Rob Savoye  <rob@blackpeter.welcomehome.org>
+
+	* debian/rules: Install all the doc formats.
+	* redhat/dejagnu.spec: Install all the doc formats.
+	* Clean.tcl: Also nuke all Emacs backup files.
+	* Makefile.am: Fix dependencies on tarball target. Add new target
+	to build Debian packages. Add $(includedir) to install-data-local
+	target so dejagnu.h gets installed in the right place.
+
+2001-05-03  Rob Savoye  <rob@peggyo.welcomehome.org>
+
+	* doc/Makefile.am: Make all paths absolute, cause some versions of
+	the db2* tools are braindead.
+	* doc/overview.sgml: Update version numbers and log.
+	* doc/user.sgml: Add mention of dejagnu.h header file.
+	* doc/ref.sgml: Add chapter on dejagnu.h header file for unit
+	testing.
+	* config/default.exp: New file for default config settings for
+	simple native testsuites that don't need anything else.
+	* lib/dejagnu.exp: Add $text\r\n to all strings, to make sure we
+	only get one line at a time.
+	* testsuite/libdejagnu: New directory for dejagnu library test
+	cases.
+	* testsuite/libdejagnu/unit.cc: Test case for dejagnu.h.
+	* testsuite/libdejagnu/tunit.exp: Test driver for dejagnu.h.
+	* testsuite/libdejagnu/Makefile.am: New makefile to build the test
+	case.
+	* testsuite/libdejagnu/Makefile.in: Generated.
+	* testsuite/Makefile.am: Add libdejagnu to SUBDIRS. Replace the
+	site.exp rule, cause we don't want the $tool setting, so we run
+	all the test suites. Don't pass the tool name for "make check".
+	* configure.in: Add testsuite/libdejagnu/Makefile to AC_OUTPUT.
+	
+2001-05-02  Rob Savoye  <rob@peggyo.welcomehome.org>
+
+	* Makefile.am: Rename dist2 to tarball target. Fix the version
+	number to have the minor release too.
+	* doc/Makefile.am: Convert all paths from relative to absolute,
+	cause not all verions of the db2* tools can work with a relative
+	path.
+	* redhat/dejagnu.spec: Update version number, and install
+	dejagnu.h.
+	* debian/changelog: Update version number.
+	* debian/rules: and install dejagnu.h
+
+2001-05-01  Matt Hiller  <hiller@redhat.com>
+  
+        * lib/libgloss.exp (get_multilibs): Correction to Catherine
+        Moore's patch of 2000-06-09.
+
+2001-04-18  Elena Zannoni  <ezannoni@redhat.com>
+
+	* baseboards/sh-hms.exp: Enable inferior function calls testing.
+	* baseboards/sh-hms-sim.exp: Likewise.
+
+2001-04-11  Rob Savoye  <rob@slipknot.welcomehome.org>
+
+	* Clean.tcl: Add -r to rm, so it gets rid of CVS directories.
+	* .clean: Don't install the debian or redhat packaging directories.
+	* Makefle.am: Install dejagnu.h. Fix dist2 target, so we build our
+	own tarballs, instead of letting automake do it for us.
+	* examples/calc/Makefile.am: Use noist_PROGRAMS, so calc doesn't
+	get installed.
+	* doc/Makefile.am: Install the man page for runtest.
+	* configure.in: Make VERSION 1.4.0, not just 1.4, so distributions
+	get built right.
+
+2001-04-07  Rob Savoye  <rob@blackpeter.welcomehome.org>
+
+	* lib/dejagnu.exp: Test driver for embedded DejaGnu API.
+	* dejagnu.h: Embedded DejaGnu API main header file.
+	* config/default.exp: Default tool init file for simple test
+	suites.
+
+2001-04-06  Rob Savoye  <rob@slipknot.welcomehome.org>
+
+	* Makefile.am: Add an empty check-DEJAGNU target, cause we only
+	want to run the testsuite once.
+	* example/Makefile.am: Don't run "calc" as part of check target,
+	cause calc is just an example.
+	* testsuite/Makefile.am: Use the runtest in the source tree, or
+	refuse to run.
+
+2001-04-04  Richard Henderson  <rth@redhat.com>
+
+	* baseboards/unix.exp (ieee_multilib_flags): Set for alpha targets.
+
+2001-04-03  David Billinghurst <David.Billinghurst@riotinto.com>
+
+	* baseboards/unix.exp: Don't link with -lm on cygwin.
+	* lib/target.exp: Remove compiler warnings about -fpic or -fPIC on
+	cygwin.
+
+2001-01-24  Fernando Nasser  <fnasser@redhat.com>
+
+	From Gabriel Dos Reis  <gdr@codesourcery.com>
+	* lib/dg.exp (dg-trim-dirname): New function.
+	(dg-test): Use it to rip directory-name out of file name.
+
+2001-02-22  Ben Elliston  <bje@redhat.com>
+
+	* config/sid.exp: New file.
+	* baseboards/basic-sid.exp: Likewise.
+	* baseboards/arm-sid.exp: Likewise.
+	* baseboards/m32r-sid.exp: Likewise.
+	* baseboards/m68k-sid.exp: Likewise.
+
+2001-02-21  Rob Savoye  <rob@slipknot.welcomehome.org>
+
+	* debian/changelog: Add entry for new release.
+	* debian/control: Fix problem with "no binary package" error.
+	* debian/rules: Fix so things actually build a package. This was
+	mostly installing the new html version of the doc, not an info
+	page.
+	* doc/Makefile.am: Build and install the rtf and ps versions
+	of the manual. Remove all the created files and subdirectories.
+	* doc/overview.sgml: Update the copyright message.
+	* doc/ref.sgml: Update the copyright messages. Add section on
+	obtaining DejaGnu releases.
+	* doc/user.sgml: Update the copyright messages. Add blurb about
+	the --mail option.
+	* doc/overview: Regenerated.
+
+2001-02-17  Rob Savoye  <rob@slipknot.welcomehome.org>
+
+	* Most all files: Update copyright notices.
+	* Makefile.am: Add support for making RPMs. Force different
+	values for RUNTEST and RUNTESTFLAGS, so we can test ourselves.
+	* testsuite/Makefile.am: Force a different value for
+	RUNTESTFLAGS.
+	* acinclude.m4, configure.in: Find Tclsh, and Docbook.
+	* configure: Regenerated.
+	* doc/Makefile.am: Use $DOCBOOK to find the filters.
+	* doc/overview: Add the html version of the doc so one doesn't
+	need docbook to read the manual.
+
+2001-01-31  Rob Savoye  <rob@slipknot.welcomehome.org>
+
+	* Merge in latest snapshot from RedHat.
+	* example/calc/Makefile.am: New automake support.
+	* example/calc/Makefile.in: Generated.
+	* example/Makefile.am: Recursion support for make.
+	* example/calc/Makefile.in: Generated by automake.
+	* example/calc/calc.h.in: Move constants to calc.c, so we can use
+	autoheader.
+	* example/calc/calc.c: Add constants from calc.h.in.
+	* redhat/dejagnu.spec: New RPM packaging file.
+	* debian/{changelog,conffiles,control,copyright,postinst,preinst,
+	rules,site.exp}: New Debian packaging support.
+	
+2001-01-20  Ben Elliston  <bje@redhat.com>
+
+	* runtest.exp (usage): Replace --mail in usage output.
+	* doc/runtest.1: Re-document --mail option, which was erroneously
+	removed from this man page in 1994.
+
+2001-01-19  Andrew Cagney  <cagney@b1.cygnus.com>
+
+	* lib/target.exp (prune_warnings): Avoid ``.*'' in NetBSD warnings
+ 	pattern.
+
+2001-01-18  Gabriel Dos Reis  <gdr@codesourcery.com>
+
+       * lib/dg.exp (dg-trim-dirname): New function.
+       (dg-test): Use it to rip directory-name out of file name.
+
+2001-01-15  Ben Elliston  <bje@redhat.com>
+
+	* lib/framework.exp (record_test): Invoke a user-defined procedure
+	if one is named in local_record_procs($type).
+
+2001-01-12  Richard Earnshaw  <rearnsha@arm.com>
+
+	* target.exp (prune_warnings): Prune warnings from NetBSD linker.
+
+2000-11-29  Drew Moseley  <dmoseley@redhat.com>
+
+	* baseboards/xscale-cygmon.exp: New file for xscale board testing.
+
+2000-10-19  Michael Snyder  <msnyder@cleaver.cygnus.com>
+
+	* baseboards/linux-gdbserver.exp: New file.
+	* baseboards/linux-libremote.exp: New file.
+
+2000-08-14  Jimmy Guo  <guo@cup.hp.com>
+
+	* runtest.exp: Eliminate from test_top_dirs entries that
+        are subdirectories of other entries, to avoid redundant
+        testing on *.exp files in these subdirectories.
+
+2000-08-14  Jimmy Guo  <guo@cup.hp.com>
+
+	* runtest.exp: Reapply part of the backed out change to
+	runtest.exp -- handle multiple directories in TCL variables
+	dir_to_run and cmdline_dir_to_run.
+
+2000-08-04  Geoff Keating  <geoffk@cygnus.com>
+
+	Back out this change:
+
+	* lib/utils.exp: Add support for a -maxdepth <n>
+	option to limit find to <n> directories deep.
+	* runtest.exp: Handle multiple directories in TCL variables
+	dir_to_run and cmdline_dir_to_run; limit *.exp find to
+	one directory level to avoid foo/bar/baz.exp getting tested
+	twice (when ${dir} is 'foo', and when ${dir} is 'foo/bar').
+
+2000-08-02  Jimmy Guo  <guo@hpcleara.cup.hp.com>
+
+	* lib/target.exp (default_target_compile,default_target_assemble,
+	default_link): Remove env() interface for *_FOR_TARGET TCL vars.
+
+	* lib/framework.exp (setup_xfail): Relax PRMS string pattern
+	to allow a more general bug ID specification (without '-').
+
+	* lib/utils.exp: Add support for a -maxdepth <n>
+	option to limit find to <n> directories deep.
+	* runtest.exp: Handle multiple directories in TCL variables
+	dir_to_run and cmdline_dir_to_run; limit *.exp find to
+	one directory level to avoid foo/bar/baz.exp getting tested
+	twice (when ${dir} is 'foo', and when ${dir} is 'foo/bar').
+
+	* runtest.exp: Cleanup reference to $env(MULTIPASS) and
+	$env(PASS).  These were added by HP but unused since.
+
+	* lib/framework.exp (pass): make compiler_conditional_xfail_data
+	a global, corresponding to a recent change to 'proc fail'.
+
+2000-07-21  Frank Ch. Eigler  <fche@redhat.com>
+
+	* example/Makefile.am (SUBDIRS): Remove to prevent automatic recursion
+	into `calc'.
+	(all-local): Add at least `calc' building back.
+	* example/Makefile.in: Regenerated.
+
+Fri Jul 21 16:01:43 2000  Andrew Cagney  <cagney@b1.cygnus.com>
+
+	From 2000-04-25 Felix Lee <flee@cygnus.com>:
+	* baseboards/tx39-sim.exp: Use idt, not dve linker script.  Delete
+ 	misleading comments and null statements.
+
+2000-07-08  Angela Marie Thomas <angela@cygnus.com>
+
+	* lib/framework.exp: Use compiler_conditional_xfail_data as a global
+	rather than assuming it's set in the level above us.
+
+Fri Jun  9 09:10:48 2000  Catherine Moore  <clm@cygnus.com>
+
+	* lib/libgloss.exp (proc_get_multilibs):  Handle multilib
+	pathnames for ports that have defined MULTILIB_EXTRA_OPTS.
+
+Sun Jun  4 12:59:06 2000  Andrew Cagney  <cagney@b1.cygnus.com>
+
+	* lib/target.exp (reboot_target): Don't reboot target twice.
+
+Wed May  3 19:41:07 2000  Andrew Cagney  <cagney@b1.cygnus.com>
+
+	From Felix Lee <flee@cygnus.com>:
+	* example/calc/Makefile.in (install-info): Add target.
+
+Fri Apr 21 13:33:36 2000  Andrew Cagney  <cagney@b1.cygnus.com>
+
+	* example/calc/Makefile.in: Add target info.
+
+Tue Apr 18 15:49:00 2000  Andrew Cagney  <cagney@b1.cygnus.com>
+
+	* Makefile.am (SUBDIRS): Add directory example.
+	* Makefile.in: Re-generate.
+
+2000-04-10  Tom Tromey  <tromey@cygnus.com>
+
+	* lib/target.exp (default_target_compile): Put sources before
+	$add_flags unless building an object file.
+
+Thu Dec 16 18:27:47 1999  Anthony Green  <green@cygnus.com>
+
+	* lib/target.exp: Put the source file after options, for
+	compatibility with libtool.
+
+Fri Mar 31 00:15:54 2000  Alexandre Oliva  <oliva@lsd.ic.unicamp.br>
+
+	* runtest (expectbin): After choosing expectbin, try
+	$expectbin-bld.sh and use it instead.
+
+Wed Mar 29 16:13:46 2000  Alexandre Oliva  <oliva@lsd.ic.unicamp.br>
+
+	* lib/target.exp (prune_warnings): Discard not-implemented
+	warnings from libgloss/libnosys non-functional functions.
+
+Thu Feb 17 20:24:21 2000  Andrew Cagney  <cagney@b1.cygnus.com>
+
+	* baseboards/d10v.exp (gdb_init_command): Force register DMAP2 to
+ 	0x2000 so that the d10v VM matches the simulator.
+
+2000-02-15  Alexandre Oliva  <oliva@lsd.ic.unicamp.br>
+
+	* lib/target.exp: Strip warnings about dangerous functions.
+
 1999-12-14  Geoff Keating  <geoffk@cygnus.com>
 
 	* baseboards/rom68k-idp.exp: Don't pass -nostdlib to the IDP
@@ -142,13 +1020,13 @@ Mon May  3 11:14:37 1999  Jim Wilson  <wilson@cygnus.com>
 	* lib/Makefile.am: deleted.
 	* configure.in: delete references to the above.
 	* Makefile.am: install things correctly.
-	
+
 	* testsuite/Makefile.am: set DEJATOOL.
 
 	* configure, Makefile.in, */Makefile.in: regenerated.
-	
+
 	* runtest.exp: fix location of config.guess.
-	
+
 1999-04-26  Felix Lee  <flee@cygnus.com>
 
 	* lib/libgloss.exp (libgloss_link_flags): remove bogus -L flag.
@@ -156,7 +1034,7 @@ Mon May  3 11:14:37 1999  Jim Wilson  <wilson@cygnus.com>
 1999-04-23  Angela Marie Thomas <angela@cygnus.com>
 
 	* baseboards/cf.exp: gdb protocol is case-sensitive.
-  
+
 1999-04-19  Nick Clifton  <nickc@cygnus.com>
 
 	* baseboards/Makefile.am (boards): Add mcore-sim.exp
@@ -229,17 +1107,17 @@ Sun Feb 28 23:26:36 1999  Geoffrey Noer  <noer@cygnus.com>
 1999-02-11  Nick Clifton  <nickc@cygnus.com>
 
 	* lib/remote.exp (proc remote_exec): Display timeout in log
-	message. 
+	message.
 
 	* lib/target.exp (proc default_target_compile): Add support for
-	timeout option. 
+	timeout option.
 
 	* baseboards/arm-sim.exp: Set gcc,timeout to 500.
 
 1999-02-10  Nick Clifton  <nickc@cygnus.com>
 
 	* config/dos.exp: Fix typo: need_status_wrapper ->
-	needs_status_wrapper. 
+	needs_status_wrapper.
 
 1999-02-09  Nick Clifton  <nickc@cygnus.com>
 
@@ -257,7 +1135,7 @@ Fri Feb  5 15:43:59 1999  Jeffrey A Law  (law@cygnus.com)
 
 1999-02-02  Felix Lee  <flee@cygnus.com>
 
-        * lib/libgloss.exp (find_nm): new function.
+	* lib/libgloss.exp (find_nm): new function.
 
 1999-01-31  Felix Lee  <flee@cygnus.com>
 
@@ -275,9 +1153,9 @@ Fri Jan 29 17:16:25 1999  Edith Epstein  <eepstein@sophia.cygnus.com>
 
 	* lib/remote.exp: Added check for value of $outp.
 
-	* lib/target.exp: Ignore some hppa specific warning messages. Added 
-	checks for CC_FOR_TARGET and CXX_FOR_TARGET. Check for redirection 
-        and optimization flags.
+	* lib/target.exp: Ignore some hppa specific warning messages. Added
+	checks for CC_FOR_TARGET and CXX_FOR_TARGET. Check for redirection
+	and optimization flags.
 
 1999-01-26  Frank Ch. Eigler  <fche@cygnus.com>
 
@@ -291,8 +1169,8 @@ Fri Jan 29 17:16:25 1999  Edith Epstein  <eepstein@sophia.cygnus.com>
 	* baseboards/Makefile.in: Regenerated.
 	* config/Makefile.in: Regenerated.
 	* example/Makefile.in: Regenerated.
-	* lib/Makefile.in: Regenerated.	
-	
+	* lib/Makefile.in: Regenerated.
+
 	* testsuite/aclocal.m4: Deleted obsolete file.
 	* testsuite/configure.in: Deleted obsolete file.
 
@@ -313,13 +1191,13 @@ Thu Jan 14 00:10:25 1999  Rainer Orth  <ro@TechFak.Uni-Bielefeld.DE>
 1999-01-07  Felix Lee  <flee@cygnus.com>
 
 	* runtest.exp (setup_target_hook): add missing globals.
-	
+
 1998-12-31  Felix Lee  <flee@cygnus.com>
 
 	* config/dos.exp (dos_spawn): ignore optional args.
 
 	* lib/ftp.exp (ftp_upload): ftp error messages vary.
-	
+
 1998-12-30  Rob Savoye  <rob@chinadoll.welcomehome.org>
 
 	* doc/{overview,user,ref},sgml: New manual in DocBook format. This
@@ -451,7 +1329,7 @@ Fri Oct  2 00:02:51 1998  Tom Tromey  <tromey@cygnus.com>
 1998-09-29  Felix Lee  <flee@cygnus.com>
 
 	* config/gdb_stub.exp: watch for the exitcodes generated by the
-        testglue wrapper.  workaround for failing to hit _exit breakpoint.
+	testglue wrapper.  workaround for failing to hit _exit breakpoint.
 
 1998-09-18  Rob Savoye  <rob@chinadoll.cygnus.com>
 
@@ -624,7 +1502,7 @@ Wed Mar 25 22:20:25 1998  Bob Manson  <manson@charmed.cygnus.com>
 
 	* lib/remote.exp(remote_exec): More attempts at working around
  	tcl/expect's inadequacies in dealing with processes.
-	
+
 1998-03-25  Brendan Kehoe  <brendan@cygnus.com>
 
 	* contrib/test-g++: Only do the libg++ tests if the directory exists.
@@ -639,7 +1517,7 @@ Tue Mar 24 16:07:51 1998  Stu Grossman  <grossman@bhuna.cygnus.co.uk>
 	* configure doc/configure example/configure example/calc/configure
  	testsuite/configure:  Regenerate with autoconf 2.12.1 to fix shell
 	issues for NT native builds.
-	
+
 Sun Mar 15 23:25:06 1998  Bob Manson  <manson@charmed.cygnus.com>
 
 	* lib/target.exp(default_target_compile): If the compiler produced
@@ -687,7 +1565,7 @@ Mon Mar  2 21:54:30 1998  Bob Manson  <manson@charmed.cygnus.com>
 	what files we match.
 
 	* lib/telnet.exp: Clean up regexps.
-	
+
 	* lib/target.exp(default_target_compile): Use tool_root_dir.
 	(target_link, default_link): New functions.
 
@@ -709,7 +1587,7 @@ Mon Mar  2 21:54:30 1998  Bob Manson  <manson@charmed.cygnus.com>
 	* config/gdb_stub.exp: Use tool_root_dir.
 	(gdb_stub_spawn, gdb_stub_wait): New functions.
 	(gdb_stub_load): Use spawn and wait.
-	
+
 	* config/dos.exp(dos_send): Send strings one line at a time.
 	(dos_file): Delete files using del instead of rm.
 
@@ -1108,8 +1986,8 @@ Wed Sep  3 16:55:52 1997  Bob Manson  <manson@charmed.cygnus.com>
 	(standard_file): Added cmp operation to compare two binary
 	files.
 
-	* lib/libgloss.exp: Add dwarf2 target variant.  
-	
+	* lib/libgloss.exp: Add dwarf2 target variant.
+
 	* lib/target.exp: Make sure the CC_FOR_TARGET variable overrides
  	any default compiler.
 
@@ -1293,7 +2171,7 @@ Sat Jun 28 13:37:27 1997  Bob Manson  <manson@charmed.cygnus.com>
 	load_board_description.
 
 	* lib/target.exp(default_target_compile): If we're compiling
-	with the C++ compiler, include g++_include_flags and 
+	with the C++ compiler, include g++_include_flags and
 	g++_link_flags as appropriate.
 
 Fri Jun 27 15:17:12 1997  Bob Manson  <manson@charmed.cygnus.com>
@@ -1692,7 +2570,7 @@ Mon May 19 13:07:01 1997  Bob Manson  <manson@charmed.cygnus.com>
 
 	* baseboards/i960-cyclone.exp: New file.
 	* config/i960.exp: New file.
-	
+
 Tue May 20 17:55:39 1997  Jeffrey A Law  (law@cygnus.com)
 
 	* config/sim.exp: Set "slow_simulator".
@@ -1770,7 +2648,7 @@ Mon May  5 22:06:14 1997  Bob Manson  <manson@charmed.cygnus.com>
 
 	* config/vxworks.exp: Look for [VxWorks Boot] prompt.
 	* lib/telnet.exp: Ditto.
-	
+
 Fri May  2 15:19:00 1997  Bob Manson  <manson@charmed.cygnus.com>
 
 	* lib/remote.exp(remote_spawn): Add new argument for readonly
@@ -2036,7 +2914,7 @@ Tue Mar 11 17:17:43 1997  Bob Manson  <manson@charmed.cygnus.com>
 
 	* baseboards/vr4100-ddb.exp: Don't link in libio. Do use
 	-msoft-float "just in case".
-	
+
 	* baseboards/sh-hms.exp: We need to pass in the -L options
 	for the libgloss directories so we find the linker scripts.
 
@@ -2052,9 +2930,9 @@ Sat Mar  8 12:01:04 1997  Bob Manson  <manson@charmed.cygnus.com>
 
 	* baseboards/sh-hms.exp: Include libgloss so we can find
 	the linker scripts.
-	
+
 	* baseboards/sh-hms-sim.exp: Ditto.
-	
+
 	* config/vxworks.exp: Add additional error checking cases. Remove
  	unused procedure "vxworks_transform_path".
 
@@ -2080,7 +2958,7 @@ Thu Mar  6 09:34:39 1997  Bob Manson  <manson@charmed.cygnus.com>
 
 	* config/ddb-ether.exp: Use remote_expect and remote_send.
 	* config/vxworks.exp: Ditto.
-	
+
 	* runtest.exp: Remove --baud and --connect options, no longer
  	functional.
 	(setup_target_hook): Use the hostname of the local machine when
@@ -2107,7 +2985,7 @@ Wed Mar  5 09:37:55 1997  Bob Manson  <manson@charmed.cygnus.com>
  	if found, use in preference to the default target_install entry.
 
 	* lib/targetdb.exp(set_board_info,unset_board_info): New procedures.
-	
+
 	* baseboards/*.exp: Use set_board_info instead of setting entries
  	in the board_info array directly. Also, some general cleanup,
  	removal of useless entries, etc.
@@ -2129,7 +3007,7 @@ Mon Mar  3 12:38:28 1997  Bob Manson  <manson@charmed.cygnus.com>
  	command.
 
 	* config/ddb-ether.exp: Minor cleanups.
-	
+
 	* lib/remote.exp(remote_expect): New procedure.
 
 Fri Feb 28 17:04:11 1997  Bob Manson  <manson@charmed.cygnus.com>
@@ -2158,7 +3036,7 @@ Thu Feb 27 12:58:01 1997  Bob Manson  <manson@charmed.cygnus.com>
  	"unreliable". If the testcase times out, try rebooting the board
  	and reexecuting before deciding that the testcase is going into an
  	infinite loop.
-	
+
 	* lib/rsh.exp(rsh_exec): Explicitly call sh.
 
 	* lib/telnet.exp(telnet_open): Make sure we wait for the telnet to
@@ -2248,7 +3126,7 @@ Tue Feb 11 12:54:17 1997  Bob Manson  <manson@charmed.cygnus.com>
 	* lib/mondfe.exp: Use mondfe,name instead of remote_host.
 
 	* config/gdb_stub.exp: Remove bogus global declaration.
-	
+
 	* lib/target.exp(default_target_compile): Append -lm at the end of
  	the argument list, so it is linked in as appropriate.
 
@@ -2314,7 +3192,7 @@ Fri Feb  7 13:22:43 1997  Bob Manson  <manson@charmed.cygnus.com>
 	random versions of prune_system_crud and prune_warnings.
 	Nuke prune_system_crud without prejudice; replace with calls
 	to prune_warnings.
-	
+
 	* lib/dg.exp: Use prune_warnings instead of prune_system_crud.
 
 Fri Feb  7 09:41:40 1997  Jeffrey A Law  (law@cygnus.com)
@@ -2328,7 +3206,7 @@ Thu Feb  6 13:08:50 1997  Bob Manson  <manson@charmed.cygnus.com>
  	make sure the copied file has read permissions for other.
 
 	* baseboards/vx960.exp: New file.
-	
+
 	* config/vxworks.exp: Fix.
 
 	* lib/libgloss.exp(get_multilibs): If a list of multilib options
@@ -2379,15 +3257,15 @@ Mon Feb  3 07:54:04 1997  Jeffrey A Law  (law@cygnus.com)
 
 	* baseboards/mn10200-sim.exp: Add -DSTACK_SIZE=4096 to cflags.
 	Set no_long_long for this target.
-	
+
 Sun Feb  2 15:29:09 1997  Bob Manson  <manson@charmed.cygnus.com>
 
 	* lib/libgloss.exp(find_gcc): Don't be quite so choosy about
 	the name of the compiler. But, make sure we look in all the
 	right places.
-	
+
 	* lib/remote.exp(standard_close): Return 0.
-	
+
 	* lib/mondfe.exp(mondfe_close): Return 0 if the connection is
 	already closed.
 
@@ -2437,7 +3315,7 @@ Fri Jan 31 11:36:12 1997  Bob Manson  <manson@charmed.cygnus.com>
 	* lib/libgloss.exp(get_multilibs): If the host is remote, or if we
  	have no compiler, or it can't be found, don't look for multilibs.
 	(find_gcc): Don't even check to see if the compiler exists.
-	(libio_include_flags): Don't bother looking for the include dir if we 
+	(libio_include_flags): Don't bother looking for the include dir if we
 	haven't got libio.a.
 
 Thu Jan 30 11:48:29 1997  Bob Manson  <manson@charmed.cygnus.com>
@@ -2551,7 +3429,7 @@ Wed Jan 29 14:19:53 1997  Bob Manson  <manson@charmed.cygnus.com>
 
 Wed Jan 29 00:19:01 1997  Bob Manson  <manson@charmed.cygnus.com>
 
-        Major revisions for cross-testing and remote hosted testing.
+	Major revisions for cross-testing and remote hosted testing.
 
 	* runtest.exp: Remove several global variables, including variables
 	that describe target info; this is now kept in the board_info
@@ -2596,7 +3474,7 @@ Thu Dec 12 18:11:24 1996  Rob Savoye  <rob@chinadoll.cygnus.com>
 	* lib/utils.exp (diff): Set list_a and list_b to null so diffing
 	empty files works.
 	* lib/framework.exp (unknown): Set the exit status before calling
-	log_summary. 
+	log_summary.
 
 Thu Dec  5 10:24:27 1996  Fred Fish  <fnf@rtl.cygnus.com>
 
@@ -2726,22 +3604,22 @@ Tue Jun 25 10:21:24 1996  Tom Tromey  <tromey@creche.cygnus.com>
 
 Mon Jun 24 17:26:20 1996  Jason Molenda  (crash@godzilla.cygnus.co.jp)
 
-	* Makefile.in (bindir, libdir, datadir, infodir, includedir): Use 
+	* Makefile.in (bindir, libdir, datadir, infodir, includedir): Use
 	autoconf-set values.
 	(docdir): Removed.
 	* configure.in (AC_PREREQ): autoconf 2.5 or higher.
 	* configure: Rebuilt.
-	* doc/Makefile.in (VPATH, mandir, infodir, INSTALL_PROGRAM, 
+	* doc/Makefile.in (VPATH, mandir, infodir, INSTALL_PROGRAM,
 	INSTALL_DATA): Use autoconf set values.
 	* doc/configure.in (AC_PREREQ): autoconf 2.5 or higher.
 	* doc/configure: Rebuilt.
-	* example/Makefile.in (bindir, libdir, datadir, mandir, infodir, 
+	* example/Makefile.in (bindir, libdir, datadir, mandir, infodir,
 	includedir): Use autoconf set values.
 	(docdir): Removed.
 	* example/configure.in (AC_PREREQ): autoconf 2.5 or higher.
 	* example/configure: Rebuilt.
 	* example/calc/configure.in (AC_PREREQ): autoconf 2.5 or higher.
-	* example/calc/configure: Rebuilt.	
+	* example/calc/configure: Rebuilt.
 	* testsuite/configure.in (AC_PREREQ): autoconf 2.5 or higher.
 	* testsuite/configure: Rebuilt.
 	* testsuite/aclocal.m4: New.  Include ../aclocal.m4.
@@ -2790,7 +3668,7 @@ Tue Feb 20 19:43:47 1996  Doug Evans  <dje@charmed.cygnus.com>
 	* runtest.exp (main loop): Handle a=b=c in $MULTIPASS.
 
 Fri Feb  2 10:25:32 1996  Jeffrey A Law  (law@cygnus.com)
-	
+
 	* site.tmpl (hppa*-*-proelf*): Update.
 
 	* lib/target.exp (compile): Add a space before appending $arg
@@ -2802,9 +3680,9 @@ Thu Feb  1 22:48:15 1996  Rob Savoye  <rob@chinadoll.cygnus.com>
 	error message is from a subroutine is accessible to the calling
 	proc.
 	* remote.exp (rlogin, telnet, rsh): Trap various kerberos message
-	when kinit is needed. 
+	when kinit is needed.
 	* testsuite/runtest.all/libs.exp: Trap untested, unsupported,
-	warnings, and errors too. 
+	warnings, and errors too.
 	* testsuite/runtest.all/remote.exp: Look for kerberos messages so
 	those come up untested, rather than failures. This is only cause
 	we're testing by connecting to the localhost.
@@ -2844,7 +3722,7 @@ Thu Jan 18 19:51:11 1996  Rob Savoye  <rob@chinadoll.cygnus.com>
 	* runtest.exp: Minor formatting changes.
 	* lib/target.exp: Fix a few config bugs.
 	* testsuite/runtest.all/{remote,target}.exp: New test cases for
-	remote.exp and target.exp. 
+	remote.exp and target.exp.
 
 Wed Jan 17 11:32:21 1996  Tom Tromey  <tromey@creche.cygnus.com>
 
@@ -2961,7 +3839,7 @@ Fri Sep 29 12:36:43 1995  Rob Savoye  <rob@darkstar.cygnus.com>
 
 	*  lib/targets.exp (prune_warnings): Only check for ld.so warning
 	on sunos systems. Check against host, not target.
-	* lib/debugger.exp: 
+	* lib/debugger.exp:
 	* runtest.exp: Set target_abbrev to default to "unix" rather than
 	"-unset-".
 
@@ -3011,7 +3889,7 @@ Mon Sep 18 10:24:51 1995  Rob Savoye  <rob@darkstar.cygnus.com>
 
 	* runtest.exp: Get $tool dirs first, then process the subdirs.
 	* lib/utils.exp (getdir,find): Search for directories and files
-	the old way. 
+	the old way.
 
 	* testsuite/runtest.all/options.exp: Fix broken options and add
 	tests for new options.
@@ -3231,7 +4109,7 @@ Fri Mar 24 13:44:52 1995  Jim Kingdon  (kingdon@lioth.cygnus.com)
 Thu Mar 23 22:12:07 1995  Rob Savoye  <rob@darkstar.cygnus.com>
 
 	* aclocal.m4: Split AC_PATH_T* into two pieces, one for	headers
-	and one for libraries. 
+	and one for libraries.
 	* testuite/configure.in: Use CY_PATH_TCLH so we don't get a
 	warning looking for the libraries.
 
@@ -3276,7 +4154,7 @@ Fri Mar 17 14:41:26 1995  Mike Stump  <mrs@cygnus.com>
 Thu Mar 16 16:52:23 1995  Mike Stump  <mrs@cygnus.com>
 
 	* contrib/test-tool: Treat expected failure to unexpected failure
-        as a test that still doesn't work.
+	as a test that still doesn't work.
 
 Thu Mar 16 11:29:57 1995  Rob Savoye  <rob@darkstar.cygnus.com>
 
@@ -3600,10 +4478,10 @@ Wed Dec 15 20:38:49 1993  Rob Savoye  (rob@darkstar.cygnus.com)
 	it actually exists after printing the summary.
 
 Fri Dec  3 20:58:27 1993  Rob Savoye  (rob@darkstar.cygnus.com)
- 
-        * runtest.exp: Only consider a TCL_ERROR to be a sign of a problem
-        worth handling. This is when sourcing the test case.
- 
+
+	* runtest.exp: Only consider a TCL_ERROR to be a sign of a problem
+	worth handling. This is when sourcing the test case.
+
 Thu Dec  2 14:16:20 1993  Rob Savoye  (rob@darkstar.cygnus.com)
 
 	* runtest.exp: If the verbose level is greater than 2, display
@@ -3624,7 +4502,7 @@ Mon Nov 15 19:43:28 1993  Rob Savoye  (rob@darkstar.cygnus.com)
 	variables specified by a regular expression.Add dumpvars
 	which dumps the body of procedures specified by a regular
 	expression.
-	* Makefile.in: Install site.exp as only config file. 
+	* Makefile.in: Install site.exp as only config file.
 	* runtest.exp: look for site.tmpl in $srcdir, not site.exp in
 	$objdir.
 	* lib/framework.exp: Make istarget and isnative procs use
@@ -3713,8 +4591,8 @@ Mon Sep 13 11:30:37 1993  Jeffrey Wheat  (cassidy@cygnus.com)
 
 	* runtest.exp: add global testcnt variable.
 	* lib/framework.exp: add testcnt mechanism. Gives a total
-          number of testcases run in summary. incremented by the
-	  pass/fail/etc procs. Also added a "Tool version" string 
+	  number of testcases run in summary. incremented by the
+	  pass/fail/etc procs. Also added a "Tool version" string
 	  in the summary.
 
 Thu Sep  9 12:37:27 1993  Rob Savoye  (rob@darkstar.cygnus.com)
@@ -3759,7 +4637,7 @@ Tue Jul 20 15:32:51 1993  Jeffrey Wheat  (cassidy@cygnus.com)
 
 Mon Jul 19 09:31:48 1993  Jeffrey Wheat  (cassidy@cygnus.com)
 
-	* remote.exp: Added a supplied patch to allow specifing a port 
+	* remote.exp: Added a supplied patch to allow specifing a port
 	  to the telnet command.
 
 Mon Jul 12 17:54:58 1993  Rob Savoye  (rob at darkstar.cygnus.com)
@@ -3791,7 +4669,7 @@ Sun Jun 13 21:05:25 1993  Rob Savoye  (rob at darkstar.cygnus.com)
 Thu May 27 20:01:51 1993  Rob Savoye  (rob at darkstar.cygnus.com)
 
 	* Makefile.in: Make the release image of the testsuites from the
-	special stubs. 
+	special stubs.
 
 Sun May 23 18:40:01 1993  Rob Savoye  (rob at darkstar.cygnus.com)
 
@@ -4038,7 +4916,7 @@ Thu Feb 11 12:23:53 1993  Fred Fish  (fnf@cygnus.com)
 	* gdb.t21/demangle.exp (demangle):  Fix proc so that demangling
 	failures don't trigger two failure reports, one erroneously
 	indicating the cause as a timeout.
-	* gdb.t21/demangle.exp (various):  Print number of correct 
+	* gdb.t21/demangle.exp (various):  Print number of correct
 	demanglings when suppressing remaining tests.
 	* gdb.t21/demangle.exp (test_cfront_style_demangling):
 	New test for cfront style demangling.
@@ -4098,7 +4976,7 @@ Wed Jan 27 21:48:15 1993  Fred Fish  (fnf@cygnus.com)
 	compiled with ALIGN_STACK_ON_STARTUP defined.  Fix "print foo"
 	expected output to match current gdb.  Fix tests for finding
 	pathname to gdb executable to use the TCL "file" command.
-	* gdb.t20/classes.exp:  Change error when binfile does not 
+	* gdb.t20/classes.exp:  Change error when binfile does not
 	exist to be a simple fail instead.
 	* tcl.tests/Makefile.in (tcltest):  Use CC_FOR_TARGET.
 	* tcl.tests/Makefile.in (Makefile):  Add target.
@@ -4192,11 +5070,11 @@ Tue Jan 12 12:51:46 1993  Fred Fish  (fnf@cygnus.com)
 	* config/{abug-g++.exp, aout-g++.exp, coff-g++.exp, mt-a29k-udi,
 	mt-i960-nindy, mt-i960-vx, mt-m68k-abug-aout, mt-m68k-abug-coff,
 	mt-m68k-aout, mt-m68k-coff, mt-m68k-vx, mt-unix, nind-g++.exp,
-	udi-g++.exp, unix-g++.exp, vx-g++.exp}, doc/deja-gnu.texi, 
+	udi-g++.exp, unix-g++.exp, vx-g++.exp}, doc/deja-gnu.texi,
 	g++.mike/{misc2.exp, misc8.exp, misc9.exp}, g++.old-deja/tests/
 	g++.sun/g++.frag/1076585.C, gdb.t20/Makefile.in, gdb.t21/
 	Makefile.in, gdb.t22/Makefile.in, lib/mike-g++.exp:
-	Use CXX rather than CPLUS, CPLUSPLUS, or C++, use CXXFLAGS 
+	Use CXX rather than CPLUS, CPLUSPLUS, or C++, use CXXFLAGS
 	rather than CFLAGS or CPLUSFLAGS or C++FLAGS.
 	* Makefile.in (CHILL):  Use freshly built binaries if available.
 	* Makefile.in (CHILLFLAGS):  Provide default flags for CHILL.
@@ -4208,7 +5086,7 @@ Mon Jan 11 18:02:48 1993  Rob Savoye  (rob at darkstar.cygnus.com)
 	send-exp.test, spawn.test: Test case for expect tests.
 	* expect.tests/exp-test.exp: Test driver for expect tests.
 	* expect.tests/Makefile.in, configure.in: Configure
-	support. 
+	support.
 	* expect.tests/exp-test.c: Simple interactive program for expect
 	tests.
 	* expect.tests: New directory.
@@ -4290,7 +5168,7 @@ Sun Dec 27 11:52:45 1992  Rob Savoye  (rob at darkstar.cygnus.com)
 	* lib/udi.exp: Fixed so that it downloads stably. Added better
 	error trapping. Works with simulator or demo board.
 	* runtest.exp: Cleaned up handling of signals during the init
-	phase. 
+	phase.
 	* lib/old-dejagnu.exp: Fixed bug that made $CFLAGS accumulate
 	repititions of the same flags.
 	* runtest.exp: cleans up temp file better.
@@ -4459,7 +5337,7 @@ Wed Dec  2 11:39:28 1992  Fred Fish  (fnf@cygnus.com)
 
 	* lib/gdb.exp (gdb_reinitialize_dir):  New utility proc.
 	* gdb.t03/ptype.exp, gdb.t06/break.exp, gdb.t07/watchpoint.exp,
-	gdb.t08/opaque.exp, gdb.t09/corefile.exp, gdb.t11/list.exp, 
+	gdb.t08/opaque.exp, gdb.t09/corefile.exp, gdb.t11/list.exp,
 	gdb.t12/scope.exp, gdb.t13/bitfields.exp, gdb.t15/funcargs.exp,
 	gdb.t16/printcmds.exp, gdb.t20/{classes.exp, inherit.exp,
 	misc.exp}, gdb.t21/{cplusfuncs.exp, demangle.exp},
@@ -4520,13 +5398,13 @@ Sun Nov 29 23:10:43 1992  Mike Stump  (mrs@rtl.cygnus.com)
 Sun Nov 29 15:16:06 1992  Rob Savoye  (rob at darkstar.cygnus.com)
 
 	* config:/vx-g++.exp, udi-g++.exp: Replaced with gcc init code.
-	* runtest.exp: Now executes recursively any *.exp files.  
+	* runtest.exp: Now executes recursively any *.exp files.
 	* lib/old-dejagnu.exp: proc old-dejagnu executes tests that are
 	supposed to.
 	* g++.old-deja/old-deja.exp: Recursively get all the C code in a
 	subdirectory tree.
 	* lib/utils.exp: New file, contains utility procs grep, find,
-	and which. 
+	and which.
 	* runtest.exp: Applied Fred's patch for the output.
 
 Sun Nov 29 08:51:15 1992  Fred Fish  (fnf@cygnus.com)
@@ -4602,11 +5480,11 @@ Wed Nov 18 17:08:08 1992  Michael Werner  (mtw@rtl.cygnus.com)
 			    gcc.unsorted
 	  were updated. Existing tests in a given directory that had
 	  changed or that were not in 1.7 were moved into a subdirectory
-          called "old-tests". 1.7 had a new directory called "special",
-          the contents of which were placed in deja-gnu/gcc.special .
+	  called "old-tests". 1.7 had a new directory called "special",
+	  the contents of which were placed in deja-gnu/gcc.special .
 	  Also, deleted from a prior Changelog entry was the erroneous
-          statement of the removal of support in gcc for the recognition
-          of the ".C" extension.
+	  statement of the removal of support in gcc for the recognition
+	  of the ".C" extension.
 
 Wed Nov 18 13:36:43 1992  Fred Fish  (fnf@cygnus.com)
 
@@ -4738,7 +5616,7 @@ Wed Nov	 4 17:57:47 1992  Michael Werner  (mtw@rtl.cygnus.com)
 	* ./deja-gnu/gdb.t21/ & ./deja-gnu/gdb.t22/:
 	Moved in-gdbme.C file to in-gdbme.cc to enhance portability.
 	Changed the configure.in file to reflect the filename extension
-        change.
+	change.
 
 Fri Nov  6 14:00:48 1992  Ian Lance Taylor  (ian@tweedledumbest.cygnus.com)
 
@@ -4837,8 +5715,8 @@ Sat Oct 31 12:12:08 1992  Rob Savoye  (rob at darkstar.cygnus.com)
 
 Fri Oct 30 11:46:45 1992  Fred Fish  (fnf@cygnus.com)
 
-        * runtest.exp:  Guard against nonexistant PWD environment var,
-        which is shell dependent.
+	* runtest.exp:  Guard against nonexistant PWD environment var,
+	which is shell dependent.
 
 Fri Oct 30 20:23:06 1992  Rob Savoye  (rob at darkstar.cygnus.com)
 
@@ -4866,14 +5744,14 @@ Thu Oct 29 19:07:28 1992  Rob Savoye  (rob at darkstar.cygnus.com)
 	login name so it can be printed in the logs.
 	* doc/DejaGnu.l, dejagnu.texi: Removed references to $nfshost.
 	* runtest.exp: Removed the --nfshost option cause it's become
-        unnessary.
+	unnessary.
 	* configure.in: Deals with the shorter names in config. Creates an
-	 abbreviation for the OS and uses that for the filename substring. 
+	 abbreviation for the OS and uses that for the filename substring.
 	* config/*: All names shortened to <= 14 characters.
-	All init-$target_os-$tool.exp changed to $target_os-$tool.exp. 
-        * config/mt-vxworks68, mt-vxworks960: Changed to use the
-        abbreviated triplet form like all the other stubs. Now mt-m68k-vx
-        and mt-i960-vx. 
+	All init-$target_os-$tool.exp changed to $target_os-$tool.exp.
+	* config/mt-vxworks68, mt-vxworks960: Changed to use the
+	abbreviated triplet form like all the other stubs. Now mt-m68k-vx
+	and mt-i960-vx.
 
 Tue Oct 27 10:27:33 1992  Mike Stump  (mrs@cygnus.com)
 
@@ -4930,7 +5808,7 @@ Mon Oct 26 09:16:24 1992  Ian Lance Taylor  (ian@cygnus.com)
 Sun Oct 25 11:35:49 1992  Rob Savoye  (rob at darkstar.cygnus.com)
 
 	* config/init-vxworks-gcc.exp: Now works good, traps load errors
-	cleanly. 
+	cleanly.
 	* runtest.exp, doc/dejagnu.texi: Changed all occurences of
 	$defaultmode to $connectmode.
 	* config/init-vxworks-gcc.exp, init-unix-gcc.exp: Fixed so
@@ -4953,18 +5831,18 @@ Sat Oct 24 22:44:09 1992  Rob Savoye  (rob at darkstar.cygnus.com)
 	test code.
 	* config/init-unix-gcc.exp: Made gcc_load work and set $status.
 	* runtest.exp: Moved regex variables for decimal and hex from
-	init-unix-gdb.exp. 
+	init-unix-gdb.exp.
 
 Fri Oct 23 12:03:47 1992  Rob Savoye  (rob at darkstar.cygnus.com)
 
 	* config/mt-m68k-aout, mt-m68k-coff, mt-i960-nindy, mt-a29k-udi:
 	New makefile stubs.
-        * config/init-nindy-gdb.exp, init-nindy-gdb.exp, init-nindy-gdb.exp:
+	* config/init-nindy-gdb.exp, init-nindy-gdb.exp, init-nindy-gdb.exp:
 	New init modules for nindy tests.
 	* configure.in: Added aout, coff, udi targets.
-        * config/init-aout-gdb.exp, init-coff-gdb.exp, init-udi-gdb.exp:
+	* config/init-aout-gdb.exp, init-coff-gdb.exp, init-udi-gdb.exp:
 	New init modules for gdb tests.
-        * config/init-aout-gcc.exp, init-coff-gcc.exp, init-udi-gcc.exp:
+	* config/init-aout-gcc.exp, init-coff-gcc.exp, init-udi-gcc.exp:
 	New init modules for gcc tests.
 	* config/init-aout-nm.exp, init-coff-nm.exp, init-udi-nm.exp: New
 	init modules for nm tests.
@@ -5010,13 +5888,13 @@ Mon Oct 19 10:59:19 1992  Rob Savoye  (rob at darkstar.cygnus.com)
 
 	* gcc.execute/execute.exp: Runs all the test from the c-torture test's
 	execute directory.
-        * gcc.execute: New directory
+	* gcc.execute: New directory
 	* gcc.code_quality/code_quality.exp: Runs all the test from the c-torture test's
 	code_quality directory.
-        * gcc.code_quality: New directory
+	* gcc.code_quality: New directory
 	* gcc.noncompile/noncompile.exp: Runs all the test from the c-torture test's
 	noncompile directory.
-        * gcc.noncompile: New directory
+	* gcc.noncompile: New directory
 	* gdb.*/*.exp: Removed all references to $det_file.
 	* nm.all/nm.exp: Removed all references to $det_file.
 	* g++.other/g++-03.exp, g++-04.exp:  Source prebase.exp and
@@ -5028,43 +5906,43 @@ Mon Oct 19 10:59:19 1992  Rob Savoye  (rob at darkstar.cygnus.com)
 
 Sun Oct 18 15:46:07 1992  Rob Savoye  (rob at darkstar.cygnus.com)
 
-        * lib/c-torture.exp: New support procs for running tests from the
+	* lib/c-torture.exp: New support procs for running tests from the
 	C torture test.
 	* gcc.unsorted/unsorted.exp: Runs all the test from the c-torture test's
 	unsorted directory.
-        * gcc.unsorted: New directory
+	* gcc.unsorted: New directory
 	* lib: New directory for Tcl procs used by tests.
 
 Sun Oct 18 00:39:59 1992  Fred Fish  (fnf@cygnus.com)
 
-        * gdb.t11/list.exp:  Revise to install FIXME cases for things
-        that are known to fail when used with DWARF.
-        * gdb.t07/watchpoints.exp:  Rewrite to avoid cascading of errors.
+	* gdb.t11/list.exp:  Revise to install FIXME cases for things
+	that are known to fail when used with DWARF.
+	* gdb.t07/watchpoints.exp:  Rewrite to avoid cascading of errors.
 
 Sat Oct 17 10:54:42 1992  Fred Fish  (fnf@cygnus.com)
 
-        * gdb.t00/teststrategy.exp:  Fix single step tests to succeed
-        if the source for the gdb being tested is no longer available
-        for the gdb doing the testing.
+	* gdb.t00/teststrategy.exp:  Fix single step tests to succeed
+	if the source for the gdb being tested is no longer available
+	for the gdb doing the testing.
 
 Fri Oct 16 17:25:31 1992  Rob Savoye  (rob at darkstar.cygnus.com)
 
 	* g++.mike/misc1.C, misc4.C misc5.C p646.C: Changed all occurences
 	of 'i' as a variable, cause it screws up the vxworks 'i' shell
-	command. 
+	command.
 
 Fri Oct 16 15:51:10 1992  Fred Fish  (fnf@cygnus.com)
 
-        * gdb.t00/default.exp:  Set height to zero.  Fix target cmds
-        to accept either "child" or "procfs" depending upon whether
-        gdb uses /proc.
-        * gdb.t00/help.exp:  Accept either "child" or "procfs" for
-        target commands, depending upon gdb configuration for /proc.
-        * gdb.t00/teststrategy.exp:  Make disassembly output more
-        portable.  Make test for gdb core dump more portable.
-        * gdb.t07/watchpoint.exp:  Test only for pattern at line
-        for watchpoint hit, ignore break addr and linenumber.
-        * gdb.t09/corefile.exp:  Minor fixes for system dependencies.
+	* gdb.t00/default.exp:  Set height to zero.  Fix target cmds
+	to accept either "child" or "procfs" depending upon whether
+	gdb uses /proc.
+	* gdb.t00/help.exp:  Accept either "child" or "procfs" for
+	target commands, depending upon gdb configuration for /proc.
+	* gdb.t00/teststrategy.exp:  Make disassembly output more
+	portable.  Make test for gdb core dump more portable.
+	* gdb.t07/watchpoint.exp:  Test only for pattern at line
+	for watchpoint hit, ignore break addr and linenumber.
+	* gdb.t09/corefile.exp:  Minor fixes for system dependencies.
 
 Wed Oct 14 13:11:51 1992  Fred Fish  (fnf@cygnus.com)
 
@@ -5089,7 +5967,7 @@ Wed Oct 14 00:30:07 1992  Fred Fish  (fnf@cygnus.com)
 	Also remove some junk leftover from gdbtest case conversion.
 	* gdb.t21/{Makefile.in, configure.in, in-gdbme.C, cplusfuncs.exp,
 	demangle.exp}:  New test case for demangling and C++ function
-	lookups.	
+	lookups.
 
 Mon Oct 12 09:10:22 1992  Fred Fish  (fnf@cygnus.com)
 
@@ -5171,22 +6049,22 @@ Fri Oct  2 15:42:10 1992  Rob Savoye  (rob at darkstar.cygnus.com)
 Thu Oct  1 21:26:35 1992  Rob Savoye  (rob at darkstar.cygnus.com)
 
 	* teststrategy.exp:  Changed the test for target vs host to using
-	$target_alias & $host_alias instead of $target_os & $host_os. 
+	$target_alias & $host_alias instead of $target_os & $host_os.
 	* corefile.exp: Added line to dump output of tests to detail
-	log. 
+	log.
 	* scope.exp: Added line to dump output of tests to detail
-	log. 
+	log.
 	* opaque.exp: Added line to dump output of tests to detail
-	log. 
+	log.
 	* crossload.exp: Added line to dump output of tests to detail
-	log. 
+	log.
 	* watchpoint.exp: Added line to dump output of tests to detail
-	log. 
+	log.
 
 Thu Oct  1 21:05:28 1992  Rob Savoye  (rob at darkstar.cygnus.com)
 
 	* runtest: Changed the test for target vs host to using
-	$target_alias & $host_alias instead of $target_aos & $host_os. 
+	$target_alias & $host_alias instead of $target_aos & $host_os.
 
 Sep 30 08:45:00 1992  Fred Fish  (fnf@fishpond.cygnus.com)
 
@@ -5208,7 +6086,7 @@ Sep 30 08:45:00 1992  Fred Fish  (fnf@fishpond.cygnus.com)
 	opaque.exp}:  New tests for opaque structs.
 	* gdb.t09/{Makefile.in, configure.in, in-gdbme.c, corefile.exp}:
 	New tests for core file handling.
-	* gdb.t10/{Makefile.in, configure.in, README, in-gdbme.c, 
+	* gdb.t10/{Makefile.in, configure.in, README, in-gdbme.c,
 	crossload.exp, i486-elf.u, i860-elf.u, m68k-aout.u, m68k-aout2.u,
 	m68k-elf.u, mips-ecoff.u, sparc-aout.u}:  New files for non-native
 	executable handling tests.
@@ -5286,7 +6164,7 @@ Fri Aug  7 21:55:48 1992  Rob Savoye  (rob at darkstar.cygnus.com)
 	* init-vxworks-gdb.exp: Now uses config file.
 	* Makefile.in: Now has a target to make a config file.
 	* site.exp: Created by make/configure. Holds init values for
-	init module. 
+	init module.
 	* configure.in: Now configures init modules for tool.
 	* runtest: Now uses init setup by configure.
 
