@@ -1,6 +1,6 @@
 /* fhandler_dev_dsp: code to emulate OSS sound model /dev/dsp
 
-   Copyright 2001, 2002 Red Hat, Inc
+   Copyright 2001, 2002, 2003 Red Hat, Inc
 
    Written by Andy Younger (andy@snoogie.demon.co.uk)
 
@@ -420,7 +420,7 @@ fhandler_dev_dsp::setupwav (const char *pData, int nBytes)
 
 //------------------------------------------------------------------------
 fhandler_dev_dsp::fhandler_dev_dsp ():
-  fhandler_base (FH_OSS_DSP)
+  fhandler_base ()
 {
 }
 
@@ -619,6 +619,13 @@ fhandler_dev_dsp::ioctl (unsigned int cmd, void *ptr)
       {
 	// Fake!! esound & mikmod require this on non PowerPC platforms.
 	//
+	return 0;
+      }
+      break;
+
+      CASE (SNDCTL_DSP_GETFMTS)
+      {
+	*intptr = AFMT_S16_LE | AFMT_U8 | AFMT_S8; // more?
 	return 0;
       }
       break;

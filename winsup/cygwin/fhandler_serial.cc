@@ -1,6 +1,6 @@
 /* fhandler_serial.cc
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -23,8 +23,8 @@ details. */
 /**********************************************************************/
 /* fhandler_serial */
 
-fhandler_serial::fhandler_serial (int unit)
-  : fhandler_base (FH_SERIAL, unit), vmin_ (0), vtime_ (0), pgrp_ (myself->pgid)
+fhandler_serial::fhandler_serial ()
+  : fhandler_base (), vmin_ (0), vtime_ (0), pgrp_ (myself->pgid)
 {
   set_need_fork_fixup ();
 }
@@ -591,6 +591,9 @@ fhandler_serial::tcsetattr (int action, const struct termios *t)
       case B115200:
 	state.BaudRate = CBR_115200;
 	break;
+      case B230400:
+	state.BaudRate = 230400 /* CBR_230400 - not defined */;
+	break;
       default:
 	/* Unsupported baud rate! */
 	termios_printf ("Invalid t->c_ospeed %d", t->c_ospeed);
@@ -722,7 +725,6 @@ fhandler_serial::tcsetattr (int action, const struct termios *t)
 
   state.fAbortOnError = TRUE;
 
-  /* -------------- Set state and exit ------------------ */
   if (memcmp (&ostate, &state, sizeof (state)) != 0)
     SetCommState (get_handle (), &state);
 
@@ -890,6 +892,9 @@ fhandler_serial::tcgetattr (struct termios *t)
 	break;
       case CBR_115200:
 	t->c_cflag = t->c_ospeed = t->c_ispeed = B115200;
+	break;
+      case 230400: /* CBR_230400 - not defined */
+	t->c_cflag = t->c_ospeed = t->c_ispeed = B230400;
 	break;
       default:
 	/* Unsupported baud rate! */

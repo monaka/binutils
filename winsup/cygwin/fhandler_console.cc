@@ -1,6 +1,6 @@
 /* fhandler_console.cc
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -842,7 +842,7 @@ fhandler_console::tcgetattr (struct termios *t)
 }
 
 fhandler_console::fhandler_console () :
-  fhandler_termios (FH_CONSOLE, -1)
+  fhandler_termios ()
 {
 }
 

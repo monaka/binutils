@@ -1,6 +1,6 @@
 /* mmap.cc
 
-   Copyright 1996, 1997, 1998, 2000, 2001, 2002 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 2000, 2001, 2002, 2003 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -43,26 +43,26 @@ class mmap_record
   private:
     int fdesc_;
     HANDLE mapping_handle_;
-    int devtype_;
     DWORD access_mode_;
     __off64_t offset_;
     DWORD size_to_map_;
     caddr_t base_address_;
     DWORD *map_map_;
+    device dev;
 
   public:
     mmap_record (int fd, HANDLE h, DWORD ac, __off64_t o, DWORD s, caddr_t b) :
        fdesc_ (fd),
        mapping_handle_ (h),
-       devtype_ (0),
        access_mode_ (ac),
        offset_ (o),
        size_to_map_ (s),
        base_address_ (b),
        map_map_ (NULL)
       {
+	dev.devn = 0;
 	if (fd >= 0 && !cygheap->fdtab.not_open (fd))
-	  devtype_ = cygheap->fdtab[fd]->get_device ();
+	  dev = cygheap->fdtab[fd]->dev;
       }
 
     /* Default Copy constructor/operator=/destructor are ok */
@@ -70,7 +70,7 @@ class mmap_record
     /* Simple accessors */
     int get_fd () const { return fdesc_; }
     HANDLE get_handle () const { return mapping_handle_; }
-    DWORD get_device () const { return devtype_; }
+    device& get_device () { return dev; }
     DWORD get_access () const { return access_mode_; }
     DWORD get_offset () const { return offset_; }
     DWORD get_size () const { return size_to_map_; }
@@ -96,7 +96,7 @@ class mmap_record
     __off64_t map_map (__off64_t off, DWORD len);
     BOOL unmap_map (caddr_t addr, DWORD len);
     void fixup_map (void);
-    int access (char *address);
+    int access (caddr_t address);
 
     fhandler_base *alloc_fh ();
     void free_fh (fhandler_base *fh);
@@ -226,7 +226,7 @@ mmap_record::fixup_map ()
 }
 
 int
-mmap_record::access (char *address)
+mmap_record::access (caddr_t address)
 {
   if (address < base_address_ || address >= base_address_ + size_to_map_)
     return 0;
@@ -486,7 +486,7 @@ mmap64 (caddr_t addr, size_t len, int prot, int flags, int fd, __off64_t off)
 	  return MAP_FAILED;
 	}
       fh = cfd;
-      if (fh->get_device () == FH_DISK)
+      if (fh->get_device () == FH_FS)
 	{
 	  DWORD high;
 	  DWORD low = GetFileSize (fh->get_handle (), &high);
@@ -889,6 +889,13 @@ mprotect (caddr_t addr, size_t len, int prot)
 
   syscall_printf ("mprotect (addr %x, len %d, prot %x)", addr, len, prot);
 
+  if (!wincap.virtual_protect_works_on_shared_pages ()
+      && addr >= (caddr_t)0x80000000 && addr <= (caddr_t)0xBFFFFFFF)
+    {
+      syscall_printf ("0 = mprotect (9x: No VirtualProtect on shared memory)");
+      return 0;
+    }
+
   if (prot == PROT_NONE)
     new_prot = PAGE_NOACCESS;
   else
@@ -948,7 +955,7 @@ fixup_mmaps_after_fork (HANDLE parent)
   for (int it = 0; it < mmapped_areas->nlists; ++it)
     {
       list *l = mmapped_areas->lists[it];
-      if (l != 0)
+      if (l)
 	{
 	  int li;
 	  for (li = 0; li < l->nrecs; ++li)
@@ -978,9 +985,55 @@ fixup_mmaps_after_fork (HANDLE parent)
 			&& !ReadProcessMemory (parent, address, address,
 					       getpagesize (), NULL))
 		      {
-			system_printf ("ReadProcessMemory failed for MAP_PRIVATE address %p, %E",
-				       rec->get_address ());
-			return -1;
+			DWORD old_prot;
+
+			if (GetLastError () != ERROR_PARTIAL_COPY ||
+			    !wincap.virtual_protect_works_on_shared_pages ())
+			  {
+			    system_printf ("ReadProcessMemory failed for "
+			    		   "MAP_PRIVATE address %p, %E",
+					   rec->get_address ());
+			    return -1;
+			  }
+			if (!VirtualProtectEx (parent,
+					       address, getpagesize (),
+					       PAGE_READONLY, &old_prot))
+			  {
+			    system_printf ("VirtualProtectEx failed for "
+					   "MAP_PRIVATE address %p, %E",
+					   rec->get_address ());
+			    return -1;
+			  }
+			else
+			  {
+			    BOOL ret;
+			    DWORD dummy_prot;
+
+			    ret = ReadProcessMemory (parent, address, address,
+						     getpagesize (), NULL);
+			    if (!VirtualProtectEx(parent,
+						  address, getpagesize (),
+						  old_prot, &dummy_prot))
+			      system_printf ("WARNING: VirtualProtectEx to "
+			      		     "return to previous state "
+					     "in parent failed for "
+					     "MAP_PRIVATE address %p, %E",
+					     rec->get_address ());
+			    if (!VirtualProtect (address, getpagesize (),
+						 old_prot, &dummy_prot))
+			      system_printf ("WARNING: VirtualProtect to copy "
+					     "protection to child failed for"
+					     "MAP_PRIVATE address %p, %E",
+					     rec->get_address ());
+			    if (!ret)
+			      {
+				system_printf ("ReadProcessMemory (2nd try) "
+					       "failed for "
+					       "MAP_PRIVATE address %p, %E",
+					       rec->get_address ());
+				return -1;
+			      }
+			  }
 		      }
 		}
 	      rec->fixup_map ();

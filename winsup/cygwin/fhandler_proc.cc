@@ -1,6 +1,6 @@
 /* fhandler_proc.cc: fhandler for /proc virtual filesystem
 
-   Copyright 2002 Red Hat, Inc.
+   Copyright 2002, 2003 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -87,7 +87,7 @@ fhandler_proc::get_proc_fhandler (const char *path)
    * it being normalised and therefore the path may have runs of slashes
    * in it.
    */
-  while (SLASH_P (*path))
+  while (isdirsep (*path))
     path++;
 
   /* Check if this is the root of the virtual filesystem (i.e. /proc).  */
@@ -105,7 +105,7 @@ fhandler_proc::get_proc_fhandler (const char *path)
 
   bool has_subdir = false;
   while (*path)
-    if (SLASH_P (*path++))
+    if (isdirsep (*path++))
       {
 	has_subdir = true;
 	break;
@@ -138,12 +138,7 @@ fhandler_proc::exists ()
 }
 
 fhandler_proc::fhandler_proc ():
-  fhandler_virtual (FH_PROC)
-{
-}
-
-fhandler_proc::fhandler_proc (DWORD devtype):
-  fhandler_virtual (devtype)
+  fhandler_virtual ()
 {
 }
 

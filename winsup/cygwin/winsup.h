@@ -1,6 +1,6 @@
 /* winsup.h: main Cygwin header file.
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -105,7 +105,7 @@ extern HANDLE title_mutex;
 /**************************** Convenience ******************************/
 
 /* Used when treating / and \ as equivalent. */
-#define SLASH_P(ch) \
+#define isdirsep(ch) \
     ({ \
 	char __c = (ch); \
 	((__c) == '/' || (__c) == '\\'); \
@@ -124,7 +124,6 @@ extern unsigned int signal_shift_subtract;
 #undef issep
 #define issep(ch) (strchr (" \t\n\r", (ch)) != NULL)
 
-#define isdirsep SLASH_P
 #define isabspath(p) \
   (isdirsep (*(p)) || (isalpha (*(p)) && (p)[1] == ':' && (!(p)[2] || isdirsep ((p)[2]))))
 
@@ -242,6 +241,10 @@ extern void multiple_cygwin_problem (const char *, unsigned, unsigned);
 class path_conv;
 int __stdcall stat_worker (const char *name, struct __stat64 *buf, int nofollow,
 			   path_conv *pc = NULL) __attribute__ ((regparm (3)));
+
+int symlink_worker (const char *, const char *, bool, bool)
+  __attribute__ ((regparm (3)));
+
 int __stdcall low_priority_sleep (DWORD) __attribute__ ((regparm (1)));
 #define SLEEP_0_STAY_LOW INFINITE
 

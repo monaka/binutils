@@ -1,6 +1,6 @@
 /* net.cc: network-related routines.
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -19,7 +19,9 @@ details. */
 #include <iphlpapi.h>
 
 #include <stdlib.h>
+#define gethostname cygwin_gethostname
 #include <unistd.h>
+#undef gethostname
 #include <netdb.h>
 #define USE_SYS_TYPES_FD_SET
 #include <winsock2.h>
@@ -520,7 +522,7 @@ fdsock (int &fd, const char *name, SOCKET soc)
     debug_printf ("not setting socket inheritance since winsock2_active %d",
 		  winsock2_active);
   fhandler_socket *fh =
-    (fhandler_socket *) cygheap->fdtab.build_fhandler (fd, FH_SOCKET, name);
+    (fhandler_socket *) cygheap->fdtab.build_fhandler (fd, *socket_dev, name);
   if (!fh)
     return NULL;
   fh->set_io_handle ((HANDLE) soc);
@@ -891,14 +893,12 @@ cygwin_getservbyport (int port, const char *proto)
 extern "C" int
 cygwin_gethostname (char *name, size_t len)
 {
-  int PASCAL win32_gethostname (char *, int);
-
   sig_dispatch_pending (0);
   sigframe thisframe (mainthread);
   if (__check_null_invalid_struct_errno (name, len))
     return -1;
 
-  if (wsock32_handle == NULL || win32_gethostname (name, len) == SOCKET_ERROR)
+  if (gethostname (name, len))
     {
       DWORD local_len = len;
 

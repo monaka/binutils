@@ -1,6 +1,6 @@
 /* dcrt0.cc -- essentially the main() for the Cygwin dll
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -551,6 +551,7 @@ dll_crt0_1 ()
 
   /* Set the os_being_run global. */
   wincap.init ();
+  device::init ();
   check_sanity_and_sync (user_data);
 
   do_global_ctors (&__CTOR_LIST__, 1);
