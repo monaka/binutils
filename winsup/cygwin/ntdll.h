@@ -1,6 +1,6 @@
 /* ntdll.h.  Contains ntdll specific stuff not defined elsewhere.
 
-   Copyright 2000, 2001 Red Hat, Inc.
+   Copyright 2000, 2001, 2002, 2003 Red Hat, Inc.
 
    This file is part of Cygwin.
 
@@ -333,7 +333,7 @@ typedef enum _MEMORY_INFORMATION_CLASS
   MemoryBasicInformation,
   MemoryWorkingSetList,
   MemorySectionName,
-  MemoryBaiscVlmInformation
+  MemoryBasicVlmInformation
 } MEMORY_INFORMATION_CLASS;
 
 typedef struct _MEMORY_WORKING_SET_LIST
@@ -379,13 +379,13 @@ extern "C"
   NTSTATUS NTAPI NtQueryInformationFile (HANDLE, IO_STATUS_BLOCK *, VOID *,
 					 DWORD, DWORD);
   NTSTATUS NTAPI NtQueryInformationProcess (HANDLE, PROCESSINFOCLASS,
-                                            PVOID, ULONG, PULONG);
+					    PVOID, ULONG, PULONG);
   NTSTATUS NTAPI NtQueryObject (HANDLE, OBJECT_INFORMATION_CLASS, VOID *,
-  				ULONG, ULONG *);
+				ULONG, ULONG *);
   NTSTATUS NTAPI NtQuerySystemInformation (SYSTEM_INFORMATION_CLASS,
 					   PVOID, ULONG, PULONG);
   NTSTATUS NTAPI NtQueryVirtualMemory (HANDLE, PVOID, MEMORY_INFORMATION_CLASS,
-                                       PVOID, ULONG, PULONG);
+				       PVOID, ULONG, PULONG);
   NTSTATUS NTAPI NtUnmapViewOfSection (HANDLE, PVOID);
   VOID NTAPI RtlInitUnicodeString (PUNICODE_STRING, PCWSTR);
   ULONG NTAPI RtlNtStatusToDosError (NTSTATUS);

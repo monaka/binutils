@@ -1,6 +1,6 @@
 /* wait.cc: Posix wait routines.
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -15,24 +15,24 @@ details. */
 #include "cygerrno.h"
 #include "sigproc.h"
 #include "perthread.h"
+#include "thread.h"
 
 /* This is called _wait and not wait because the real wait is defined
    in libc/syscalls/syswait.c.  It calls us.  */
 
-extern "C"
-pid_t
+extern "C" pid_t
 wait (int *status)
 {
   return wait4 (-1, status, 0, NULL);
 }
 
-pid_t
+extern "C" pid_t
 waitpid (pid_t intpid, int *status, int options)
 {
   return wait4 (intpid, status, options, NULL);
 }
 
-pid_t
+extern "C" pid_t
 wait3 (int *status, int options, struct rusage *r)
 {
   return wait4 (-1, status, options, r);
@@ -43,13 +43,15 @@ wait3 (int *status, int options, struct rusage *r)
  * not work correctly.
  */
 
-pid_t
+extern "C" pid_t
 wait4 (int intpid, int *status, int options, struct rusage *r)
 {
   int res;
   waitq *w;
   HANDLE waitfor;
   bool sawsig;
+
+  pthread_testcancel ();
 
   while (1)
     {
@@ -84,7 +86,7 @@ wait4 (int intpid, int *status, int options, struct rusage *r)
       if ((waitfor = w->ev) == NULL)
 	goto nochildren;
 
-      res = WaitForSingleObject (waitfor, INFINITE);
+      res = pthread::cancelable_wait (waitfor, INFINITE);
 
       sigproc_printf ("%d = WaitForSingleObject (...)", res);
 
