@@ -1,6 +1,6 @@
 /* window.cc: hidden windows for signals/itimer support
 
-   Copyright 1997, 1998, 2000, 2001, 2002 Red Hat, Inc.
+   Copyright 1997, 1998, 2000, 2001, 2002, 2003 Red Hat, Inc.
 
    Written by Sergey Okhapkin <sos@prospect.com.ru>
 
@@ -13,7 +13,6 @@ details. */
 #include "winsup.h"
 #include <sys/time.h>
 #include <stdlib.h>
-#include <errno.h>
 #include <signal.h>
 #include <limits.h>
 #include <wingdi.h>
@@ -148,7 +147,7 @@ setitimer (int which, const struct itimerval *value, struct itimerval *oldvalue)
 
   if (which != ITIMER_REAL)
     {
-      set_errno (EINVAL);
+      set_errno (ENOSYS);
       return -1;
     }
   /* Check if we will wrap */
