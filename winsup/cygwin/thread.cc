@@ -144,6 +144,7 @@ pthread::init_mainthread ()
     api_fatal ("failed to create mainthread handle");
   if (!thread->create_cancel_event ())
     api_fatal ("couldn't create cancel event for main thread");
+  VerifyHandle (thread->win32_obj_id);
   thread->postcreate ();
 }
 
@@ -2736,12 +2737,7 @@ pthread_kill (pthread_t thread, int sig)
   if (!pthread::is_good_object (&thread))
     return EINVAL;
 
-  siginfo_t si;
-  si.si_signo = sig;
-  si.si_code = SI_USER;
-  si.si_pid = si.si_uid = si.si_errno = 0;
-  thread->cygtls->set_threadkill ();
-  int rval = sig ? sig_send (NULL, si, thread->cygtls) : 0;
+  int rval = sig ? sig_send (NULL, sig, thread->cygtls) : 0;
 
   // unlock myself
   return rval;

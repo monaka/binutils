@@ -28,7 +28,8 @@ public:
   virtual void set (int n) {TlsSetValue (get_tls (), (void *)n);}
   virtual void *create ()
   {
-    void *s = calloc (1, size ());
+    void *s = new char [size ()];
+    memset (s, 0, size ());
     set (s);
     return s;
   }
@@ -43,8 +44,14 @@ public:
   size_t size () {return sizeof (waitq);}
 };
 
-#if defined (NEED_VFORK)
+#ifdef NEED_VFORK
 #include "cygtls.h"
+#endif
+
+#ifndef NEWVFORK
+#define VFORKPID 0
+#else
+#if defined (NEED_VFORK)
 class vfork_save
 {
   jmp_buf j;
@@ -82,7 +89,9 @@ public:
 };
 extern per_thread_vfork vfork_storage;
 extern vfork_save *main_vfork;
+#define VFORKPID main_vfork->pid
 #endif
+#endif /*NEWVFORK*/
 
 extern per_thread_waitq waitq_storage;
 
