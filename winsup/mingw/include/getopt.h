@@ -1,8 +1,6 @@
-/*	$NetBSD: profile.h,v 1.6 1995/03/28 18:17:08 jtc Exp $	*/
-
 /*
- * Copyright (c) 1992, 1993
- *	The Regents of the University of California.  All rights reserved.
+ * Copyright (c) 1987, 1993, 1994, 1996
+ *  The Regents of the University of California.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -14,8 +12,8 @@
  *    documentation and/or other materials provided with the distribution.
  * 3. All advertising materials mentioning features or use of this software
  *    must display the following acknowledgement:
- *	This product includes software developed by the University of
- *	California, Berkeley and its contributors.
+ *  This product includes software developed by the University of
+ *  California, Berkeley and its contributors.
  * 4. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
@@ -31,35 +29,56 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)profile.h	8.1 (Berkeley) 6/11/93
  */
 
-/*
- * This file is taken from Cygwin distribution. Please keep it in sync.
- * The differences should be within __MINGW32__ guard.
- */
+#ifndef __GETOPT_H__
+#define __GETOPT_H__
 
-#define	_MCOUNT_DECL static inline void _mcount
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-#define	MCOUNT \
-void									\
-mcount()								\
-{									\
-	 u_long selfpc, frompcindex;					\
-	/*								\
-	 * find the return address for mcount,				\
-	 * and the return address for mcount's caller.			\
-	 *								\
-	 * selfpc = pc pushed by mcount call				\
-	 */								\
-	/* __asm volatile ("movl 4(%%ebp),%0" : "=r" (selfpc));	*/	\
-	selfpc = (u_long) __builtin_return_address (0);			\
-	/*								\
-	 * frompcindex = pc pushed by call into self.			\
-	 */								\
-	/* __asm ("movl (%%ebp),%0;movl 4(%0),%0" : "=r" (frompcindex)); */	\
-	frompcindex = (u_long) __builtin_return_address (1);		\
-	_mcount(frompcindex, selfpc);					\
+extern int   opterr;      /* if error message should be printed */
+extern int   optind;      /* index into parent argv vector */
+extern int   optopt;      /* character checked for validity */
+extern int   optreset;    /* reset getopt */
+extern char *optarg;      /* argument associated with option */
+
+int getopt (int, char * const *, const char *);
+
+#ifdef __cplusplus
 }
+#endif
 
+#endif /* __GETOPT_H__ */
+
+#ifndef __UNISTD_GETOPT__
+#ifndef __GETOPT_LONG_H__
+#define __GETOPT_LONG_H__
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+struct option {
+	const char *name;
+	int  has_arg;
+	int *flag;
+	int val;
+};
+
+int getopt_long (int, char *const *, const char *, const struct option *, int *);
+#ifndef HAVE_DECL_GETOPT
+#define HAVE_DECL_GETOPT 1
+#endif
+
+#define no_argument             0
+#define required_argument       1
+#define optional_argument       2
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* __GETOPT_LONG_H__ */
+#endif /* __UNISTD_GETOPT__ */
