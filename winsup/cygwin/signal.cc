@@ -182,13 +182,13 @@ handle_sigprocmask (int sig, const sigset_t *set, sigset_t *oldset, sigset_t& op
 }
 
 static int
-kill_worker (pid_t pid, siginfo_t& si)
+kill_worker (pid_t pid, int sig)
 {
   sig_dispatch_pending ();
 
   int res = 0;
   pinfo dest (pid);
-  bool sendSIGCONT;
+  BOOL sendSIGCONT;
 
   if (!dest)
     {
@@ -196,32 +196,25 @@ kill_worker (pid_t pid, siginfo_t& si)
       return -1;
     }
 
-  if ((sendSIGCONT = (si.si_signo < 0)))
-    si.si_signo = -si.si_signo;
+  if ((sendSIGCONT = (sig < 0)))
+    sig = -sig;
 
   DWORD process_state = dest->process_state;
-  if (si.si_signo == 0)
+  if (sig == 0)
     {
       res = proc_exists (dest) ? 0 : -1;
       if (res < 0)
 	set_errno (ESRCH);
     }
-  else if ((res = sig_send (dest, si)))
+  else if ((res = sig_send (dest, sig)))
     {
       sigproc_printf ("%d = sig_send, %E ", res);
       res = -1;
     }
   else if (sendSIGCONT)
-    {
-      siginfo_t si2;
-      si2.si_signo = SIGCONT;
-      si2.si_code = SI_KERNEL;
-      si2.si_pid = si2.si_uid = si2.si_errno = 0;
-      (void) sig_send (dest, si2);
-    }
+    (void) sig_send (dest, SIGCONT);
 
-  syscall_printf ("%d = kill_worker (%d, %d), process_state %p", res, pid,
-		  si.si_signo, process_state);
+  syscall_printf ("%d = kill_worker (%d, %d), process_state %p", res, pid, sig, process_state);
   return res;
 }
 
@@ -231,54 +224,35 @@ raise (int sig)
   return kill (myself->pid, sig);
 }
 
-static int
-kill0 (pid_t pid, siginfo_t& si)
+int
+kill (pid_t pid, int sig)
 {
-  syscall_printf ("kill (%d, %d)", pid, si.si_signo);
+  syscall_printf ("kill (%d, %d)", pid, sig);
   /* check that sig is in right range */
-  if (si.si_signo < 0 || si.si_signo >= NSIG)
+  if (sig < 0 || sig >= NSIG)
     {
       set_errno (EINVAL);
-      syscall_printf ("signal %d out of range", si.si_signo);
+      syscall_printf ("signal %d out of range", sig);
       return -1;
     }
 
   /* Silently ignore stop signals from a member of orphaned process group.
      FIXME: Why??? */
   if (ISSTATE (myself, PID_ORPHANED) &&
-      (si.si_signo == SIGTSTP || si.si_signo == SIGTTIN || si.si_signo == SIGTTOU))
-    si.si_signo = 0;
+      (sig == SIGTSTP || sig == SIGTTIN || sig == SIGTTOU))
+    sig = 0;
 
-  return (pid > 0) ? kill_worker (pid, si) : kill_pgrp (-pid, si);
+  return (pid > 0) ? kill_worker (pid, sig) : kill_pgrp (-pid, sig);
 }
 
 int
-killsys (pid_t pid, int sig)
-{
-  siginfo_t si;
-  si.si_signo = sig;
-  si.si_code = SI_KERNEL;
-  si.si_pid = si.si_uid = si.si_errno = 0;
-  return kill0 (pid, si);
-}
-int
-kill (pid_t pid, int sig)
-{
-  siginfo_t si;
-  si.si_signo = sig;
-  si.si_code = SI_USER;
-  si.si_pid = si.si_uid = si.si_errno = 0;
-  return kill0 (pid, si);
-}
-
-int
-kill_pgrp (pid_t pid, siginfo_t& si)
+kill_pgrp (pid_t pid, int sig)
 {
   int res = 0;
   int found = 0;
   int killself = 0;
 
-  sigproc_printf ("pid %d, signal %d", pid, si.si_signo);
+  sigproc_printf ("pid %d, signal %d", pid, sig);
 
   winpids pids ((DWORD) PID_MAP_RW);
   for (unsigned i = 0; i < pids.npids; i++)
@@ -291,18 +265,18 @@ kill_pgrp (pid_t pid, siginfo_t& si)
       /* Is it a process we want to kill?  */
       if ((pid == 0 && (p->pgid != myself->pgid || p->ctty != myself->ctty)) ||
 	  (pid > 1 && p->pgid != pid) ||
-	  (si.si_signo < 0 && NOTSTATE (p, PID_STOPPED)))
+	  (sig < 0 && NOTSTATE (p, PID_STOPPED)))
 	continue;
       sigproc_printf ("killing pid %d, pgrp %d, p->ctty %d, myself->ctty %d",
 		      p->pid, p->pgid, p->ctty, myself->ctty);
       if (p == myself)
 	killself++;
-      else if (kill_worker (p->pid, si))
+      else if (kill_worker (p->pid, sig))
 	res = -1;
       found++;
     }
 
-  if (killself && kill_worker (myself->pid, si))
+  if (killself && kill_worker (myself->pid, sig))
     res = -1;
 
   if (!found)
@@ -310,7 +284,7 @@ kill_pgrp (pid_t pid, siginfo_t& si)
       set_errno (ESRCH);
       res = -1;
     }
-  syscall_printf ("%d = kill (%d, %d)", res, pid, si.si_signo);
+  syscall_printf ("%d = kill (%d, %d)", res, pid, sig);
   return res;
 }
 
@@ -376,7 +350,7 @@ sigaction (int sig, const struct sigaction *newact, struct sigaction *oldact)
       if (sig == SIGCHLD)
 	{
 	  myself->process_state &= ~PID_NOCLDSTOP;
-	  if (newact->sa_flags & SA_NOCLDSTOP);
+	  if (newact->sa_flags & SA_NOCLDSTOP)
 	    myself->process_state |= PID_NOCLDSTOP;
 	}
     }
@@ -478,21 +452,12 @@ siginterrupt (int sig, int flag)
   return sigaction (sig, &act, NULL);
 }
 
-extern "C" int
-sigwait (const sigset_t *set, int *sig_ptr)
-{
-  int sig = sigwaitinfo (set, NULL);
-  if (sig > 0)
-    *sig_ptr = sig;
-  return sig > 0 ? 0 : -1;
-}
 
 extern "C" int
-sigwaitinfo (const sigset_t *set, siginfo_t *info)
+sigwait (const sigset_t *set, int *sig)
 {
   pthread_testcancel ();
-  HANDLE h;
-  h = _my_tls.event = CreateEvent (&sec_none_nih, FALSE, FALSE, NULL);
+  _my_tls.event = CreateEvent (&sec_none_nih, FALSE, FALSE, NULL);
   if (!_my_tls.event)
     {
       __seterrno ();
@@ -501,22 +466,16 @@ sigwaitinfo (const sigset_t *set, siginfo_t *info)
 
   _my_tls.sigwait_mask = *set;
 
-  int res;
   switch (WaitForSingleObject (_my_tls.event, INFINITE))
     {
     case WAIT_OBJECT_0:
-      res = _my_tls.infodata.si_signo;
-      sigproc_printf ("returning sig %d", res);
-      if (info)
-	*info = _my_tls.infodata;
+      CloseHandle (_my_tls.event);
+      _my_tls.event = NULL;
+      *sig = InterlockedExchange ((LONG *) &_my_tls.sig, (LONG) 0);
       break;
     default:
       __seterrno ();
-      res = -1;
+      return -1;
     }
-  _my_tls.event = NULL;
-  InterlockedExchange ((LONG *) &_my_tls.sig, (LONG) 0);
-  CloseHandle (h);
-  sig_dispatch_pending ();
-  return res;
+  return 0;
 }
