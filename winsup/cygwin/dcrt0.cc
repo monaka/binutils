@@ -551,12 +551,8 @@ initial_env (bool first)
       buf[0] = '\0';
       len = GetModuleFileName (NULL, buf, CYG_MAX_PATH);
       console_printf ("Sleeping %d, pid %u %s\n", ms, GetCurrentProcessId (), buf);
-      Sleep (ms);
-      if (!strace.active)
-	{
-	  strace.inited = 0;
-	  strace.hello ();
-	}
+      while (ms--)
+	Sleep (1);
     }
   if (GetEnvironmentVariable ("CYGWIN_DEBUG", buf, sizeof (buf) - 1))
     {
@@ -577,7 +573,6 @@ initial_env (bool first)
 	}
     }
 #endif
-
 }
 
 void __stdcall
@@ -1054,13 +1049,9 @@ do_exit (int status)
       /* Kill orphaned children on group leader exit */
       if (myself->has_pgid_children && myself->pid == myself->pgid)
 	{
-	  siginfo_t si;
-	  si.si_signo = -SIGHUP;
-	  si.si_code = SI_KERNEL;
-	  si.si_pid = si.si_uid = si.si_errno = 0;
 	  sigproc_printf ("%d == pgrp %d, send SIG{HUP,CONT} to stopped children",
 			  myself->pid, myself->pgid);
-	  kill_pgrp (myself->pgid, si);
+	  kill_pgrp (myself->pgid, -SIGHUP);
 	}
     }
 

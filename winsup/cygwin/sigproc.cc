@@ -48,20 +48,39 @@ details. */
 
 #define NZOMBIES	256
 
+struct sigelem
+{
+  int sig;
+  int pid;
+  _threadinfo *tls;
+  class sigelem *next;
+  friend class pending_signals;
+  friend int __stdcall sig_dispatch_pending ();
+};
+
 class pending_signals
 {
-  sigpacket sigs[NSIG + 1];
-  sigpacket start;
-  sigpacket *end;
-  sigpacket *prev;
-  sigpacket *curr;
+  sigelem sigs[NSIG + 1];
+  sigelem start;
+  sigelem *end;
+  sigelem *prev;
+  sigelem *curr;
   int empty;
 public:
   void reset () {curr = &start; prev = &start;}
-  void add (sigpacket&);
+  void add (int sig, int pid, _threadinfo *tls);
   void del ();
-  sigpacket *next ();
+  sigelem *next ();
   friend int __stdcall sig_dispatch_pending ();
+};
+
+struct sigpacket
+{
+  int sig;
+  pid_t pid;
+  HANDLE wakeup;
+  sigset_t *mask;
+  _threadinfo *tls;
 };
 
 static pending_signals sigqueue;
@@ -544,9 +563,9 @@ sig_clear (int target_sig)
   else
     {
       sigqueue.reset ();
-      sigpacket *q;
+      sigelem *q;
       while ((q = sigqueue.next ()))
-	if (q->si.si_signo == target_sig)
+	if (q->sig == target_sig)
 	  {
 	    sigqueue.del ();
 	    break;
@@ -655,22 +674,13 @@ sigproc_terminate (void)
   return;
 }
 
-int __stdcall
-sig_send (_pinfo *p, int sig)
-{
-  siginfo_t si;
-  si.si_signo = sig;
-  si.si_code = SI_KERNEL;
-  si.si_pid = si.si_uid = si.si_errno = 0;
-  return sig_send (p, si);
-}
-
 /* Send a signal to another process by raising its signal semaphore.
-   If pinfo *p == NULL, send to the current process.
-   If sending to this process, wait for notification that a signal has
-   completed before returning.  */
+ * If pinfo *p == NULL, send to the current process.
+ * If sending to this process, wait for notification that a signal has
+ * completed before returning.
+ */
 int __stdcall
-sig_send (_pinfo *p, siginfo_t& si, _threadinfo *tls)
+sig_send (_pinfo *p, int sig, void *tls)
 {
   int rc = 1;
   bool its_me;
@@ -701,7 +711,7 @@ sig_send (_pinfo *p, siginfo_t& si, _threadinfo *tls)
   if (!proc_can_be_signalled (p))	/* Is the process accepting messages? */
     {
       sigproc_printf ("invalid pid %d(%x), signal %d",
-		  p->pid, p->process_state, si.si_signo);
+		  p->pid, p->process_state, sig);
       goto out;
     }
 
@@ -733,26 +743,22 @@ sig_send (_pinfo *p, siginfo_t& si, _threadinfo *tls)
       pack.wakeup = NULL;
     }
 
-  sigproc_printf ("sendsig %p, pid %d, signal %d, its_me %d", sendsig, p->pid, si.si_signo, its_me);
+  sigproc_printf ("sendsig %p, pid %d, signal %d, its_me %d", sendsig, p->pid,
+		  sig, its_me);
 
   sigset_t pending;
   if (!its_me)
     pack.mask = NULL;
-  else if (si.si_signo == __SIGPENDING)
+  else if (sig == __SIGPENDING)
     pack.mask = &pending;
-  else if (si.si_signo == __SIGFLUSH || si.si_signo > 0)
+  else if (sig == __SIGFLUSH || sig > 0)
     pack.mask = &myself->getsigmask ();
   else
     pack.mask = NULL;
 
-  pack.si = si;
-  if (!pack.si.si_pid)
-    pack.si.si_pid = myself->pid;
-  if (!pack.si.si_uid)
-    pack.si.si_uid = myself->uid;
+  pack.sig = sig;
   pack.pid = myself->pid;
   pack.tls = (_threadinfo *) tls;
-  pack.mask_storage = 0;
   DWORD nb;
   if (!WriteFile (sendsig, &pack, sizeof (pack), &nb, NULL) || nb != sizeof (pack))
     {
@@ -770,7 +776,7 @@ sig_send (_pinfo *p, siginfo_t& si, _threadinfo *tls)
 	    sigproc_printf ("I'm going away now");
 	  else
 	    system_printf ("error sending signal %d to pid %d, pipe handle %p, %E",
-			  si.si_signo, p->pid, sendsig);
+			  sig, p->pid, sendsig);
 	}
       goto out;
     }
@@ -790,8 +796,7 @@ sig_send (_pinfo *p, siginfo_t& si, _threadinfo *tls)
   else
     {
       rc = WAIT_OBJECT_0;
-      sigproc_printf ("Not waiting for sigcomplete.  its_me %d signal %d",
-		      its_me, si.si_signo);
+      sigproc_printf ("Not waiting for sigcomplete.  its_me %d signal %d", its_me, sig);
       if (!its_me)
 	ForceCloseHandle (sendsig);
     }
@@ -802,7 +807,7 @@ sig_send (_pinfo *p, siginfo_t& si, _threadinfo *tls)
     {
       if (!no_signals_available ())
 	system_printf ("wait for sig_complete event failed, signal %d, rc %d, %E",
-		       si.si_signo, rc);
+		      sig, rc);
       set_errno (ENOSYS);
       rc = -1;
     }
@@ -811,13 +816,13 @@ sig_send (_pinfo *p, siginfo_t& si, _threadinfo *tls)
     call_signal_handler_now ();
 
 out:
-  if (si.si_signo != __SIGPENDING)
+  if (sig != __SIGPENDING)
     /* nothing */;
   else if (!rc)
     rc = (int) pending;
   else
     rc = SIG_BAD_MASK;
-  sigproc_printf ("returning %p from sending signal %d", rc, si.si_signo);
+  sigproc_printf ("returning %p from sending signal %d", rc, sig);
   return rc;
 }
 
@@ -1013,20 +1018,20 @@ talktome ()
    has been handled, as per POSIX.  */
 
 void
-pending_signals::add (sigpacket& pack)
+pending_signals::add (int sig, int pid, _threadinfo *tls)
 {
-  sigpacket *se;
+  sigelem *se;
   for (se = start.next; se; se = se->next)
-    if (se->si.si_signo == pack.si.si_signo)
+    if (se->sig == sig)
       return;
-  while (sigs[empty].si.si_signo)
+  while (sigs[empty].sig)
     if (++empty == NSIG)
       empty = 0;
   se = sigs + empty;
-  *se = pack;
-  se->mask_storage = *(pack.mask);
-  se->mask = &se->mask_storage;
+  se->sig = sig;
   se->next = NULL;
+  se->tls = tls;
+  se->pid = pid;
   if (end)
     end->next = se;
   end = se;
@@ -1038,9 +1043,9 @@ pending_signals::add (sigpacket& pack)
 void
 pending_signals::del ()
 {
-  sigpacket *next = curr->next;
+  sigelem *next = curr->next;
   prev->next = next;
-  curr->si.si_signo = 0;
+  curr->sig = 0;
 #ifdef DEBUGGING
   curr->next = NULL;
 #endif
@@ -1050,10 +1055,10 @@ pending_signals::del ()
   curr = next;
 }
 
-sigpacket *
+sigelem *
 pending_signals::next ()
 {
-  sigpacket *res;
+  sigelem *res;
   prev = curr;
   if (!curr || !(curr = curr->next))
     res = NULL;
@@ -1131,7 +1136,7 @@ wait_sig (VOID *self)
 	  continue;
 	}
 
-      if (!pack.si.si_signo)
+      if (!pack.sig)
 	{
 #ifdef DEBUGGING
 	  system_printf ("zero signal?");
@@ -1146,8 +1151,8 @@ wait_sig (VOID *self)
 	  pack.mask = &dummy_mask;
 	}
 
-      sigpacket *q;
-      switch (pack.si.si_signo)
+      sigelem *q;
+      switch (pack.sig)
 	{
 	case __SIGCOMMUNE:
 	  talktome ();
@@ -1160,30 +1165,30 @@ wait_sig (VOID *self)
 	  unsigned bit;
 	  sigqueue.reset ();
 	  while ((q = sigqueue.next ()))
-	    if (myself->getsigmask () & (bit = SIGTOMASK (q->si.si_signo)))
+	    if (myself->getsigmask () & (bit = SIGTOMASK (q->sig)))
 	      *pack.mask |= bit;
 	  break;
 	case __SIGFLUSH:
 	  sigqueue.reset ();
 	  while ((q = sigqueue.next ()))
-	    if (q->process () > 0)
+	    if (sig_handle (q->sig, *pack.mask, q->pid, q->tls) > 0)
 	      sigqueue.del ();
 	  break;
 	default:
-	  if (pack.si.si_signo < 0)
-	    sig_clear (-pack.si.si_signo);
+	  if (pack.sig < 0)
+	    sig_clear (-pack.sig);
 	  else
 	    {
-	      int sigres = pack.process ();
+	      int sigres = sig_handle (pack.sig, *pack.mask, pack.pid, pack.tls);
 	      if (sigres <= 0)
 		{
 #ifdef DEBUGGING2
 		  if (!sigres)
 		    system_printf ("Failed to arm signal %d from pid %d", pack.sig, pack.pid);
 #endif
-		  sigqueue.add (pack);	// FIXME: Shouldn't add this in !sh condition
+		  sigqueue.add (pack.sig, pack.pid, pack.tls);// FIXME: Shouldn't add this in !sh condition
 		}
-	      if (pack.si.si_signo == SIGCHLD)
+	      if (pack.sig == SIGCHLD)
 		proc_subproc (PROC_CLEARWAIT, 0);
 	    }
 	  break;
@@ -1251,20 +1256,6 @@ wait_subproc (VOID *)
       rc -= WAIT_OBJECT_0;
       if (rc-- != 0)
 	{
-	  siginfo_t si;
-	  si.si_signo = SIGCHLD;
-	  si.si_code = SI_KERNEL;
-	  si.si_pid = pchildren[rc]->pid;
-	  si.si_uid = pchildren[rc]->uid;
-	  si.si_errno = 0;
-	  GetExitCodeProcess (hchildren[rc], (DWORD *) &si.si_status);
-#if 0	// FIXME: This is tricky to get right
-	  si.si_utime = pchildren[rc]->rusage_self.ru_utime;
-	  si.si_stime = pchildren[rc].rusage_self.ru_stime;
-#else
-	  si.si_utime = 0;
-	  si.si_stime = 0;
-#endif
 	  rc = proc_subproc (PROC_CHILDTERMINATED, rc);
 	  if (!proc_loop_wait)		// Don't bother if wait_subproc is
 	    break;			//  exiting
@@ -1273,7 +1264,7 @@ wait_subproc (VOID *)
 	     to avoid the proc_subproc lock since the signal thread will eventually
 	     be calling proc_subproc and could unnecessarily block. */
 	  if (rc)
-	    sig_send (myself_nowait, si);
+	    sig_send (myself_nowait, SIGCHLD);
 	}
       sigproc_printf ("looping");
     }
