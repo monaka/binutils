@@ -8,8 +8,11 @@ vpath % $(updir)/generic:$(updir)/unix
 noinst_LIBRARIES = libtcl_cygwin.a
 
 libtcl_cygwin_a_SOURCES = \
-	panic.c \
-	regexp.c \
+	regcomp.c \
+	regexec.c \
+        regfree.c \
+        regerror.c \
+	tclAlloc.c \
 	tclAsync.c \
 	tclBasic.c \
 	tclBinary.c \
@@ -18,9 +21,11 @@ libtcl_cygwin_a_SOURCES = \
 	tclCmdAH.c \
 	tclCmdIL.c \
 	tclCmdMZ.c \
+        tclCompCmds.c \
 	tclCompExpr.c \
 	tclCompile.c \
 	tclDate.c \
+        tclEncoding.c \
 	tclEnv.c \
 	tclEvent.c \
 	tclExecute.c \
@@ -33,10 +38,12 @@ libtcl_cygwin_a_SOURCES = \
 	tclInterp.c \
 	tclIO.c \
 	tclIOCmd.c \
+        tclIOGT.c \
 	tclIOSock.c \
 	tclIOUtil.c \
 	tclLink.c \
 	tclListObj.c \
+	tclLiteral.c \
 	tclLoad.c \
 	tclLoadNone.c \
 	tclMain.c \
@@ -44,21 +51,28 @@ libtcl_cygwin_a_SOURCES = \
 	tclNotify.c \
 	tclObj.c \
         tclParse.c \
+	tclPanic.c \
+	tclParseExpr.c \
 	tclPipe.c \
 	tclPkg.c \
 	tclPosixStr.c \
 	tclPreserve.c \
 	tclProc.c \
-        tclTestProcBodyObj.c \
+	tclRegexp.c \
+	tclTestProcBodyObj.c \
 	tclResolve.c \
+	tclResolve.c \
+        tclResult.c \
+	tclScan.c \
 	tclStringObj.c \
-	tclTest.c \
-	tclTestObj.c \
+        tclStubInit.c \
+        tclStubLib.c \
+        tclThread.c \
 	tclTimer.c \
+	tclUtf.c \
 	tclUtil.c \
 	tclVar.c \
 	tclAppInit.c \
-	tclMtherr.c \
 	tclUnixChan.c \
 	tclUnixEvent.c \
 	tclUnixFCmd.c \
@@ -67,6 +81,7 @@ libtcl_cygwin_a_SOURCES = \
 	tclUnixPipe.c \
 	tclUnixSock.c \
 	tclUnixTest.c \
+        tclUnixThrd.c \
 	tclUnixTime.c \
 	tclUnixInit.c
 
@@ -76,7 +91,7 @@ TCL_LIBRARY =	@datadir@/tcl$(VERSION)
 TCL_PACKAGE_PATH = @TCL_PACKAGE_PATH@
 
 INCLUDES = -I$(updir)/generic
-AM_CFLAGS = -D__TCL_UNIX_VARIANT -DTCL_LIBRARY='"$(TCL_LIBRARY)"' -DTCL_PACKAGE_PATH='"$(TCL_PACKAGE_PATH)"'
+AM_CFLAGS = -DTCL_LIBRARY='"$(TCL_LIBRARY)"' -DTCL_PACKAGE_PATH='"$(TCL_PACKAGE_PATH)"'
 
 # $(OBJECTS): termcap.h pathnames.h
 
