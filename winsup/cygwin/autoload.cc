@@ -1,6 +1,6 @@
 /* autoload.cc: all dynamic load stuff.
 
-   Copyright 2000, 2001, 2002 Red Hat, Inc.
+   Copyright 2000, 2001, 2002, 2003 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -352,6 +352,7 @@ LoadDLLfunc (LsaOpenPolicy, 16, advapi32)
 LoadDLLfunc (LsaQueryInformationPolicy, 12, advapi32)
 LoadDLLfunc (MakeSelfRelativeSD, 12, advapi32)
 LoadDLLfunc (OpenProcessToken, 12, advapi32)
+LoadDLLfunc (OpenThreadToken, 16, advapi32)
 LoadDLLfunc (RegCloseKey, 4, advapi32)
 LoadDLLfunc (RegCreateKeyExA, 36, advapi32)
 LoadDLLfunc (RegDeleteKeyA, 8, advapi32)
@@ -445,7 +446,7 @@ LoadDLLfunc (closesocket, 4, wsock32)
 LoadDLLfunc (connect, 12, wsock32)
 LoadDLLfunc (gethostbyaddr, 12, wsock32)
 LoadDLLfunc (gethostbyname, 4, wsock32)
-LoadDLLfunc (gethostname, 8, wsock32)
+LoadDLLfuncEx2 (gethostname, 8, wsock32, 1, 1)
 LoadDLLfunc (getpeername, 12, wsock32)
 LoadDLLfunc (getprotobyname, 4, wsock32)
 LoadDLLfunc (getprotobynumber, 4, wsock32)

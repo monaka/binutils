@@ -1,6 +1,6 @@
 /* exceptions.cc
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -240,7 +240,7 @@ public:
   void init (DWORD, bool, bool); /* Called the first time that stack info is needed */
 
   /* Postfix ++ iterates over the stack, returning zero when nothing is left. */
-  int operator ++(int) { return this->walk (); }
+  int operator ++(int) { return walk (); }
 };
 
 /* The number of parameters used in STACKFRAME */
@@ -576,7 +576,8 @@ handle_sigsuspend (sigset_t tempmask)
 				//  interested in through.
   sigproc_printf ("old mask %x, new mask %x", oldmask, tempmask);
 
-  WaitForSingleObject (signal_arrived, INFINITE);
+  pthread_testcancel ();
+  pthread::cancelable_wait (signal_arrived, INFINITE);
 
   set_sig_errno (EINTR);	// Per POSIX
 
@@ -1129,12 +1130,13 @@ HANDLE NO_COPY title_mutex = NULL;
 void
 events_init (void)
 {
-  /* title_mutex protects modification of console title. It's neccessary
+  char *name;
+  /* title_mutex protects modification of console title. It's necessary
      while finding console window handle */
 
   if (!(title_mutex = CreateMutex (&sec_all_nih, FALSE,
-				   shared_name ("title_mutex", 0))))
-    api_fatal ("can't create title mutex, %E");
+				   name = shared_name ("title_mutex", 0))))
+    api_fatal ("can't create title mutex '%s', %E", name);
 
   ProtectHandle (title_mutex);
   new_muto (mask_sync);
