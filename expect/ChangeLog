@@ -1,3 +1,79 @@
+2002-07-30  Keith Seitz  <keiths@redhat.com>
+
+	From Mo DeJong  <supermo@bayarea.net>
+	* aclocal.m4 (CY_AC_PATH_TCLCONFIG): Check for a
+	tclConfig.sh file in tcl/cygwin if one can't
+	be found in tcl/unix. Update Itcl header check.
+	* configure: Regenerated.
+
+2002-04-11  Christopher Faylor  <cgf@redhat.com>
+
+	* configure.in: Don't use libutil.a on cygwin.
+	* configure: Regenerate.
+
+2002-03-06  Alexandre Oliva  <aoliva@redhat.com>
+
+	* exp_command.c (STARARGV): Indent #defines properly.
+
+2001-09-28  Kevin Buettner  <kevinb@redhat.com>
+
+	* configure.in (_XOPEN_SOURCE): Permit definition of _NSIG to
+	define _XOPEN_SOURCE too.
+	* configure: Regenerated.
+
+Thu Sep 20 16:00:44 2001  Andrew Cagney  <cagney@b1.cygnus.com>
+
+	* Makefile.in (shared/tcl_regexp.o, tcl_regexp.o): Add explict
+ 	build rules that include @TCL_DEFS@ in the list of compiler flags.
+
+Tue Sep 11 15:24:00 2001  Christopher Faylor <cgf@cygnus.com>
+
+	Remove unneeded CYGWIN code throughout.
+	Change CYGWIN32 to CYGWIN throughout.
+	* configure.in: Use gcc -mno-win32 option under Cygwin.
+	* configure: Regenerate.
+
+2001-07-09  Ian Roxborough  <irox@redhat.com>
+
+	* tclParse-compat.c: New file.
+	* tcl_regexp.c:
+	* tcl_regexp.h: New file.  Contains Tcl8.0's regexp.
+	* Makefile.in: Added new files to be compiled and linked.
+	* exp_clib.c (exp_expectl, exp_fexpectl):
+	* exp_inter.c (in_keymap, Exp_InteractCmd ):
+	* exp_regexp.c (regtry, regdump, regprop):
+	* expect.c (parse_expect_args, eval_case_string,
+	  exp_background_filehandler, Exp_ExpectCmd):
+	* expect.h:
+	* expect_comm.h:
+	* Dbg.c (breakpoint_test, cmdBreak): Use newly built in
+	  regexp, not external Tcl regexp.
+	* exp_tty.c (exec_stty):
+	* exp_command.c (Exp_CloseCmd, Tcl_CloseCmd): Handle Tcl API
+	  changes in Tcl8.3.
+
+2001-05-11  Andrew Cagney  <ac131313@redhat.com>
+
+	From 2001-04-24 Rodney Brown <RDBrown@mira.net>:
+	* configure.in: Only define _XOPEN_SOURCE if NSIG remains defined.
+	* configure: Regenerate.
+	
+2000-07-06  Jim Wilson  <wilson@cygnus.com>
+
+	* pty_termios.c: Include expect_cf.h before stdio.h.
+
+2000-05-15  Tom Tromey  <tromey@cygnus.com>
+
+	* expect_cf.h.in (_XOPEN_SOURCE): Added.
+	* configure: Rebuilt.
+	* configure.in: Define _XOPEN_SOURCE when using ptsname.
+
+2000-03-31  Alexandre Oliva  <oliva@lsd.ic.unicamp.br>
+
+	* Makefile.in (expect-bld.sh): New wrapper script.
+	(all): Depend on it.
+	(LOCAL_EXPECT): Use it.
+
 1999-11-11  DJ Delorie  <dj@cygnus.com>
 
 	* configure.in: use new library name, provide define for sources

@@ -794,7 +794,7 @@ fi
 
 PACKAGE=libtcl_cygwin
 
-VERSION=8.0
+VERSION=8.3
 
 if test "`cd $srcdir && pwd`" != "`pwd`" && test -f $srcdir/config.status; then
   { echo "configure: error: source directory already configured; run "make distclean" there first" 1>&2; exit 1; }
@@ -1136,6 +1136,20 @@ else
   test "${CFLAGS+set}" = set || CFLAGS="-g"
 fi
 
+
+case "${host}" in
+*-*-cygwin*)
+	touch ac$$.c
+	if ${CC} -c -mno-win32 ac$$.c >/dev/null 2>&1; then
+	    case "$EXTRA_CFLAGS" in
+		*-mno-win32*) ;;
+		*) EXTRA_CFLAGS="-mno-win32 $EXTRA_CFLAGS" ;;
+	    esac
+	fi
+	rm -f ac$$.o ac$$.c
+	;;
+esac
+
 if test $host != $build; then
   ac_tool_prefix=${host_alias}-
 else
@@ -1145,7 +1159,7 @@ fi
 # Extract the first word of "${ac_tool_prefix}ar", so it can be a program name with args.
 set dummy ${ac_tool_prefix}ar; ac_word=$2
 echo $ac_n "checking for $ac_word""... $ac_c" 1>&6
-echo "configure:1149: checking for $ac_word" >&5
+echo "configure:1163: checking for $ac_word" >&5
 if eval "test \"`echo '$''{'ac_cv_prog_AR'+set}'`\" = set"; then
   echo $ac_n "(cached) $ac_c" 1>&6
 else
@@ -1177,7 +1191,7 @@ if test -n "$ac_tool_prefix"; then
   # Extract the first word of "ar", so it can be a program name with args.
 set dummy ar; ac_word=$2
 echo $ac_n "checking for $ac_word""... $ac_c" 1>&6
-echo "configure:1181: checking for $ac_word" >&5
+echo "configure:1195: checking for $ac_word" >&5
 if eval "test \"`echo '$''{'ac_cv_prog_AR'+set}'`\" = set"; then
   echo $ac_n "(cached) $ac_c" 1>&6
 else
@@ -1210,10 +1224,11 @@ fi
 fi
 
 
+
 # Extract the first word of "ranlib", so it can be a program name with args.
 set dummy ranlib; ac_word=$2
 echo $ac_n "checking for $ac_word""... $ac_c" 1>&6
-echo "configure:1217: checking for $ac_word" >&5
+echo "configure:1232: checking for $ac_word" >&5
 if eval "test \"`echo '$''{'ac_cv_prog_RANLIB'+set}'`\" = set"; then
   echo $ac_n "(cached) $ac_c" 1>&6
 else
@@ -1252,7 +1267,7 @@ fi
 # SVR4 /usr/ucb/install, which tries to use the nonexistent group "staff"
 # ./install, which can be erroneously created by make from ./install.sh.
 echo $ac_n "checking for a BSD compatible install""... $ac_c" 1>&6
-echo "configure:1256: checking for a BSD compatible install" >&5
+echo "configure:1271: checking for a BSD compatible install" >&5
 if test -z "$INSTALL"; then
 if eval "test \"`echo '$''{'ac_cv_path_install'+set}'`\" = set"; then
   echo $ac_n "(cached) $ac_c" 1>&6
@@ -1323,6 +1338,20 @@ TCL_LIBRARY=@datadir@/tcl${VERSION}
 cross_cache=${srcdir}/cygwin-cache
 . ${cross_cache}
 
+
+
+
+# These variables are needed to get expect working with
+# the tclConfig.sh script in the cygwin directory.
+LD_FLAGS=""
+
+TCL_LD_SEARCH_FLAGS=""
+
+DL_LIBS=""
+
+MATH_LIBS=""
+
+SHLIB_LD='${CC} -shared ${CFLAGS}'
 
 
 
@@ -1439,7 +1468,7 @@ done
 ac_given_srcdir=$srcdir
 ac_given_INSTALL="$INSTALL"
 
-trap 'rm -fr `echo "Makefile" | sed "s/:[^ ]*//g"` conftest*; exit 1' 1 2 15
+trap 'rm -fr `echo "Makefile tclConfig.sh" | sed "s/:[^ ]*//g"` conftest*; exit 1' 1 2 15
 EOF
 cat >> $CONFIG_STATUS <<EOF
 
@@ -1503,9 +1532,15 @@ s%@MAINT@%$MAINT%g
 s%@EXEEXT@%$EXEEXT%g
 s%@CC@%$CC%g
 s%@AR@%$AR%g
+s%@EXTRA_CFLAGS@%$EXTRA_CFLAGS%g
 s%@RANLIB@%$RANLIB%g
 s%@TCL_PACKAGE_PATH@%$TCL_PACKAGE_PATH%g
 s%@TCL_LIBRARY@%$TCL_LIBRARY%g
+s%@LD_FLAGS@%$LD_FLAGS%g
+s%@TCL_LD_SEARCH_FLAGS@%$TCL_LD_SEARCH_FLAGS%g
+s%@DL_LIBS@%$DL_LIBS%g
+s%@MATH_LIBS@%$MATH_LIBS%g
+s%@SHLIB_LD@%$SHLIB_LD%g
 
 CEOF
 EOF
@@ -1514,7 +1549,7 @@ cat >> $CONFIG_STATUS <<\EOF
 
 # Split the substitutions into bite-sized pieces for seds with
 # small command number limits, like on Digital OSF/1 and HP-UX.
-ac_max_sed_cmds=90 # Maximum number of lines to put in a sed script.
+ac_max_sed_cmds=60 # Maximum number of lines to put in a sed script.
 ac_file=1 # Number of current file.
 ac_beg=1 # First line for current file.
 ac_end=$ac_max_sed_cmds # Line after last line for current file.
@@ -1547,7 +1582,7 @@ EOF
 
 cat >> $CONFIG_STATUS <<EOF
 
-CONFIG_FILES=\${CONFIG_FILES-"Makefile"}
+CONFIG_FILES=\${CONFIG_FILES-"Makefile tclConfig.sh"}
 EOF
 cat >> $CONFIG_STATUS <<\EOF
 for ac_file in .. $CONFIG_FILES; do if test "x$ac_file" != x..; then
@@ -1617,4 +1652,5 @@ EOF
 chmod +x $CONFIG_STATUS
 rm -fr confdefs* $ac_clean_files
 test "$no_create" = yes || ${CONFIG_SHELL-/bin/sh} $CONFIG_STATUS || exit 1
+
 

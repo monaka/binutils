@@ -201,6 +201,10 @@ changequote(,)
         ac_cv_c_tclconfig=`(cd $i/unix; pwd)`
 	break
       fi
+      if test -f "$i/cygwin/tclConfig.sh" ; then
+        ac_cv_c_tclconfig=`(cd $i/cygwin; pwd)`
+	break
+      fi
     done
   fi
 changequote([,])
@@ -533,8 +537,8 @@ AC_DEFUN(CY_AC_PATH_ITCLH, [
 AC_MSG_CHECKING(for Itcl private headers. srcdir=${srcdir})
 if test x"${ac_cv_c_itclh}" = x ; then
   for i in ${srcdir}/../itcl ${srcdir}/../../itcl ${srcdir}/../../../itcl ; do
-    if test -f $i/src/itcl.h ; then
-      ac_cv_c_itclh=`(cd $i/src; pwd)`
+    if test -f $i/itcl/generic/itcl.h ; then
+      ac_cv_c_itclh=`(cd $i/itcl/generic; pwd)`
       break
     fi
   done
@@ -555,19 +559,19 @@ AC_SUBST(ITCLLIB)
 ])
 
 # Check to see if we're running under Cygwin32, without using
-# AC_CANONICAL_*.  If so, set output variable CYGWIN32 to "yes".
+# AC_CANONICAL_*.  If so, set output variable CYGWIN to "yes".
 # Otherwise set it to "no".
 
-dnl AM_CYGWIN32()
+dnl AM_CYGWIN()
 dnl You might think we can do this by checking for a cygwin32-specific
 dnl cpp define.
-AC_DEFUN(CY_AC_CYGWIN32,
+AC_DEFUN(CY_AC_CYGWIN,
 [AC_CACHE_CHECK(for Cygwin32 environment, ac_cv_cygwin32,
-[AC_TRY_COMPILE(,[int main () { return __CYGWIN32__; }],
+[AC_TRY_COMPILE(,[int main () { return __CYGWIN__; }],
 ac_cv_cygwin32=yes, ac_cv_cygwin32=no)
 rm -f conftest*])
-CYGWIN32=
-test "$ac_cv_cygwin32" = yes && CYGWIN32=yes])
+CYGWIN=
+test "$ac_cv_cygwin32" = yes && CYGWIN=yes])
 
 # Check to see if we're running under Win32, without using
 # AC_CANONICAL_*.  If so, set output variable EXEEXT to ".exe".
@@ -578,10 +582,10 @@ dnl This knows we add .exe if we're building in the Cygwin32
 dnl environment. But if we're not, then it compiles a test program
 dnl to see if there is a suffix for executables.
 AC_DEFUN(CY_AC_EXEEXT,
-dnl AC_REQUIRE([AC_PROG_CC])AC_REQUIRE([AM_CYGWIN32])
+dnl AC_REQUIRE([AC_PROG_CC])AC_REQUIRE([AM_CYGWIN])
 AC_MSG_CHECKING([for executable suffix])
 [AC_CACHE_VAL(ac_cv_exeext,
-[if test "$CYGWIN32" = yes; then
+[if test "$CYGWIN" = yes; then
 ac_cv_exeext=.exe
 else
 cat > ac_c_test.c << 'EOF'
