@@ -1,6 +1,6 @@
 /* miscfuncs.cc: misc funcs that don't belong anywhere else
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -306,13 +306,13 @@ low_priority_sleep (DWORD secs)
       staylow = true;
     }
 
-  /* Force any threads in normal priority to be scheduled */
-  SetThreadPriority (thisthread, THREAD_PRIORITY_NORMAL);
-  Sleep (0);
-
-  SetThreadPriority (thisthread, THREAD_PRIORITY_IDLE);
+  int main_prio = GetThreadPriority (hMainThread);
+  if (curr_prio != main_prio)
+    /* Force any threads in normal priority to be scheduled */
+    SetThreadPriority (thisthread, main_prio);
   Sleep (secs);
-  if (!staylow)
+
+  if (!staylow || curr_prio == main_prio)
     SetThreadPriority (thisthread, curr_prio);
   return curr_prio;
 }
