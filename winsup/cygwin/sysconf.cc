@@ -1,6 +1,6 @@
 /* sysconf.cc
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -15,8 +15,8 @@ details. */
 #include <limits.h>
 #include <ntdef.h>
 #include "security.h"
-#include "fhandler.h"
 #include "path.h"
+#include "fhandler.h"
 #include "dtable.h"
 #include "cygerrno.h"
 #include "cygheap.h"
@@ -47,6 +47,10 @@ sysconf (int in)
 	return NGROUPS_MAX;
       case _SC_SAVED_IDS:
 	return _POSIX_SAVED_IDS;
+      case _SC_LOGIN_NAME_MAX:
+      case _SC_GETPW_R_SIZE_MAX:
+      case _SC_GETGR_R_SIZE_MAX:
+	return 16*1024;
       case _SC_VERSION:
 	return _POSIX_VERSION;
 #if 0	/* FIXME -- unimplemented */
