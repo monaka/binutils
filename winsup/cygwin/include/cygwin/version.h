@@ -42,7 +42,7 @@ details. */
 	 changes to the DLL and is mainly informative in nature. */
 
 #define CYGWIN_VERSION_DLL_MAJOR 1005
-#define CYGWIN_VERSION_DLL_MINOR 8
+#define CYGWIN_VERSION_DLL_MINOR 6
 
       /* Major numbers before CYGWIN_VERSION_DLL_EPOCH are
 	 incompatible. */
@@ -233,8 +233,7 @@ details. */
       106: Export flock.
       107: Export fcntl64.
       108: Remove unused (hopefully) reent_data export.
-      109: Export clock_gettime, sigwaitinfo, timer_create, timer_delete,
-           timer_settime
+      109: Oh well.  Someone uses reent_data.
      */
 
      /* Note that we forgot to bump the api for ualarm, strtoll, strtoull */
