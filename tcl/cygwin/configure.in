@@ -4,7 +4,7 @@ AC_PREREQ(2.13)
 
 AC_INIT(Makefile.in)
 AC_CANONICAL_SYSTEM
-AM_INIT_AUTOMAKE(libtcl_cygwin, 8.0)
+AM_INIT_AUTOMAKE(libtcl_cygwin, 8.3)
 AM_MAINTAINER_MODE
 AC_EXEEXT
 
@@ -47,8 +47,23 @@ fi
 ])
 
 LIB_AC_PROG_CC
+
+case "${host}" in
+*-*-cygwin*)
+	touch ac$$.c
+	if ${CC} -c -mno-win32 ac$$.c >/dev/null 2>&1; then
+	    case "$EXTRA_CFLAGS" in
+		*-mno-win32*) ;;
+		*) EXTRA_CFLAGS="-mno-win32 $EXTRA_CFLAGS" ;;
+	    esac
+	fi
+	rm -f ac$$.o ac$$.c
+	;;
+esac
+
 AC_CHECK_TOOL(AR, ar, ar)
 AC_SUBST(AR)
+AC_SUBST(EXTRA_CFLAGS)
 AC_PROG_RANLIB
 AC_PROG_INSTALL
 
@@ -73,4 +88,20 @@ cross_cache=${srcdir}/cygwin-cache
 AC_SUBST(TCL_PACKAGE_PATH)
 AC_SUBST(TCL_LIBRARY)
 
-AC_OUTPUT([Makefile])
+# These variables are needed to get expect working with
+# the tclConfig.sh script in the cygwin directory.
+LD_FLAGS=""
+AC_SUBST(LD_FLAGS)
+TCL_LD_SEARCH_FLAGS=""
+AC_SUBST(TCL_LD_SEARCH_FLAGS)
+DL_LIBS=""
+AC_SUBST(DL_LIBS)
+MATH_LIBS=""
+AC_SUBST(MATH_LIBS)
+SHLIB_LD='${CC} -shared ${CFLAGS}'
+AC_SUBST(SHLIB_LD)
+TCL_BUILD_LIB_SPEC=`pwd`/libtcl_cygwin.a
+AC_SUBST(TCL_BUILD_LIB_SPEC)
+
+
+AC_OUTPUT([Makefile tclConfig.sh])
