@@ -108,3 +108,6 @@ configure: $(srcdir)/configure.in $(srcdir)/Makefile.in $(srcdir)/../../aclocal.
 config.status:
 	@echo "Rebuilding config.status..."
 	$(SHELL) ./config.status --recheck
+
+info:
+# Nothing.
