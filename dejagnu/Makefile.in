@@ -64,11 +64,11 @@ EXEEXT = @EXEEXT@
 MAINT = @MAINT@
 MAKEINFO = @MAKEINFO@
 PACKAGE = @PACKAGE@
-VERSION = 20000204@VERSION@
+VERSION = @VERSION@
 
 AUTOMAKE_OPTIONS = cygnus
 
-SUBDIRS = doc testsuite
+SUBDIRS = doc testsuite example
 
 # driver script goes in /usr/local/bin
 bin_SCRIPTS = runtest
