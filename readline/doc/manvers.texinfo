@@ -1,6 +1,10 @@
-@set EDITION 4.0
-@set VERSION 4.0
-@set UPDATED 31 December 1998
-@set UPDATE-MONTH December 1998
+@ignore
+Copyright (C) 1988-2002 Free Software Foundation, Inc. 
+@end ignore
 
-@set LASTCHANGE Thu Dec 31 10:17:05 EST 1998
+@set EDITION 4.3
+@set VERSION 4.3
+@set UPDATED 2002 March 4
+@set UPDATE-MONTH March 2002
+
+@set LASTCHANGE Mon Mar  4 12:00:16 EST 2002

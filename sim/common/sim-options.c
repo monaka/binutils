@@ -109,8 +109,12 @@ typedef enum {
 #endif
   OPTION_HELP,
 #ifdef SIM_H8300 /* FIXME: Should be movable to h8300 dir.  */
-  OPTION_H8300,
+  OPTION_H8300H,
+  OPTION_H8300S,
+  OPTION_H8300SX,
 #endif
+  OPTION_LOAD_LMA,
+  OPTION_LOAD_VMA,
 } STANDARD_OPTIONS;
 
 static const OPTION standard_options[] =
@@ -149,8 +153,14 @@ static const OPTION standard_options[] =
       standard_option_handler },
 
 #ifdef SIM_H8300 /* FIXME: Should be movable to h8300 dir.  */
-  { {"h8300h", no_argument, NULL, OPTION_H8300},
-      'h', NULL, "Indicate the CPU is h8/300h or h8/300s",
+  { {"h8300h", no_argument, NULL, OPTION_H8300H},
+      'h', NULL, "Indicate the CPU is H8/300H",
+      standard_option_handler },
+  { {"h8300s", no_argument, NULL, OPTION_H8300S},
+      'S', NULL, "Indicate the CPU is H8S",
+      standard_option_handler },
+  { {"h8300sx", no_argument, NULL, OPTION_H8300SX},
+      'x', NULL, "Indicate the CPU is H8SX",
       standard_option_handler },
 #endif
 
@@ -181,6 +191,19 @@ static const OPTION standard_options[] =
   { {"target", required_argument, NULL, OPTION_TARGET},
       '\0', "BFDNAME", "Specify the object-code format for the object files",
       standard_option_handler },
+
+#ifdef SIM_HANDLES_LMA
+  { {"load-lma", no_argument, NULL, OPTION_LOAD_LMA},
+      '\0', NULL,
+#if SIM_HANDLES_LMA
+    "Use VMA or LMA addresses when loading image (default LMA)",
+#else
+    "Use VMA or LMA addresses when loading image (default VMA)",
+#endif
+      standard_option_handler, "load-{lma,vma}" },
+  { {"load-vma", no_argument, NULL, OPTION_LOAD_VMA},
+      '\0', NULL, "", standard_option_handler,  "" },
+#endif
 
   { {NULL, no_argument, NULL, 0}, '\0', NULL, NULL, NULL }
 };
@@ -338,8 +361,14 @@ standard_option_handler (SIM_DESC sd, sim_cpu *cpu, int opt,
       break;
 
 #ifdef SIM_H8300 /* FIXME: Can be moved to h8300 dir.  */
-    case OPTION_H8300:
-      set_h8300h (1);
+    case OPTION_H8300H:
+      set_h8300h (bfd_mach_h8300h);
+      break;
+    case OPTION_H8300S:
+      set_h8300h (bfd_mach_h8300s);
+      break;
+    case OPTION_H8300SX:
+      set_h8300h (bfd_mach_h8300sx);
       break;
 #endif
 
@@ -394,6 +423,18 @@ standard_option_handler (SIM_DESC sd, sim_cpu *cpu, int opt,
 	break;
       }
 
+    case OPTION_LOAD_LMA:
+      {
+	STATE_LOAD_AT_LMA_P (sd) = 1;
+	break;
+      }
+
+    case OPTION_LOAD_VMA:
+      {
+	STATE_LOAD_AT_LMA_P (sd) = 0;
+	break;
+      }
+
     case OPTION_HELP:
       sim_print_help (sd, is_command);
       if (STATE_OPEN_KIND (sd) == SIM_OPEN_STANDALONE)
@@ -413,6 +454,9 @@ standard_install (SIM_DESC sd)
   SIM_ASSERT (STATE_MAGIC (sd) == SIM_MAGIC_NUMBER);
   if (sim_add_option_table (sd, NULL, standard_options) != SIM_RC_OK)
     return SIM_RC_FAIL;
+#ifdef SIM_HANDLES_LMA
+  STATE_LOAD_AT_LMA_P (sd) = SIM_HANDLES_LMA;
+#endif
   return SIM_RC_OK;
 }
 
@@ -469,6 +513,7 @@ sim_parse_args (sd, argv)
   const OPTION *opt;
   OPTION_HANDLER **handlers;
   sim_cpu **opt_cpu;
+  SIM_RC result = SIM_RC_OK;
 
   /* Count the number of arguments.  */
   for (argc = 0; argv[argc] != NULL; ++argc)
@@ -549,7 +594,8 @@ sim_parse_args (sd, argv)
 	    if (opt->shortopt != 0)
 	      {
 		sim_io_eprintf (sd, "internal error, short cpu specific option");
-		return SIM_RC_FAIL;
+		result = SIM_RC_FAIL;
+		break;
 	      }
 	    if (opt->opt.name != NULL)
 	      {
@@ -587,13 +633,24 @@ sim_parse_args (sd, argv)
 	  break;
 	}
       if (optc == '?')
-	return SIM_RC_FAIL;
+	{
+	  result = SIM_RC_FAIL;
+	  break;
+	}
 
       if ((*handlers[optc]) (sd, opt_cpu[optc], orig_val[optc], optarg, 0/*!is_command*/) == SIM_RC_FAIL)
-	return SIM_RC_FAIL;
+	{
+	  result = SIM_RC_FAIL;
+	  break;
+	}
     }
 
-  return SIM_RC_OK;
+  zfree (long_options);
+  zfree (short_options);
+  zfree (handlers);
+  zfree (opt_cpu);
+  zfree (orig_val);
+  return result;
 }
 
 /* Utility of sim_print_help to print a list of option tables.  */
@@ -679,7 +736,7 @@ print_help (SIM_DESC sd, sim_cpu *cpu, const struct option_list *ol, int is_comm
 		  {
 		    if (o->opt.has_arg == optional_argument)
 		      {
-			sim_io_printf (sd, " [%s]", o->arg);
+			sim_io_printf (sd, "[=%s]", o->arg);
 			len += 2 + strlen (o->arg) + 1;
 		      }
 		    else
@@ -712,7 +769,10 @@ print_help (SIM_DESC sd, sim_cpu *cpu, const struct option_list *ol, int is_comm
 		end --;
 	      if (end == chp)
 		end = chp + doc_width - 1;
-	      sim_io_printf (sd, "%.*s\n%*s", end - chp, chp, indent, "");
+	      /* The cast should be ok - its distances between to
+                 points in a string.  */
+	      sim_io_printf (sd, "%.*s\n%*s", (int) (end - chp), chp, indent,
+			     "");
 	      chp = end;
 	      while (isspace (*chp) && *chp != '\0')
 		chp++;

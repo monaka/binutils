@@ -1,13 +1,40 @@
-/*
-** tuiDataWin.c
-**   This module contains functions to support the data/register window display.
-*/
+/* Data/register window display.
 
+   Copyright 1998, 1999, 2000, 2001, 2002, 2003 Free Software Foundation,
+   Inc.
+
+   Contributed by Hewlett-Packard Company.
+
+   This file is part of GDB.
+
+   This program is free software; you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation; either version 2 of the License, or
+   (at your option) any later version.
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #include "defs.h"
 #include "tui.h"
 #include "tuiData.h"
+#include "tuiGeneralWin.h"
 #include "tuiRegs.h"
+
+#ifdef HAVE_NCURSES_H       
+#include <ncurses.h>
+#else
+#ifdef HAVE_CURSES_H
+#include <curses.h>
+#endif
+#endif
 
 
 /*****************************************
@@ -22,16 +49,12 @@
 
 
 /*
-** tuiFirstDataItemDisplayed()
-**    Answer the index first element displayed.
-**    If none are displayed, then return (-1).
-*/
+   ** tuiFirstDataItemDisplayed()
+   **    Answer the index first element displayed.
+   **    If none are displayed, then return (-1).
+ */
 int
-#ifdef __STDC__
 tuiFirstDataItemDisplayed (void)
-#else
-tuiFirstDataItemDisplayed ()
-#endif
 {
   int elementNo = (-1);
   int i;
@@ -51,29 +74,23 @@ tuiFirstDataItemDisplayed ()
 
 
 /*
-** tuiFirstDataElementNoInLine()
-**        Answer the index of the first element in lineNo.  If lineNo is
-**        past the data area (-1) is returned.
-*/
+   ** tuiFirstDataElementNoInLine()
+   **        Answer the index of the first element in lineNo.  If lineNo is
+   **        past the data area (-1) is returned.
+ */
 int
-#ifdef __STDC__
-tuiFirstDataElementNoInLine (
-			      int lineNo)
-#else
-tuiFirstDataElementNoInLine (lineNo)
-     int lineNo;
-#endif
+tuiFirstDataElementNoInLine (int lineNo)
 {
   int firstElementNo = (-1);
 
   /*
-    ** First see if there is a register on lineNo, and if so, set the
-    ** first element number
-    */
+     ** First see if there is a register on lineNo, and if so, set the
+     ** first element number
+   */
   if ((firstElementNo = tuiFirstRegElementNoInLine (lineNo)) == -1)
     {				/*
-      ** Looking at the general data, the 1st element on lineNo
-      */
+				   ** Looking at the general data, the 1st element on lineNo
+				 */
     }
 
   return firstElementNo;
@@ -81,16 +98,12 @@ tuiFirstDataElementNoInLine (lineNo)
 
 
 /*
-** tuiDeleteDataContentWindows()
-**        Function to delete all the item windows in the data window.
-**        This is usually done when the data window is scrolled.
-*/
+   ** tuiDeleteDataContentWindows()
+   **        Function to delete all the item windows in the data window.
+   **        This is usually done when the data window is scrolled.
+ */
 void
-#ifdef __STDC__
 tuiDeleteDataContentWindows (void)
-#else
-tuiDeleteDataContentWindows ()
-#endif
 {
   int i;
   TuiGenWinInfoPtr dataItemWinPtr;
@@ -109,13 +122,7 @@ tuiDeleteDataContentWindows ()
 
 
 void
-#ifdef __STDC__
-tuiEraseDataContent (
-		      char *prompt)
-#else
-tuiEraseDataContent (prompt)
-     char *prompt;
-#endif
+tuiEraseDataContent (char *prompt)
 {
   werase (dataWin->generic.handle);
   checkAndDisplayHighlightIfNeeded (dataWin);
@@ -140,16 +147,12 @@ tuiEraseDataContent (prompt)
 
 
 /*
-** tuiDisplayAllData().
-**        This function displays the data that is in the data window's
-**        content.  It does not set the content.
-*/
+   ** tuiDisplayAllData().
+   **        This function displays the data that is in the data window's
+   **        content.  It does not set the content.
+ */
 void
-#ifdef __STDC__
 tuiDisplayAllData (void)
-#else
-tuiDisplayAllData ()
-#endif
 {
   if (dataWin->generic.contentSize <= 0)
     tuiEraseDataContent (NO_DATA_STRING);
@@ -160,8 +163,8 @@ tuiDisplayAllData ()
       checkAndDisplayHighlightIfNeeded (dataWin);
       tuiDisplayRegistersFrom (0);
       /*
-        ** Then display the other data
-        */
+         ** Then display the other data
+       */
       if (dataWin->detail.dataDisplayInfo.dataContent !=
 	  (TuiWinContent) NULL &&
 	  dataWin->detail.dataDisplayInfo.dataContentCount > 0)
@@ -173,18 +176,12 @@ tuiDisplayAllData ()
 
 
 /*
-** tuiDisplayDataFromLine()
-**        Function to display the data starting at line, lineNo, in the
-**        data window.
-*/
+   ** tuiDisplayDataFromLine()
+   **        Function to display the data starting at line, lineNo, in the
+   **        data window.
+ */
 void
-#ifdef __STDC__
-tuiDisplayDataFromLine (
-			 int lineNo)
-#else
-tuiDisplayDataFromLine (lineNo)
-     int lineNo;
-#endif
+tuiDisplayDataFromLine (int lineNo)
 {
   int _lineNo = lineNo;
 
@@ -205,20 +202,20 @@ tuiDisplayDataFromLine (lineNo)
       /* display regs if we can */
       if (tuiDisplayRegistersFromLine (_lineNo, FALSE) < 0)
 	{			/*
-            ** _lineNo is past the regs display, so calc where the
-            ** start data element is
-            */
+				   ** _lineNo is past the regs display, so calc where the
+				   ** start data element is
+				 */
 	  if (regsLastLine < _lineNo)
 	    {			/* figure out how many lines each element is to obtain
-                    the start elementNo */
+				   the start elementNo */
 	    }
 	}
       else
 	{			/*
-           ** calculate the starting element of the data display, given
-           ** regsLastLine and how many lines each element is, up to
-           ** _lineNo
-           */
+				   ** calculate the starting element of the data display, given
+				   ** regsLastLine and how many lines each element is, up to
+				   ** _lineNo
+				 */
 	}
       /* Now display the data , starting at elementNo */
     }
@@ -228,19 +225,11 @@ tuiDisplayDataFromLine (lineNo)
 
 
 /*
-** tuiDisplayDataFrom()
-**        Display data starting at element elementNo
-*/
+   ** tuiDisplayDataFrom()
+   **        Display data starting at element elementNo
+ */
 void
-#ifdef __STDC__
-tuiDisplayDataFrom (
-		     int elementNo,
-		     int reuseWindows)
-#else
-tuiDisplayDataFrom (elementNo, reuseWindows)
-     int elementNo;
-     int reuseWindows;
-#endif
+tuiDisplayDataFrom (int elementNo, int reuseWindows)
 {
   int firstLine = (-1);
 
@@ -263,15 +252,11 @@ tuiDisplayDataFrom (elementNo, reuseWindows)
 
 
 /*
-** tuiRefreshDataWin()
-**        Function to redisplay the contents of the data window.
-*/
+   ** tuiRefreshDataWin()
+   **        Function to redisplay the contents of the data window.
+ */
 void
-#ifdef __STDC__
 tuiRefreshDataWin (void)
-#else
-tuiRefreshDataWin ()
-#endif
 {
   tuiEraseDataContent ((char *) NULL);
   if (dataWin->generic.contentSize > 0)
@@ -287,17 +272,11 @@ tuiRefreshDataWin ()
 
 
 /*
-** tuiCheckDataValues().
-**        Function to check the data values and hilite any that have changed
-*/
+   ** tuiCheckDataValues().
+   **        Function to check the data values and hilite any that have changed
+ */
 void
-#ifdef __STDC__
-tuiCheckDataValues (
-		     struct frame_info *frame)
-#else
-tuiCheckDataValues (frame)
-     struct frame_info *frame;
-#endif
+tuiCheckDataValues (struct frame_info *frame)
 {
   tuiCheckRegisterValues (frame);
 
@@ -330,41 +309,11 @@ tuiCheckDataValues (frame)
 
 
 /*
-** tui_vCheckDataValues().
-**        Function to check the data values and hilite any that have
-**        changed with args in a va_list
-*/
+   ** tuiVerticalDataScroll()
+   **        Scroll the data window vertically forward or backward.
+ */
 void
-#ifdef __STDC__
-tui_vCheckDataValues (
-		       va_list args)
-#else
-tui_vCheckDataValues (args)
-     va_list args;
-#endif
-{
-  struct frame_info *frame = va_arg (args, struct frame_info *);
-
-  tuiCheckDataValues (frame);
-
-  return;
-}				/* tui_vCheckDataValues */
-
-
-/*
-** tuiVerticalDataScroll()
-**        Scroll the data window vertically forward or backward.
-*/
-void
-#ifdef __STDC__
-tuiVerticalDataScroll (
-			TuiScrollDirection scrollDirection,
-			int numToScroll)
-#else
-tuiVerticalDataScroll (scrollDirection, numToScroll)
-     TuiScrollDirection scrollDirection;
-     int numToScroll;
-#endif
+tuiVerticalDataScroll (TuiScrollDirection scrollDirection, int numToScroll)
 {
   int firstElementNo;
   int firstLine = (-1);
@@ -374,8 +323,8 @@ tuiVerticalDataScroll (scrollDirection, numToScroll)
     firstLine = tuiLineFromRegElementNo (firstElementNo);
   else
     {				/* calculate the first line from the element number which is in
-        ** the general data content
-        */
+				   ** the general data content
+				 */
     }
 
   if (firstLine >= 0)

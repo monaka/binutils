@@ -486,10 +486,6 @@ int pid;
         exp_fs[fd].MasterOutput = 0;
         exp_fs[fd].Slave = 0;
 #endif /* TCL_MAJOR_VERSION < 8 */
-#ifdef __CYGWIN32__
-       exp_fs[fd].channel = NULL;
-       exp_fs[fd].fileproc = NULL;
-#endif
 	exp_fs[fd].tcl_handle = 0;
 	exp_fs[fd].slave_fd = EXP_NOFD;
 #ifdef HAVE_PTYTRAP
@@ -618,38 +614,6 @@ char *name;
 	Tcl_SetHashValue(entry,(ClientData)f);
 #endif /* HAVE_PTYTRAP */
 }
-
-#ifdef __CYGWIN32__
-/* Sometimes, the win32 version of expect passes a windows handle to
-   dup(), which normally only takes file descriptors.  We check for
-   that with this wrapper.  DJ */
-#include <windows.h>
-static int
-cygwin_pipe_dup (int oldfd)
-{
-  int rv = dup(oldfd);
-  if (rv != -1) /* cool */
-    return rv;
-  /* Oops, check for a handle */
-  if (GetFileType((HANDLE)oldfd) == FILE_TYPE_PIPE)
-    {
-      if (DuplicateHandle(GetCurrentProcess(),
-			  (HANDLE)oldfd,
-			  GetCurrentProcess(),
-			  (HANDLE *)&rv,
-			  0, 0,
-			  DUPLICATE_SAME_ACCESS))
-	{
-	  int fd = cygwin32_attach_handle_to_fd ("/dev/piped",
-						 -1, rv,
-						 1, O_RDWR);
-	  if (fd >= 0)
-	    return fd;
-	}
-    }
-  return -1;
-}
-#endif
 
 /* arguments are passed verbatim to execvp() */
 /*ARGSUSED*/
@@ -953,21 +917,17 @@ when trapping, see below in child half of fork */
 #endif /* TCL_MAJOR_VERSION < 8 */
 		}
 
-		master = ((mode & TCL_READABLE)?rfd:wfd);
+		master = (int)((mode & TCL_READABLE)?rfd:wfd);
 
 		/* make a new copy of file descriptor */
-#ifdef __CYGWIN32__
-		if (-1 == (write_master = master = cygwin_pipe_dup(master))) {
-#else
 		if (-1 == (write_master = master = dup(master))) {
-#endif
 			exp_error(interp,"fdopen: %s",Tcl_PosixError(interp));
 			return TCL_ERROR;
 		}
 
 		/* if writefilePtr is different, dup that too */
 		if ((mode & TCL_READABLE) && (mode & TCL_WRITABLE) && (wfd != rfd)) {
-			if (-1 == (write_master = dup(wfd))) {
+			if (-1 == (write_master = dup((int)wfd))) {
 				exp_error(interp,"fdopen: %s",Tcl_PosixError(interp));
 				return TCL_ERROR;
 			}
@@ -2376,16 +2336,6 @@ char **argv;
 #endif /* TCL_MAJOR_VERSION < 8 */
 
 		Tcl_DStringTrunc(&dstring,0);
-
-#ifdef __CYGWIN32__
-               /* This doesn't work on cygwin32, because
-                   Tcl_GetChannelHandle is likely to return a Windows
-                   handle, and passing that to dup will fail.  */
-               exp_error(interp,"log_file -open and -leaveopen not supported on
- cygwin32");
-               return TCL_ERROR;
-#endif
-
 #if TCL7_4
 		cc = Tcl_GetOpenFile(interp,openarg,1,1,&writefilePtr);
 		if (cc == TCL_ERROR) goto error;
@@ -2698,10 +2648,14 @@ Tcl_Obj *CONST argv[];	/* Argument objects. */
 	argc--; argv++;
 
 #if TCL_MAJOR_VERSION < 8
-#define STARARGV *argv
+#  define STARARGV *argv
 #else
-#define STARARGV Tcl_GetStringFromObj(*argv,(int *)0)
-#endif
+#  if TCL_MINOR_VERSION < 3
+#    define STARARGV Tcl_GetStringFromObj(*argv,(int *)0)
+#  else
+#    define STARARGV Tcl_GetString(*argv)
+#  endif
+#endif 
 
 	for (;argc>0;argc--,argv++) {
 		if (streq("-i",STARARGV)) {
@@ -3688,10 +3642,11 @@ Tcl_CloseCmd(stuff, interp, argc, argv)
      * FAILS IF OBJECT RESULT'S STRING REPRESENTATION CONTAINS NULL BYTES.
      */
 
-    Tcl_SetResult(interp,
-            TclGetStringFromObj(Tcl_GetObjResult(interp), (int *) NULL),
-            TCL_VOLATILE);
-    
+#if (TCL_MAJOR_VERSION == 8) && (TCL_MINOR_VERSION < 3)
+    Tcl_SetResult(interp, TclGetStringFromObj(Tcl_GetObjResult(interp), (int *) NULL), TCL_VOLATILE);
+#else
+    Tcl_SetResult(interp, TclGetString(Tcl_GetObjResult(interp)), TCL_VOLATILE);
+#endif
     /*
      * Decrement the ref counts for the argument objects created above,
      * then free the objv array if malloc'ed storage was used.

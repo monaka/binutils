@@ -1,5 +1,6 @@
 /* BFD back-end for Intel 386 COFF files.
-   Copyright 1990, 91, 92, 93, 94, 95, 96, 97, 98, 1999
+   Copyright 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999,
+   2000, 2001, 2002, 2003
    Free Software Foundation, Inc.
    Written by Cygnus Support.
 
@@ -45,7 +46,6 @@ static reloc_howto_type *coff_i386_rtype_to_howto
 	   bfd_vma *));
 static reloc_howto_type *coff_i386_reloc_type_lookup
   PARAMS ((bfd *, bfd_reloc_code_real_type));
-static const bfd_target *i3coff_object_p PARAMS ((bfd *));
 
 #define COFF_DEFAULT_SECTION_ALIGNMENT_POWER (2)
 /* The page size is a guess based on ELF.  */
@@ -56,7 +56,7 @@ static const bfd_target *i3coff_object_p PARAMS ((bfd *));
    section for a reference to a common symbol is the value itself plus
    any desired offset.  Ian Taylor, Cygnus Support.  */
 
-/* If we are producing relocateable output, we need to do some
+/* If we are producing relocatable output, we need to do some
    adjustments to the object file that are not done by the
    bfd_perform_relocation function.  This function is called by every
    reloc type to make any required adjustments.  */
@@ -74,8 +74,10 @@ coff_i386_reloc (abfd, reloc_entry, symbol, data, input_section, output_bfd,
 {
   symvalue diff;
 
+#ifndef COFF_WITH_PE
   if (output_bfd == (bfd *) NULL)
     return bfd_reloc_continue;
+#endif
 
   if (bfd_is_com_section (symbol->section))
     {
@@ -101,14 +103,35 @@ coff_i386_reloc (abfd, reloc_entry, symbol, data, input_section, output_bfd,
     {
       /* For some reason bfd_perform_relocation always effectively
 	 ignores the addend for a COFF target when producing
-	 relocateable output.  This seems to be always wrong for 386
+	 relocatable output.  This seems to be always wrong for 386
 	 COFF, so we handle the addend here instead.  */
-      diff = reloc_entry->addend;
+#ifdef COFF_WITH_PE
+      if (output_bfd == (bfd *) NULL)
+	{
+	  reloc_howto_type *howto = reloc_entry->howto;
+
+	  /* Although PC relative relocations are very similar between
+	     PE and non-PE formats, but they are off by 1 << howto->size
+	     bytes. For the external relocation, PE is very different
+	     from others. See md_apply_fix3 () in gas/config/tc-i386.c.
+	     When we link PE and non-PE object files together to
+	     generate a non-PE executable, we have to compensate it
+	     here.  */
+	  if (howto->pc_relative && howto->pcrel_offset)
+	    diff = -(1 << howto->size);
+	  else
+	    diff = -reloc_entry->addend;
+	}
+      else
+#endif
+	diff = reloc_entry->addend;
     }
 
 #ifdef COFF_WITH_PE
   /* FIXME: How should this case be handled?  */
-  if (reloc_entry->howto->type == R_IMAGEBASE)
+  if (reloc_entry->howto->type == R_IMAGEBASE
+      && output_bfd != NULL
+      && bfd_get_flavour(output_bfd) == bfd_target_coff_flavour)
     diff -= pe_data (output_bfd)->pe_opthdr.ImageBase;
 #endif
 
@@ -134,7 +157,7 @@ coff_i386_reloc (abfd, reloc_entry, symbol, data, input_section, output_bfd,
 	    {
 	      short x = bfd_get_16 (abfd, addr);
 	      DOIT (x);
-	      bfd_put_16 (abfd, x, addr);
+	      bfd_put_16 (abfd, (bfd_vma) x, addr);
 	    }
 	    break;
 
@@ -142,7 +165,7 @@ coff_i386_reloc (abfd, reloc_entry, symbol, data, input_section, output_bfd,
 	    {
 	      long x = bfd_get_32 (abfd, addr);
 	      DOIT (x);
-	      bfd_put_32 (abfd, x, addr);
+	      bfd_put_32 (abfd, (bfd_vma) x, addr);
 	    }
 	    break;
 
@@ -156,23 +179,21 @@ coff_i386_reloc (abfd, reloc_entry, symbol, data, input_section, output_bfd,
 }
 
 #ifdef COFF_WITH_PE
-
-/* Return true if this relocation should appear in the output .reloc
+/* Return TRUE if this relocation should appear in the output .reloc
    section.  */
 
-static boolean in_reloc_p PARAMS ((bfd *, reloc_howto_type *));
+static bfd_boolean in_reloc_p PARAMS ((bfd *, reloc_howto_type *));
 
-static boolean in_reloc_p (abfd, howto)
-     bfd *abfd ATTRIBUTE_UNUSED;
+static bfd_boolean in_reloc_p (abfd, howto)
+     bfd * abfd ATTRIBUTE_UNUSED;
      reloc_howto_type *howto;
 {
   return ! howto->pc_relative && howto->type != R_IMAGEBASE;
 }
-
 #endif /* COFF_WITH_PE */
 
 #ifndef PCRELOFFSET
-#define PCRELOFFSET false
+#define PCRELOFFSET FALSE
 #endif
 
 static reloc_howto_type howto_table[] =
@@ -187,29 +208,29 @@ static reloc_howto_type howto_table[] =
 	 0,			/* rightshift */
 	 2,			/* size (0 = byte, 1 = short, 2 = long) */
 	 32,			/* bitsize */
-	 false,			/* pc_relative */
+	 FALSE,			/* pc_relative */
 	 0,			/* bitpos */
 	 complain_overflow_bitfield, /* complain_on_overflow */
 	 coff_i386_reloc,	/* special_function */
 	 "dir32",		/* name */
-	 true,			/* partial_inplace */
+	 TRUE,			/* partial_inplace */
 	 0xffffffff,		/* src_mask */
 	 0xffffffff,		/* dst_mask */
-	 true),			/* pcrel_offset */
+	 TRUE),			/* pcrel_offset */
   /* PE IMAGE_REL_I386_DIR32NB relocation (7).	*/
   HOWTO (R_IMAGEBASE,		/* type */
 	 0,			/* rightshift */
 	 2,			/* size (0 = byte, 1 = short, 2 = long) */
 	 32,			/* bitsize */
-	 false,			/* pc_relative */
+	 FALSE,			/* pc_relative */
 	 0,			/* bitpos */
 	 complain_overflow_bitfield, /* complain_on_overflow */
 	 coff_i386_reloc,	/* special_function */
 	 "rva32",		/* name */
-	 true,			/* partial_inplace */
+	 TRUE,			/* partial_inplace */
 	 0xffffffff,		/* src_mask */
 	 0xffffffff,		/* dst_mask */
-	 false),		/* pcrel_offset */
+	 FALSE),		/* pcrel_offset */
   EMPTY_HOWTO (010),
   EMPTY_HOWTO (011),
   EMPTY_HOWTO (012),
@@ -222,12 +243,12 @@ static reloc_howto_type howto_table[] =
 	 0,			/* rightshift */
 	 0,			/* size (0 = byte, 1 = short, 2 = long) */
 	 8,			/* bitsize */
-	 false,			/* pc_relative */
+	 FALSE,			/* pc_relative */
 	 0,			/* bitpos */
 	 complain_overflow_bitfield, /* complain_on_overflow */
 	 coff_i386_reloc,	/* special_function */
 	 "8",			/* name */
-	 true,			/* partial_inplace */
+	 TRUE,			/* partial_inplace */
 	 0x000000ff,		/* src_mask */
 	 0x000000ff,		/* dst_mask */
 	 PCRELOFFSET),		/* pcrel_offset */
@@ -236,12 +257,12 @@ static reloc_howto_type howto_table[] =
 	 0,			/* rightshift */
 	 1,			/* size (0 = byte, 1 = short, 2 = long) */
 	 16,			/* bitsize */
-	 false,			/* pc_relative */
+	 FALSE,			/* pc_relative */
 	 0,			/* bitpos */
 	 complain_overflow_bitfield, /* complain_on_overflow */
 	 coff_i386_reloc,	/* special_function */
 	 "16",			/* name */
-	 true,			/* partial_inplace */
+	 TRUE,			/* partial_inplace */
 	 0x0000ffff,		/* src_mask */
 	 0x0000ffff,		/* dst_mask */
 	 PCRELOFFSET),		/* pcrel_offset */
@@ -250,12 +271,12 @@ static reloc_howto_type howto_table[] =
 	 0,			/* rightshift */
 	 2,			/* size (0 = byte, 1 = short, 2 = long) */
 	 32,			/* bitsize */
-	 false,			/* pc_relative */
+	 FALSE,			/* pc_relative */
 	 0,			/* bitpos */
 	 complain_overflow_bitfield, /* complain_on_overflow */
 	 coff_i386_reloc,	/* special_function */
 	 "32",			/* name */
-	 true,			/* partial_inplace */
+	 TRUE,			/* partial_inplace */
 	 0xffffffff,		/* src_mask */
 	 0xffffffff,		/* dst_mask */
 	 PCRELOFFSET),		/* pcrel_offset */
@@ -264,12 +285,12 @@ static reloc_howto_type howto_table[] =
 	 0,			/* rightshift */
 	 0,			/* size (0 = byte, 1 = short, 2 = long) */
 	 8,			/* bitsize */
-	 true,			/* pc_relative */
+	 TRUE,			/* pc_relative */
 	 0,			/* bitpos */
 	 complain_overflow_signed, /* complain_on_overflow */
 	 coff_i386_reloc,	/* special_function */
 	 "DISP8",		/* name */
-	 true,			/* partial_inplace */
+	 TRUE,			/* partial_inplace */
 	 0x000000ff,		/* src_mask */
 	 0x000000ff,		/* dst_mask */
 	 PCRELOFFSET),		/* pcrel_offset */
@@ -278,12 +299,12 @@ static reloc_howto_type howto_table[] =
 	 0,			/* rightshift */
 	 1,			/* size (0 = byte, 1 = short, 2 = long) */
 	 16,			/* bitsize */
-	 true,			/* pc_relative */
+	 TRUE,			/* pc_relative */
 	 0,			/* bitpos */
 	 complain_overflow_signed, /* complain_on_overflow */
 	 coff_i386_reloc,	/* special_function */
 	 "DISP16",		/* name */
-	 true,			/* partial_inplace */
+	 TRUE,			/* partial_inplace */
 	 0x0000ffff,		/* src_mask */
 	 0x0000ffff,		/* dst_mask */
 	 PCRELOFFSET),		/* pcrel_offset */
@@ -292,12 +313,12 @@ static reloc_howto_type howto_table[] =
 	 0,			/* rightshift */
 	 2,			/* size (0 = byte, 1 = short, 2 = long) */
 	 32,			/* bitsize */
-	 true,			/* pc_relative */
+	 TRUE,			/* pc_relative */
 	 0,			/* bitpos */
 	 complain_overflow_signed, /* complain_on_overflow */
 	 coff_i386_reloc,	/* special_function */
 	 "DISP32",		/* name */
-	 true,			/* partial_inplace */
+	 TRUE,			/* partial_inplace */
 	 0xffffffff,		/* src_mask */
 	 0xffffffff,		/* dst_mask */
 	 PCRELOFFSET)		/* pcrel_offset */
@@ -365,13 +386,13 @@ static reloc_howto_type howto_table[] =
 
 /* The PE relocate section routine.  The only difference between this
    and the regular routine is that we don't want to do anything for a
-   relocateable link.  */
+   relocatable link.  */
 
-static boolean coff_pe_i386_relocate_section
+static bfd_boolean coff_pe_i386_relocate_section
   PARAMS ((bfd *, struct bfd_link_info *, bfd *, asection *, bfd_byte *,
 	   struct internal_reloc *, struct internal_syment *, asection **));
 
-static boolean
+static bfd_boolean
 coff_pe_i386_relocate_section (output_bfd, info, input_bfd,
 			       input_section, contents, relocs, syms,
 			       sections)
@@ -384,8 +405,8 @@ coff_pe_i386_relocate_section (output_bfd, info, input_bfd,
      struct internal_syment *syms;
      asection **sections;
 {
-  if (info->relocateable)
-    return true;
+  if (info->relocatable)
+    return TRUE;
 
   return _bfd_coff_generic_relocate_section (output_bfd, info, input_bfd,
 					     input_section, contents,
@@ -449,7 +470,7 @@ coff_i386_rtype_to_howto (abfd, sec, rel, h, sym, addendp)
 
 #ifndef COFF_WITH_PE
   /* If the output symbol is common (in which case this must be a
-     relocateable link), we need to add in the final size of the
+     relocatable link), we need to add in the final size of the
      common symbol.  */
   if (h != NULL && h->root.type == bfd_link_hash_common)
     *addendp += h->root.u.c.size;
@@ -470,7 +491,9 @@ coff_i386_rtype_to_howto (abfd, sec, rel, h, sym, addendp)
 	*addendp -= sym->n_value;
     }
 
-  if (rel->r_type == R_IMAGEBASE)
+  if (rel->r_type == R_IMAGEBASE
+      && (bfd_get_flavour(sec->output_section->owner)
+	  == bfd_target_coff_flavour))
     {
       *addendp -= pe_data(sec->output_section->owner)->pe_opthdr.ImageBase;
     }
@@ -516,15 +539,16 @@ coff_i386_reloc_type_lookup (abfd, code)
    a leading dot for local labels, so if TARGET_UNDERSCORE is defined
    we treat all symbols starting with L as local.  */
 
-static boolean coff_i386_is_local_label_name PARAMS ((bfd *, const char *));
+static bfd_boolean coff_i386_is_local_label_name
+  PARAMS ((bfd *, const char *));
 
-static boolean
+static bfd_boolean
 coff_i386_is_local_label_name (abfd, name)
      bfd *abfd;
      const char *name;
 {
   if (name[0] == 'L')
-    return true;
+    return TRUE;
 
   return _bfd_coff_is_local_label_name (abfd, name);
 }
@@ -534,69 +558,6 @@ coff_i386_is_local_label_name (abfd, name)
 #endif /* TARGET_UNDERSCORE */
 
 #include "coffcode.h"
-
-static const bfd_target *
-i3coff_object_p (abfd)
-     bfd *abfd;
-{
-#ifdef COFF_IMAGE_WITH_PE
-  /* We need to hack badly to handle a PE image correctly.  In PE
-     images created by the GNU linker, the offset to the COFF header
-     is always the size.  However, this is not the case in images
-     generated by other PE linkers.  The PE format stores a four byte
-     offset to the PE signature just before the COFF header at
-     location 0x3c of the file.  We pick up that offset, verify that
-     the PE signature is there, and then set ourselves up to read in
-     the COFF header.  */
-  {
-    bfd_byte ext_offset[4];
-    file_ptr offset;
-    bfd_byte ext_signature[4];
-    unsigned long signature;
-
-    if (bfd_seek (abfd, 0x3c, SEEK_SET) != 0
-	|| bfd_read (ext_offset, 1, 4, abfd) != 4)
-      {
-	if (bfd_get_error () != bfd_error_system_call)
-	  bfd_set_error (bfd_error_wrong_format);
-	return NULL;
-      }
-    offset = bfd_h_get_32 (abfd, ext_offset);
-    if (bfd_seek (abfd, offset, SEEK_SET) != 0
-	|| bfd_read (ext_signature, 1, 4, abfd) != 4)
-      {
-	if (bfd_get_error () != bfd_error_system_call)
-	  bfd_set_error (bfd_error_wrong_format);
-	return NULL;
-      }
-    signature = bfd_h_get_32 (abfd, ext_signature);
-
-    if (signature != 0x4550)
-      {
-	bfd_set_error (bfd_error_wrong_format);
-	return NULL;
-      }
-
-    /* Here is the hack.  coff_object_p wants to read filhsz bytes to
-       pick up the COFF header.  We adjust so that that will work.  20
-       is the size of the i386 COFF filehdr.  */
-
-    if (bfd_seek (abfd,
-		  (bfd_tell (abfd)
-		   - bfd_coff_filhsz (abfd)
-		   + 20),
-		  SEEK_SET)
-	!= 0)
-      {
-	if (bfd_get_error () != bfd_error_system_call)
-	  bfd_set_error (bfd_error_wrong_format);
-	return NULL;
-      }
-  }
-#endif
-
-  return coff_object_p (abfd);
-}
 
 const bfd_target
 #ifdef TARGET_SYM
@@ -620,7 +581,7 @@ const bfd_target
 
   (SEC_HAS_CONTENTS | SEC_ALLOC | SEC_LOAD | SEC_RELOC /* section flags */
 #ifdef COFF_WITH_PE
-   | SEC_LINK_ONCE | SEC_LINK_DUPLICATES
+   | SEC_LINK_ONCE | SEC_LINK_DUPLICATES | SEC_READONLY
 #endif
    | SEC_CODE | SEC_DATA),
 
@@ -639,9 +600,9 @@ const bfd_target
      bfd_getl32, bfd_getl_signed_32, bfd_putl32,
      bfd_getl16, bfd_getl_signed_16, bfd_putl16, /* hdrs */
 
-/* Note that we allow an object file to be treated as a core file as well. */
-    {_bfd_dummy_target, i3coff_object_p, /* bfd_check_format */
-       bfd_generic_archive_p, i3coff_object_p},
+/* Note that we allow an object file to be treated as a core file as well.  */
+    {_bfd_dummy_target, coff_object_p, /* bfd_check_format */
+       bfd_generic_archive_p, coff_object_p},
     {bfd_false, coff_mkobject, _bfd_generic_mkarchive, /* bfd_set_format */
        bfd_false},
     {bfd_false, coff_write_object_contents, /* bfd_write_contents */

@@ -177,7 +177,9 @@ TclpInitLibraryPath(path)
     int pathc;
     CONST char **pathv;
     char installLib[LIBRARY_SIZE], developLib[LIBRARY_SIZE];
-
+#ifdef __CYGWIN__
+    char installLib2[LIBRARY_SIZE];
+#endif
     Tcl_DStringInit(&ds);
     pathPtr = Tcl_NewObj();
 
@@ -188,7 +190,18 @@ TclpInitLibraryPath(path)
      * executable is run from a develpment directory.
      */
 
-    sprintf(installLib, "lib/tcl%s", TCL_VERSION);
+    /* REDHAT LOCAL */
+    /* Due to cygwin standard practice, the tcl binary will be
+       installed in /bin rather than /usr/bin.  This means that, without
+       this change, tcl will search in x:\share rather than x:\usr\share. */
+
+    /* sprintf(installLib, "lib/tcl%s", TCL_VERSION); */
+    sprintf(installLib, "share/tcl%s", TCL_VERSION);
+#ifdef __CYGWIN__
+    sprintf(installLib2, "usr/share/tcl%s", TCL_VERSION);
+#endif
+    /* END REDHAT LOCAL */
+
     sprintf(developLib, "../tcl%s/library", TCL_PATCH_LEVEL);
 
     /*
@@ -245,6 +258,8 @@ TclpInitLibraryPath(path)
 
     if (path != NULL) {
 	Tcl_SplitPath(path, &pathc, &pathv);
+
+
 	if (pathc > 2) {
 	    str = pathv[pathc - 2];
 	    pathv[pathc - 2] = installLib;
@@ -253,6 +268,17 @@ TclpInitLibraryPath(path)
 	    objPtr = Tcl_NewStringObj(path, Tcl_DStringLength(&ds));
 	    Tcl_ListObjAppendElement(NULL, pathPtr, objPtr);
 	    Tcl_DStringFree(&ds);
+	    /* REDHAT LOCAL */
+#ifdef __CYGWIN__
+	    pathv[pathc - 2] = installLib2;
+	    path = Tcl_JoinPath(pathc - 1, pathv, &ds);
+	    pathv[pathc - 2] = str;
+	    objPtr = Tcl_NewStringObj(path, Tcl_DStringLength(&ds));
+	    Tcl_ListObjAppendElement(NULL, pathPtr, objPtr);
+	    Tcl_DStringFree(&ds);
+#endif
+	    /* END REDHAT LOCAL */
+
 	}
 	if (pathc > 3) {
 	    str = pathv[pathc - 3];

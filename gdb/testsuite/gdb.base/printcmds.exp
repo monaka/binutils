@@ -1,4 +1,5 @@
-# Copyright (C) 1992, 1994, 1995, 1997 Free Software Foundation, Inc.
+# Copyright 1992, 1994, 1995, 1996, 1997, 1999, 2000, 2002, 2003 Free
+# Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -97,8 +98,8 @@ proc test_integer_literals_rejected {} {
     global gdb_prompt
 
     test_print_reject "p 0x" 
-    gdb_test "p ''" "Empty character constant\\."
-    gdb_test "p '''" "Empty character constant\\."
+    gdb_test "p ''" "(Empty character constant\\.|A character constant must contain at least one character\\.)"
+    gdb_test "p '''" "(Empty character constant\\.|A character constant must contain at least one character\\.)"
     test_print_reject "p '\\'"
 
     # Note that this turns into "p '\\\'" at gdb's input.
@@ -133,7 +134,7 @@ proc test_integer_literals_rejected {} {
 proc test_print_all_chars {} {
     global gdb_prompt
 
-    gdb_test "p ctable1\[0\]"   " = 0 '\\\\000'"
+    gdb_test "p ctable1\[0\]"   " = 0 '\\\\0'"
     gdb_test "p ctable1\[1\]"   " = 1 '\\\\001'"
     gdb_test "p ctable1\[2\]"   " = 2 '\\\\002'"
     gdb_test "p ctable1\[3\]"   " = 3 '\\\\003'"
@@ -144,7 +145,7 @@ proc test_print_all_chars {} {
     gdb_test "p ctable1\[8\]"   " = 8 '\\\\b'"
     gdb_test "p ctable1\[9\]"   " = 9 '\\\\t'"
     gdb_test "p ctable1\[10\]"  " = 10 '\\\\n'"
-    gdb_test "p ctable1\[11\]"  " = 11 '\\\\013'"
+    gdb_test "p ctable1\[11\]"  " = 11 '\\\\v'"
     gdb_test "p ctable1\[12\]"  " = 12 '\\\\f'"
     gdb_test "p ctable1\[13\]"  " = 13 '\\\\r'"
     gdb_test "p ctable1\[14\]"  " = 14 '\\\\016'"
@@ -398,7 +399,7 @@ proc test_print_repeats_10 {} {
     global gdb_prompt
 
     for { set x 1; } { $x <= 16 } { incr x; } {
-	gdb_test "set print elements $x" "" ""
+	gdb_test "set print elements $x" ""
 	for { set e 1; } { $e <= 16 } {incr e; } {
 	    set v [expr $e - 1];
 	    set command "p &ctable2\[${v}*16\]"
@@ -451,30 +452,30 @@ proc test_print_strings {} {
 
     # Test that setting print elements unlimited doesn't completely suppress
     # printing; this was a bug in older gdb's.
-    gdb_test "set print elements 0" "" ""
+    gdb_test "set print elements 0" ""
     gdb_test "p teststring" \
 	" = (.unsigned char .. )?\"teststring contents\"" "p teststring with elements set to 0"
-    gdb_test "set print elements 1" "" ""
+    gdb_test "set print elements 1" ""
     gdb_test "p teststring" \
 	" = (.unsigned char .. )?\"t\"\\.\\.\\." "p teststring with elements set to 1"
-    gdb_test "set print elements 5" "" ""
+    gdb_test "set print elements 5" ""
     gdb_test "p teststring" \
 	" = (.unsigned char .. )?\"tests\"\\.\\.\\." "p teststring with elements set to 5"
-    gdb_test "set print elements 19" "" ""
+    gdb_test "set print elements 19" ""
     gdb_test "p teststring" \
 	" = (.unsigned char .. )?\"teststring contents\"" "p teststring with elements set to 19"
-    gdb_test "set print elements 20" "" ""
+    gdb_test "set print elements 20" ""
     gdb_test "p teststring" \
 	" = (.unsigned char .. )?\"teststring contents\"" "p teststring with elements set to 20"
 
-    gdb_test "set print elements 8" "" ""
+    gdb_test "set print elements 8" ""
 
     gdb_test "p &ctable1\[0\]" \
 	" = \\(unsigned char \\*\\) \"\""
     gdb_test "p &ctable1\[1\]" \
 	" = \\(unsigned char \\*\\) \"\\\\001\\\\002\\\\003\\\\004\\\\005\\\\006\\\\a\\\\b\"..."
     gdb_test "p &ctable1\[1*8\]" \
-	" = \\(unsigned char \\*\\) \"\\\\b\\\\t\\\\n\\\\013\\\\f\\\\r\\\\016\\\\017\"..."
+	" = \\(unsigned char \\*\\) \"\\\\b\\\\t\\\\n\\\\v\\\\f\\\\r\\\\016\\\\017\"..."
     gdb_test "p &ctable1\[2*8\]" \
 	" = \\(unsigned char \\*\\) \"\\\\020\\\\021\\\\022\\\\023\\\\024\\\\025\\\\026\\\\027\"..."
     gdb_test "p &ctable1\[3*8\]" \
@@ -540,25 +541,41 @@ proc test_print_strings {} {
 proc test_print_int_arrays {} {
     global gdb_prompt
 
-    gdb_test "set print elements 24" "" ""
+    gdb_test "set print elements 24" ""
 
-    gdb_test "p int1dim" \
+    gdb_test_escape_braces "p int1dim" \
 	" = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}"
-    gdb_test "p int2dim" \
+    gdb_test_escape_braces "p int2dim" \
 	" = {{0, 1, 2, 3}, {4, 5, 6, 7}, {8, 9, 10, 11}}"
-    gdb_test "p int3dim" \
+    gdb_test_escape_braces "p int3dim" \
 	" = {{{0, 1}, {2, 3}, {4, 5}}, {{6, 7}, {8, 9}, {10, 11}}}"
-    gdb_test "p int4dim" \
+    gdb_test_escape_braces "p int4dim" \
 	" = {{{{0, 1}, {2, 3}, {4, 5}}, {{6, 7}, {8, 9}, {10, 11}}}}"
+}
+
+proc test_print_typedef_arrays {} {
+    global gdb_prompt
+
+    gdb_test "set print elements 24" ""
+
+    gdb_test_escape_braces "p a1" \
+	" = {2, 4, 6, 8, 10, 12, 14, 16, 18, 20}"
+    gdb_test "p a1\[0\]" " = 2"
+    gdb_test "p a1\[9\]" " = 20"
+
+    gdb_test "p a2" \
+	" = \"abcd\""
+    gdb_test "p a2\[0\]" " = 97 'a'"
+    gdb_test "p a2\[3\]" " = 100 'd'"
 }
 
 proc test_artificial_arrays {} {
     # Send \026@ instead of just @ in case the kill character is @.
-    gdb_test "p int1dim\[0\]\026@2" " = {0, 1}" {p int1dim[0]@2}
-    gdb_test "p int1dim\[0\]\026@2\026@3" \
+    gdb_test_escape_braces "p int1dim\[0\]\026@2" " = {0, 1}" {p int1dim[0]@2}
+    gdb_test_escape_braces "p int1dim\[0\]\026@2\026@3" \
 	"({{0, 1}, {2, 3}, {4, 5}}|\[Cc\]annot.*)" \
 	{p int1dim[0]@2@3}
-    gdb_test {p/x (short [])0x12345678} \
+    gdb_test_escape_braces {p/x (short [])0x12345678} \
 	" = ({0x1234, 0x5678}|{0x5678, 0x1234})"
 }
 
@@ -566,8 +583,8 @@ proc test_print_char_arrays {} {
     global gdb_prompt
     global hex
 
-    gdb_test "set print elements 24" "" ""
-    gdb_test "set print address on" "" ""
+    gdb_test "set print elements 24" ""
+    gdb_test "set print address on" ""
 
     gdb_test "p arrays" \
 	" = {array1 = \"abc\", array2 = \"d\", array3 = \"e\", array4 = \"fg\", array5 = \"hij\"}"
@@ -584,13 +601,13 @@ proc test_print_char_arrays {} {
     gdb_test "p parrays->array5"	" = \"hij\""
     gdb_test "p &parrays->array5"	" = \\(unsigned char \\(\\*\\)\\\[4\\\]\\) $hex"
 
-    gdb_test "set print address off" "" ""
+    gdb_test "set print address off" ""
 }
 
 proc test_print_string_constants {} {
     global gdb_prompt
 
-    gdb_test "set print elements 50" "" ""
+    gdb_test "set print elements 50" ""
 
     if [target_info exists gdb,cannot_call_functions] {
 	setup_xfail "*-*-*" 2416
@@ -598,25 +615,20 @@ proc test_print_string_constants {} {
 	return
     }
 
-    setup_xfail "a29k-*-udi" 2416
+    # We need to up this because this can be really slow on some boards.
+    # (Test may involve inferior malloc() calls).
+    set timeout 60;
+
     gdb_test "p \"a string\""		" = \"a string\""
-    setup_xfail "a29k-*-udi" 2416
     gdb_test "p \"embedded \\000 null\"" " = \"embedded \\\\000 null\""
-    setup_xfail "a29k-*-udi" 2416
     gdb_test "p \"abcd\"\[2\]"	" = 99 'c'"
-    setup_xfail "a29k-*-udi" 2416
     gdb_test "p sizeof (\"abcdef\")"	" = 7"
-    setup_xfail "a29k-*-udi" 2416
     gdb_test "ptype \"foo\""		" = char \\\[4\\\]"
-    setup_xfail "a29k-*-udi" 2416
     gdb_test "p *\"foo\""		" = 102 'f'"
-    setup_xfail "a29k-*-udi" 2416
     gdb_test "ptype *\"foo\""		" = char"
-    setup_xfail "a29k-*-udi" 2416
     gdb_test "p &*\"foo\""		" = \"foo\""
-    setup_xfail "*-*-*"
+    setup_kfail "gdb/538" *-*-*
     gdb_test "ptype &*\"foo\""	"type = char \\*"
-    setup_xfail "a29k-*-udi" 2416
     gdb_test "p (char *)\"foo\""	" = \"foo\""
 }
 
@@ -628,17 +640,15 @@ proc test_print_array_constants {} {
 	return
     }
 
-    setup_xfail "a29k-*-udi" 2416
+    # We need to up this because this can be really slow on some boards.
+    # (Test may involve inferior malloc() calls).
+    set timeout 60;
+
     gdb_test "print {'a','b','c'}"	" = \"abc\""
-    setup_xfail "a29k-*-udi" 2416
-    gdb_test "print {0,1,2}"		" = {0, 1, 2}"
-    setup_xfail "a29k-*-udi" 2416
-    gdb_test "print {(long)0,(long)1,(long)2}"	" = {0, 1, 2}"
-    setup_xfail "a29k-*-udi" 2416
-    gdb_test "print {{0,1,2},{3,4,5}}"  " = {{0, 1, 2}, {3, 4, 5}}"
-    setup_xfail "a29k-*-udi" 2416
+    gdb_test_escape_braces "print {0,1,2}"    " = {0, 1, 2}"
+    gdb_test_escape_braces "print {(long)0,(long)1,(long)2}"  " = {0, 1, 2}"
+    gdb_test_escape_braces "print {{0,1,2},{3,4,5}}"  " = {{0, 1, 2}, {3, 4, 5}}"
     gdb_test "print {4,5,6}\[2\]"	" = 6"
-    setup_xfail "a29k-*-udi" 2416
     gdb_test "print *&{4,5,6}\[1\]"	" = 5"
 }
 
@@ -656,6 +666,15 @@ proc test_printf {} {
 0xfeedface, 0xdeadbeef, 5.0" "bad -99.54\[0-9\]+, z feedface, deadbeef, 5.0+"
 }
 
+# Escape a left curly brace to prevent it from being interpreted as 
+# the beginning of a bound
+proc gdb_test_escape_braces { args } {
+
+    set pattern [lindex $args 1]
+    regsub -all {\{[0-9]} $pattern {\\&} esc_pattern
+    gdb_test [lindex $args 0] $esc_pattern [lindex $args 2]
+}
+
 # Start with a fresh gdb.
 
 gdb_exit
@@ -669,7 +688,7 @@ gdb_test "print \$pc" "No registers\\."
 gdb_load ${binfile}
 
 gdb_test "set print sevenbit-strings" ""
-gdb_test "set print address off" "" ""
+gdb_test "set print address off" ""
 gdb_test "set width 0" ""
 
 if [set_lang_c] then {
@@ -683,6 +702,7 @@ if [set_lang_c] then {
 	test_print_repeats_10
 	test_print_strings
 	test_print_int_arrays
+	test_print_typedef_arrays
 	test_artificial_arrays
 	test_print_char_arrays
 # We used to do the runto main here.

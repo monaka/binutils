@@ -1,5 +1,6 @@
 /* ELF support for BFD.
-   Copyright (C) 1991, 92, 93, 95, 97, 98, 1999 Free Software Foundation, Inc.
+   Copyright 1991, 1992, 1993, 1995, 1997, 1998, 1999, 2001
+   Free Software Foundation, Inc.
 
    Written by Fred Fish @ Cygnus Support, from information published
    in "UNIX System V Release 4, Programmers Guide: ANSI C and
@@ -25,7 +26,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 /* This file is part of ELF support for BFD, and contains the portions
    that describe how ELF is represented externally by the BFD library.
    I.E. it describes the in-file representation of ELF.  It requires
-   the elf-common.h file which contains the portions that are common to
+   the elf/common.h file which contains the portions that are common to
    both the internal and external representations. */
 
 /* The 64-bit stuff is kind of random.  Perhaps someone will publish a
@@ -142,6 +143,10 @@ typedef struct {
   unsigned char	st_size[8];		/* Associated symbol size */
 } Elf64_External_Sym;
 
+typedef struct {
+  unsigned char est_shndx[4];		/* Section index */
+} Elf_External_Sym_Shndx;
+
 /* Note segments */
 
 typedef struct {
@@ -252,5 +257,20 @@ typedef struct
   unsigned char		si_boundto[2];
   unsigned char		si_flags[2];
 } Elf_External_Syminfo;
+
+
+/* This structure appears on the stack and in NT_AUXV core file notes.  */
+typedef struct
+{
+  unsigned char		a_type[4];
+  unsigned char		a_val[4];
+} Elf32_External_Auxv;
+
+typedef struct
+{
+  unsigned char		a_type[8];
+  unsigned char		a_val[8];
+} Elf64_External_Auxv;
+
 
 #endif /* _ELF_EXTERNAL_H */

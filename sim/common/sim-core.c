@@ -1,22 +1,25 @@
-/*  This file is part of the program psim.
+/* The common simulator framework for GDB, the GNU Debugger.
 
-    Copyright (C) 1994-1997, Andrew Cagney <cagney@highland.com.au>
+   Copyright 2002 Free Software Foundation, Inc.
 
-    This program is free software; you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation; either version 2 of the License, or
-    (at your option) any later version.
+   Contributed by Andrew Cagney and Red Hat.
 
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
- 
-    You should have received a copy of the GNU General Public License
-    along with this program; if not, write to the Free Software
-    Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
- 
-    */
+   This file is part of GDB.
+
+   This program is free software; you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation; either version 2 of the License, or
+   (at your option) any later version.
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 
 #ifndef SIM_CORE_C
@@ -27,13 +30,6 @@
 
 #if (WITH_HW)
 #include "sim-hw.h"
-#endif
-
-#if (WITH_DEVICES)
-/* TODO: create sim/common/device.h */
-void device_error (device *me, char* message, ...);
-int device_io_read_buffer(device *me, void *dest, int space, address_word addr, unsigned nr_bytes, sim_cpu *processor, sim_cia cia);
-int device_io_write_buffer(device *me, const void *source, int space, address_word addr, unsigned nr_bytes, sim_cpu *processor, sim_cia cia);
 #endif
 
 /* "core" module install handler.
@@ -233,8 +229,8 @@ sim_core_map_attach (SIM_DESC sd,
       device_error (client, "memory map %d:0x%lx..0x%lx (%ld bytes) overlaps %d:0x%lx..0x%lx (%ld bytes)",
 		    space,
 		    (long) addr,
+		    (long) (addr + nr_bytes - 1),
 		    (long) nr_bytes,
-		    (long) (addr + (nr_bytes - 1)),
 		    next_mapping->space,
 		    (long) next_mapping->base,
 		    (long) next_mapping->bound,
@@ -244,8 +240,8 @@ sim_core_map_attach (SIM_DESC sd,
       sim_hw_abort (sd, client, "memory map %d:0x%lx..0x%lx (%ld bytes) overlaps %d:0x%lx..0x%lx (%ld bytes)",
 		    space,
 		    (long) addr,
-		    (long) nr_bytes,
 		    (long) (addr + (nr_bytes - 1)),
+		    (long) nr_bytes,
 		    next_mapping->space,
 		    (long) next_mapping->base,
 		    (long) next_mapping->bound,
@@ -254,8 +250,8 @@ sim_core_map_attach (SIM_DESC sd,
       sim_io_error (sd, "memory map %d:0x%lx..0x%lx (%ld bytes) overlaps %d:0x%lx..0x%lx (%ld bytes)",
 		    space,
 		    (long) addr,
-		    (long) nr_bytes,
 		    (long) (addr + (nr_bytes - 1)),
+		    (long) nr_bytes,
 		    next_mapping->space,
 		    (long) next_mapping->base,
 		    (long) next_mapping->bound,
@@ -534,6 +530,7 @@ sim_core_read_buffer (SIM_DESC sd,
     if (mapping->device != NULL)
       {
 	int nr_bytes = len - count;
+	sim_cia cia = cpu ? CIA_GET (cpu) : NULL_CIA;
 	if (raddr + nr_bytes - 1> mapping->bound)
 	  nr_bytes = mapping->bound - raddr + 1;
 	if (device_io_read_buffer (mapping->device,
@@ -541,8 +538,9 @@ sim_core_read_buffer (SIM_DESC sd,
 				   mapping->space,
 				   raddr,
 				   nr_bytes, 
+				   sd,
 				   cpu, 
-				   CIA_GET (cpu)) != nr_bytes)
+				   cia) != nr_bytes)
 	  break;
 	count += nr_bytes;
 	continue;
@@ -599,6 +597,7 @@ sim_core_write_buffer (SIM_DESC sd,
 	  && mapping->device != NULL)
 	{
 	  int nr_bytes = len - count;
+	  sim_cia cia = cpu ? CIA_GET (cpu) : NULL_CIA;
 	  if (raddr + nr_bytes - 1 > mapping->bound)
 	    nr_bytes = mapping->bound - raddr + 1;
 	  if (device_io_write_buffer (mapping->device,
@@ -606,8 +605,9 @@ sim_core_write_buffer (SIM_DESC sd,
 				      mapping->space,
 				      raddr,
 				      nr_bytes,
+				      sd,
 				      cpu, 
-				      CIA_GET(cpu)) != nr_bytes)
+				      cia) != nr_bytes)
 	    break;
 	  count += nr_bytes;
 	  continue;

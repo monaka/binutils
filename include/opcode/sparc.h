@@ -1,6 +1,6 @@
 /* Definitions for opcode table for the sparc.
-   Copyright (C) 1989, 91, 92, 93, 94, 95, 96, 1997
-   Free Software Foundation, Inc.
+   Copyright 1989, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 2000, 2002,
+   2003 Free Software Foundation, Inc.
 
 This file is part of GAS, the GNU Assembler, GDB, the GNU debugger, and
 the GNU Binutils.
@@ -20,7 +20,7 @@ along with GAS or GDB; see the file COPYING.	If not, write to
 the Free Software Foundation, 59 Temple Place - Suite 330,
 Boston, MA 02111-1307, USA.  */
 
-#include <ansidecl.h>
+#include "ansidecl.h"
 
 /* The SPARC opcode table (and other related data) is defined in
    the opcodes library in sparc-opc.c.  If you change anything here, make
@@ -46,6 +46,7 @@ enum sparc_opcode_arch_val {
   /* v9 variants must appear last */
   SPARC_OPCODE_ARCH_V9,
   SPARC_OPCODE_ARCH_V9A, /* v9 with ultrasparc additions */
+  SPARC_OPCODE_ARCH_V9B, /* v9 with ultrasparc and cheetah additions */
   SPARC_OPCODE_ARCH_BAD /* error return from sparc_opcode_lookup_arch */
 };
 
@@ -73,8 +74,7 @@ struct sparc_opcode_arch {
 extern const struct sparc_opcode_arch sparc_opcode_archs[];
 
 /* Given architecture name, look up it's sparc_opcode_arch_val value.  */
-extern enum sparc_opcode_arch_val sparc_opcode_lookup_arch
-  PARAMS ((const char *));
+extern enum sparc_opcode_arch_val sparc_opcode_lookup_arch (const char *);
 
 /* Return the bitmask of supported architectures for ARCH.  */
 #define SPARC_OPCODE_SUPPORTED(ARCH) (sparc_opcode_archs[ARCH].supported)
@@ -141,6 +141,7 @@ Kinds of operands:
 	h	22 high bits.
 	X	5 bit unsigned immediate
 	Y	6 bit unsigned immediate
+	3	SIAM mode (3 bits). (v9b)
 	K	MEMBAR mask (7 bits). (v9)
 	j	10 bit Immediate. (v9)
 	I	11 bit Immediate. (v9)
@@ -187,7 +188,7 @@ Kinds of operands:
 	/	Ancillary state register in rs1 (v9a)
 
 The following chars are unused: (note: ,[] are used as punctuation)
-[345]
+[45]
 
 */
 
@@ -221,14 +222,14 @@ The following chars are unused: (note: ,[] are used as punctuation)
 extern const struct sparc_opcode sparc_opcodes[];
 extern const int sparc_num_opcodes;
 
-extern int sparc_encode_asi PARAMS ((const char *));
-extern const char *sparc_decode_asi PARAMS ((int));
-extern int sparc_encode_membar PARAMS ((const char *));
-extern const char *sparc_decode_membar PARAMS ((int));
-extern int sparc_encode_prefetch PARAMS ((const char *));
-extern const char *sparc_decode_prefetch PARAMS ((int));
-extern int sparc_encode_sparclet_cpreg PARAMS ((const char *));
-extern const char *sparc_decode_sparclet_cpreg PARAMS ((int));
+extern int sparc_encode_asi (const char *);
+extern const char *sparc_decode_asi (int);
+extern int sparc_encode_membar (const char *);
+extern const char *sparc_decode_membar (int);
+extern int sparc_encode_prefetch (const char *);
+extern const char *sparc_decode_prefetch (int);
+extern int sparc_encode_sparclet_cpreg (const char *);
+extern const char *sparc_decode_sparclet_cpreg (int);
 
 /*
  * Local Variables:

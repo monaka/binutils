@@ -60,15 +60,25 @@ EXP_AND_TK_LIBS=$TK_LIBS
 
 # CYGNUS LOCAL dj/cygwin
 AC_CANONICAL_HOST
+EXP_CFLAGS=""
 # If we built a cygwin-specific tcl, use it here.
 case "${host}" in
 *-*-cygwin*)
   if test -d $srcdir/../tcl/cygwin/.
   then
-    TCL_BUILD_LIB_SPEC="../tcl/cygwin/libtcl8.0.a"
+    TCL_BUILD_LIB_SPEC="../tcl/cygwin/libtcl_cygwin.a"
     # Use the same static lib for installed_expect
-    TCL_LIB_SPEC="../tcl/cygwin/libtcl8.0.a"
+    TCL_LIB_SPEC="../tcl/cygwin/libtcl_cygwin.a"
+    EXP_CYGWIN_ALTTCL='-DCYGWIN_ALTTCL'
   fi
+  touch ac$$.c
+  if ${CC} -c -mno-win32 ac$$.c >/dev/null 2>&1; then
+      case "$EXP_CFLAGS" in
+	  *-mno-win32*) ;;
+	  *) EXP_CFLAGS="-mno-win32 $EXP_CFLAGS" ;;
+      esac
+  fi
+  rm -f ac$$.o ac$$.c
   ;;
 esac
 
@@ -130,12 +140,12 @@ AC_HEADER_TIME
 AC_HEADER_SYS_WAIT
 
 dnl CYGNUS LOCAL: always respect CFLAGS.
-EXP_CFLAGS=""
 dnl case "${host}" in
 # Use -g on all systems but Linux where it upsets the dynamic X libraries.
 dnl   i[[3456]]86-*-linux*)	EXP_CFLAGS="" ;;
 dnl esac
 dnl END CYGNUS LOCAL
+EXP_CFLAGS="$EXP_CFLAGS $EXP_CYGWIN_ALTTCL"
 
 AC_MSG_CHECKING([if running Mach])
 mach=0
@@ -481,6 +491,8 @@ LIBS=$EXP_LIBS
 # openpty, but it doesn't work correctly.
 case "${host}" in
 *-*-linux*) ;;
+*-*-cygwin*)
+  EXP_AND_TCL_LIBS="$EXP_AND_TCL_LIBS -luser32" ;;
 *)
   unset ac_cv_func_openpty
   AC_CHECK_FUNC(openpty, openpty=1 , openpty=0)
@@ -521,11 +533,6 @@ case "${host}" in
   # save Tk results and reset for Expect
   EXP_AND_TK_LIBS=$LIBS
   LIBS=$EXP_LIBS
-
-  # CYGNUS LOCAL: Link against luser32 on Cygwin.
-  case "${host}" in
-    *-*-cygwin*) EXP_AND_TCL_LIBS="$EXP_AND_TCL_LIBS -luser32" ;;
-  esac
 ;;
 esac
 
@@ -848,6 +855,27 @@ if test -r /dev/ptmx -a "x$svr4_ptys_broken" = x -a "$cross_compiling" != "yes" 
   # I've never seen Tcl or Tk include -lpt so don't bother with explicit test
   AC_CHECK_FUNC(ptsname, , EXP_AND_TCL_LIBS="${EXP_AND_TCL_LIBS} -lpt")
   AC_CHECK_FUNC(ptsname, , EXP_AND_TK_LIBS="${EXP_AND_TK_LIBS} -lpt")
+  # CYGNUS LOCAL: IA-64
+  # On some systems (e.g., IA-64 Linux), we need to define _XOPEN_SOURCE
+  # in order to get a declaration for ptsname.  It is safe to simply
+  # define that whenever we are using ptsname.
+  AC_MSG_CHECKING([for NSIG definition with _XOPEN_SOURCE])
+  AC_TRY_COMPILE([
+/* _XOPEN_SOURCE can remove NSIG on UnixWare or OSF/1. */
+#define _XOPEN_SOURCE
+#include <signal.h>
+#ifndef NSIG
+#define NSIG _NSIG
+#endif
+char junk[NSIG];],
+    [],
+	AC_DEFINE(_XOPEN_SOURCE)
+	AC_MSG_RESULT(yes)
+    ,
+	AC_MSG_RESULT(no)
+    ,
+  )
+  # END CYGNUS LOCAL
 else
   AC_MSG_RESULT(no)
 fi
@@ -1137,7 +1165,7 @@ if test $ac_cv_sys_long_file_names = no; then
 fi
 
 EXP_BUILD_LIB_SPEC="-L`pwd` -lexpect${EXP_LIB_VERSION}"
-EXP_LIB_SPEC="-L\${exec_prefix}/lib -lexpect${EXP_LIB_VERSION}"
+EXP_LIB_SPEC="-L\${libdir} -lexpect${EXP_LIB_VERSION}"
 EXP_UNSHARED_LIB_FILE=libexpect${EXP_LIB_VERSION}.a
 EXP_BUILD_LIB_SPEC=${EXP_UNSHARED_LIB_FILE}
 
@@ -1165,8 +1193,8 @@ dnl EXP_LIB_FILE=$EXP_UNSHARED_LIB_FILE
 
 # now broken out into EXP_AND_TCL_LIBS and EXP_AND_TK_LIBS.  Had to do this
 # in order to avoid repeating lib specs to which some systems object.
-EXP_AND_TCL_LIBS="$EXP_AND_TCL_LIBS $TCL_LD_SEARCH_FLAGS"
-EXP_AND_TK_LIBS="$EXP_AND_TK_LIBS $TCL_LD_SEARCH_FLAGS"
+EXP_AND_TCL_LIBS="$EXP_AND_TCL_LIBS $TCL_CC_SEARCH_FLAGS"
+EXP_AND_TK_LIBS="$EXP_AND_TK_LIBS $TCL_CC_SEARCH_FLAGS"
 
 # Sigh - Tcl defines SHLIB_LD_LIBS to be either empty or ${LIBS} and
 # LIBS is intended to be expanded by Make.  But since we're too close
@@ -1183,7 +1211,7 @@ fi
 
 dnl CYGNUS LOCAL
 dnl check for win32 dependencies
-CY_AC_CYGWIN32
+CY_AC_CYGWIN
 CY_AC_EXEEXT
 
 #--------------------------------------------------------------------

@@ -1,4 +1,4 @@
-#   Copyright (C) 1997, 1998 Free Software Foundation, Inc.
+#   Copyright 1997, 1998, 1999, 2003 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -40,6 +40,12 @@ if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {deb
 # used to compile the test case.
 if [get_compiler_info ${binfile}] {
     return -1;
+}
+
+if {$hp_cc_compiler} {
+    set void 0
+} else {
+    set void void
 }
 
 proc signal_tests_1 {} {
@@ -178,8 +184,8 @@ proc signal_tests_1 {} {
 	# This doesn't test that main is frame #2, just that main is frame
 	# #2, #3, or higher.  At some point this should be fixed (but
 	# it quite possibly would introduce new FAILs on some systems).
-	setup_xfail "i*86-pc-linux-gnu*" "i*86-*-bsdi2.0"
-	gdb_test "backtrace 10" "#0.*handler.*#1.*#2.*main.*" \
+	setup_xfail "i*86-*-bsdi2.0"
+	gdb_test "backtrace 10" "#0.*handler.*#1.*signal handler.*#2.* main .*" \
 	    "backtrace in signals_tests_1"
 
 	gdb_test "break func1" "Breakpoint \[0-9\]+ .*"
@@ -189,6 +195,7 @@ proc signal_tests_1 {} {
 	# a SIGTRAP, but with different symptoms.
 	setup_xfail "vax-*-ultrix*"
 	setup_xfail "i*86-*-bsd*"
+	setup_xfail "i*86-*-freebsd*"
 	setup_xfail "i*86-pc-linux-gnu*"
 	setup_xfail "i*86-*-solaris2*"
 	send_gdb "continue\n"
@@ -336,10 +343,12 @@ proc test_handle_all_print {} {
     set oldtimeout $timeout
     set timeout [expr "$timeout + 360"]
     verbose "Timeout is now $timeout seconds" 2
-    if { [istarget "*-*-gnu*"] || [istarget "*-*-mach*"] } {
+    if { ![istarget "*-*-linux*"]
+         && ( [istarget "*-*-gnu*"]
+              || [istarget "*-*-mach*"] ) } {
 	gdb_test "handle all print" "Signal\[ 	\]+Stop\[ 	\]+Print\[ 	\]+Pass to program\[ 	\]+Description\r\nSIGHUP\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Hangup.*SIG63\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Real-time event 63.*EXC_BREAKPOINT\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Breakpoint"
     } else {
-	gdb_test "handle all print" "Signal\[ 	\]+Stop\[ 	\]+Print\[ 	\]+Pass to program\[ 	\]+Description\r\nSIGHUP\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Hangup.*SIG63\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Real-time event 63"
+	gdb_test "handle all print" "Signal\[ 	\]+Stop\[ 	\]+Print\[ 	\]+Pass to program\[ 	\]+Description\r\nSIGHUP\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Hangup.*SIG63\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Real-time event 63.*"
     }
     set timeout $oldtimeout
     verbose "Timeout restored to $timeout seconds" 2
@@ -362,6 +371,9 @@ gdb_expect {
 }
 
 if [runto_main] then {
+    # Since count is a static variable outside main, runto_main
+    # is no guarantee that count will be 0 at this point.
+    gdb_test "set variable count = 0" ""
     gdb_test "break handler if 0" "Breakpoint \[0-9\]+ .*"
     gdb_test "set \$handler_breakpoint_number = \$bpnum" ""
 
@@ -378,7 +390,7 @@ if [runto_main] then {
     # lose its cool, this is not a problem, it just has to note
     # that the breakpoint condition is false and keep going.
 
-    gdb_test "p func1 ()" "^p func1 \\(\\)\r\n.\[0-9\]* = void" \
+    gdb_test "p func1 ()" "^p func1 \\(\\)\r\n.\[0-9\]* = $void" \
 	"p func1 () #1 in signals.exp"
 
     # Make sure the count got incremented.
@@ -404,7 +416,7 @@ The program being debugged stopped while in a function called from GDB.*" \
     # But we should be able to backtrace...
     # On alpha-*-osf2.0 this test works when run manually but sometime fails when
     # run under dejagnu, making it very hard to debug the problem.  Weird...
-    gdb_test "bt 10" "#0.*handler.*#1.*#2.*main.*" "bt in signals.exp"
+    gdb_test "bt 10" "#0.*handler.*#1.*signal handler.*#2.* main .*" "bt in signals.exp"
     # ...and continue...
     gdb_test "continue" "Continuing\\." "continue in signals.exp"
     # ...and then count should have been incremented
