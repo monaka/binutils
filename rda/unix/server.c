@@ -204,7 +204,7 @@ invalid_speed (char *str)
     {
       char str[20];
       int cnt;
-      cnt = snprintf (str, sizeof (str), "%d", speed_table[i].speed);
+      cnt = snprintf (str, sizeof (str), "%ld", speed_table[i].speed);
       if (cnt + ll + 1 > 80)
 	{
 	  fprintf (stderr, "\n");
