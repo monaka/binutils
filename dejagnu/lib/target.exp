@@ -1,4 +1,4 @@
-# Copyright (C) 92, 93, 94, 95, 96, 97, 98, 1999 Free Software Foundation, Inc.
+# Copyright (C) 1992 - 2001 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -15,9 +15,9 @@
 # Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA. 
 
 # Please email any bugs, comments, and/or additions to this file to:
-# bug-dejagnu@prep.ai.mit.edu
+# bug-dejagnu@gnu.org
 
-# This file was written by Rob Savoye. (rob@cygnus.com)
+# This file was written by Rob Savoye. (rob@welcomehome.org)
 # and extensively modified by Bob Manson. (manson@cygnus.com)
 
 # a hairy pattern to recognize text
@@ -261,6 +261,31 @@ proc prune_warnings { text } {
     regsub -all "(^|\n)(ld(|32|64): WARNING \[^\n\]*\n?)+" $text "\\1" text
     regsub -all "(^|\n)(ld(|32|64): Giving up.*Use -wall\[^\n\]*\n?)+" $text "\\1" text
 
+    # Or the NetBSD ones.
+    regsub -all "(^|\n)(\[^\n\]*: In function\[^\n\]*\n\[^\n\]\[^\n\]*warning: this program uses \[^\n\]*)" $text "\\1" text
+    regsub -all "(^|\n)(\[^\n\]*: In function\[^\n\]*\n\[^\n\]\[^\n\]*warning: reference to compatibility \[^\n\]*)" $text "\\1" text
+    regsub -all "(^|\n)(\[^\n\]*:\[0-9\]+: warning: \[^\n\]* possibly used unsafely, use \[^\n\]*\n?)" $text "\\1" text
+    regsub -all "(^|\n)(\[^\n\]*: warning: reference to compatibility glob\[^\n\]*\n?)" $text "\\1" text
+
+    # GNU ld warns about functions marked as dangerous in GNU libc.
+    regsub -all "(^|\n)\[^\n\]*: In function\[^\n\]*\n\[^\n\]\[^\n\]*is dangerous\[^\n\]*" $text "" text
+    regsub -all "(^|\n)\[^\n\]*: In function\[^\n\]*\n\[^\n\]\[^\n\]*the use of \[^\n\]* is dangerous, better use \[^\n\]*" $text "" text
+    regsub -all "(^|\n)\[^\n\]*is dangerous\[^\n\]*" $text "" text
+
+    # Libgloss libnosys defines functions that warn when linked in
+    regsub -all "(^|\n)\[^\n\]*: In function\[^\n\]*\n\[^\n\]\[^\n\]*is not implemented and will always fail\[^\n\]*" $text "" text
+    regsub -all "(^|\n)\[^\n\]*is not implemented and will always fail\[^\n\]*" $text "" text
+
+    # libstdc++-v3 tests can emit cpplib warnings due to duplicate -isystem / -I flags
+    regsub -all "(^|\n)\[^\n\]*: warning: changing search order for system directory\[^\n\]*" $text "" text
+    regsub -all "(^|\n)\[^\n\]*: warning:   as it has already been specified\[^\n\]*" $text "" text
+
+    # Cygwin cc1 warns about -fpic and -fPIC
+    regsub -all "(^|\n)\[^\n\]*: warning: -f(pic|PIC) ignored for target \[^\n\]*" $text "" text
+
+    # Ignore linker warning when searching 64bit libraries in /lib.
+    regsub -all "(^|\n)\[^\n\]*: skipping incompatible \[^\n\]* when searching for \[^\n\]*" $text "" text
+
     # It might be tempting to get carried away and delete blank lines, etc.
     # Just delete *exactly* what we're ask to, and that's it.
     return $text
@@ -283,7 +308,6 @@ proc target_compile {source destfile type options} {
 proc default_target_compile {source destfile type options} {
     global target_triplet
     global tool_root_dir
-    global env
     global CFLAGS_FOR_TARGET
     global compiler_flags
 
@@ -300,11 +324,6 @@ proc default_target_compile {source destfile type options} {
 
     if [info exists CFLAGS_FOR_TARGET] {
 	append add_flags " $CFLAGS_FOR_TARGET"
-# The top level Makefile sets (and exports) a *FLAGS_FOR_TARGET
-# that may not be applicable to testsuite runs.  This conflict
-# needs to be resolved.
-#    } elseif [info exists env(CFLAGS_FOR_TARGET)] {
-#	append add_flags " $env(CFLAGS_FOR_TARGET)"
     }
 
     if [info exists target_info(host,name)] {
@@ -398,43 +417,18 @@ proc default_target_compile {source destfile type options} {
 	if { $compiler == "" } {
 	    set compiler $CC_FOR_TARGET
 	}
-# When started from a mid-level directory (eg gdb)
-# the Makefile may export a *_FOR_TARGET that isn't
-# applicable.
-#    } elseif [info exists env(CC_FOR_TARGET)] {
-#	if { $compiler == "" } {
-#	    set compiler $env(CC_FOR_TARGET)
-#	}
-    } elseif { [info exists env(CC_FOR_TARGET)] && $env(CC_FOR_TARGET) != "" } {
-	if { $compiler == "" } {
-	    set compiler $env(CC_FOR_TARGET)
-	}
     }
 
     if [info exists CXX_FOR_TARGET] {
 	if { $compiler_type == "c++" } {
 	    set compiler $CXX_FOR_TARGET
 	}
-# When started from a mid-level directory (eg gdb)
-# the Makefile may export a *_FOR_TARGET that isn't
-# applicable.
-#    } elseif [info exists env(CXX_FOR_TARGET)] {
-#	if { $compiler_type == "c++" } {
-#	    set compiler $env(CXX_FOR_TARGET)
-#	}
     }
 
     if [info exists F77_FOR_TARGET] {
 	if { $compiler_type == "f77" } {
 	    set compiler $F77_FOR_TARGET
 	}
-# When started from a mid-level directory (eg gdb)
-# the Makefile may export a *_FOR_TARGET that isn't
-# applicable.
-#    } elseif [info exists env(F77_FOR_TARGET)] {
-#	if { $compiler_type == "f77" } {
-#	    set compiler $env(F77_FOR_TARGET)
-#	}
     }
 
     if { $compiler == "" } {
@@ -515,6 +509,7 @@ proc default_target_compile {source destfile type options} {
     }
 
     if { $type == "executable" } {
+	append add_flags " $ldflags"
 	foreach x $libs {
 	    if [file exists $x] {
 		append source " $x"
@@ -522,7 +517,6 @@ proc default_target_compile {source destfile type options} {
 		append add_flags " $x";
 	    }
 	}
-	append add_flags " $ldflags"
 
 	if [board_info $dest exists libs] {
 	    append add_flags " [board_info $dest libs]"
@@ -581,7 +575,14 @@ proc default_target_compile {source destfile type options} {
 	}
     }
 
-    set opts "$sources $add_flags"
+    # This is obscure: we put SOURCES at the end when building an
+    # object, because otherwise, in some situations, libtool will
+    # become confused about the name of the actual source file.
+    if {$type == "object"} {
+        set opts "$add_flags $sources"
+    } else {
+        set opts "$sources $add_flags"
+    }
 
     if [is_remote host] {
 	if [host_info exists use_at] {
@@ -629,7 +630,7 @@ proc default_target_compile {source destfile type options} {
 proc reboot_target { } {
     set result [remote_reboot target]
     puts "REBOOT_TARGET: \"$result\""
-    return [remote_reboot target];
+    return ${result};
 }
 
 #
@@ -642,14 +643,11 @@ proc target_assemble { source destfile flags } {
 }
 
 proc default_target_assemble { source destfile flags } {
-    global env
-    global AS_FOR_TARGET;
-    global ASFLAGS_FOR_TARGET;
+    global AS_FOR_TARGET
+    global ASFLAGS_FOR_TARGET
 
     if [info exists AS_FOR_TARGET] {
 	set AS "$AS_FOR_TARGET";
-    } elseif [info exists env(AS_FOR_TARGET)] {
-	set AS $env(AS_FOR_TARGET)
     } else {
 	if ![board_info target exists assembler] {
 	    set AS [find_gas];
@@ -660,11 +658,6 @@ proc default_target_assemble { source destfile flags } {
 
     if [info exists ASFLAGS_FOR_TARGET] {
 	append flags " $ASFLAGS_FOR_TARGET";
-# The top level Makefile sets (and exports) a *FLAGS_FOR_TARGET
-# that may not be applicable to testsuite runs.  This conflict
-# needs to be resolved.
-#    } elseif [info exists env(ASFLAGS_FOR_TARGET)] {
-#	append flags " $env(ASFLAGS_FOR_TARGET)"
     }
 
     if [is_remote host] {
@@ -698,9 +691,8 @@ proc target_link { objects destfile flags } {
 }
 
 proc default_link { board objects destfile flags } {
-    global env
-    global LD_FOR_TARGET;
-    global LDFLAGS_FOR_TARGET;
+    global LD_FOR_TARGET
+    global LDFLAGS_FOR_TARGET
 
     # return -L's in ldflags
     proc only--Ls { ldflags } {
@@ -729,8 +721,6 @@ proc default_link { board objects destfile flags } {
 
     if [info exists LD_FOR_TARGET] {
 	set LD "$LD_FOR_TARGET";
-    } elseif [info exists env(LD_FOR_TARGET)] {
-	set LD $env(LD_FOR_TARGET)
     } else {
 	if ![board_info target exists linker] {
 	    set LD [find_ld];
@@ -741,11 +731,6 @@ proc default_link { board objects destfile flags } {
 
     if [info exists LDFLAGS_FOR_TARGET] {
 	append flags " $LDFLAGS_FOR_TARGET";
-# The top level Makefile sets (and exports) a *FLAGS_FOR_TARGET
-# that may not be applicable to testsuite runs.  This conflict
-# needs to be resolved.
-#    } elseif [info exists env(LDFLAGS_FOR_TARGET)] {
-#	append flags " $env(LDFLAGS_FOR_TARGET)"
     }
 
     # `ldflags' consists of arguments to gcc (that are then
