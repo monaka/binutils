@@ -1,6 +1,6 @@
 /* fhandler_termios.cc
 
-   Copyright 1999, 2000, 2001, 2002 Red Hat, Inc.
+   Copyright 1999, 2000, 2001, 2002, 2003 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -329,7 +329,7 @@ fhandler_termios::line_edit (const char *rptr, int nread, termios& ti)
       if (!iscanon || input_done)
 	{
 	  int status = accept_input ();
-	  if (status != 1) 
+	  if (status != 1)
 	    {
 	      ret = status ? line_edit_error : line_edit_pipe_full;
 	      eat_readahead (1);
