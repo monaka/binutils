@@ -39,11 +39,15 @@ struct ss_save {
 };
 #endif
 
+struct arch;
+struct arch_bp_table;
+
 /* Definition of a "process", or an instance of the server.
  * Theoretically one server could run an arbitrary number of these.
  */
 struct child_process {
   struct gdbserv *serv;
+  struct arch *arch;
   char *executable;
   char **argv;
   int  pid;
@@ -54,10 +58,15 @@ struct child_process {
   int  debug_backend;
   int  debug_informational;
   int  running;
+  
 #if defined(_MIPSEL) || defined(_MIPSEB)
    int  is_ss;                 /* we are single stepping */
    struct ss_save ss_info[2];  /* single stepping saved information */
 #endif
+
+  /* A breakpoint table for the current process.  May be zero if we
+     don't support breakpoints.  */
+  struct arch_bp_table *breakpoint_table;
 };
 
 /* Definition of the entry points to the server, 

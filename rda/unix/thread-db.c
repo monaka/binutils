@@ -31,15 +31,18 @@
 #include <signal.h>
 #include <errno.h>
 #include <sys/wait.h>
+#include <assert.h>
 
 #include "gdbserv.h"
 #include "gdbserv-target.h"
+#include "gdbserv-utils.h"
 #include "server.h"
+#include "arch.h"
 #include "gdb_proc_service.h"
 #include "gdbserv-thread-db.h"
 
 /* Make lots of noise (debugging output). */
-int thread_db_noisy = 0;
+int thread_db_noisy = 1;
 int proc_service_noisy = 0;
 
 /*
@@ -181,9 +184,23 @@ next_undefined_symbol (void)
 
 struct gdbserv_thread {
   td_thrinfo_t ti;
+
+  /* True if we have attached to this thread, but haven't yet
+     continued or single-stepped it.  */
   int attached : 1;
+
+  /* True if we have sent this thread a SIGSTOP (because some other
+     thread has had something interesting happen, and we want the
+     whole program to stop), but not yet continued or single-stepped it.  */
   int stopped : 1;
+
+  /* True if we have called waitpid, and consumed any extraneous wait
+     statuses created by attaching, stopping, etc.  */
   int waited : 1;
+
+  /* True if we last single-stepped this thread, instead of continuing
+     it.  When choosing one event out of many to report to GDB, we
+     give stepped events higher priority than some others.  */
   int stepping : 1;
   struct gdbserv_thread *next;
 } *thread_list;
@@ -276,6 +293,21 @@ thread_list_lookup_by_lid (lwpid_t pid)
       break;
 
   return tmp;
+}
+
+/* Return a pointer to a statically allocated string describing
+   THREAD.  For debugging.  */
+static const char *
+thread_debug_name (struct gdbserv_thread *thread)
+{
+  if (thread)
+    {
+      static char buf[50];
+      sprintf (buf, "(%p %d)", thread, thread->ti.ti_lid);
+      return buf;
+    }
+  else
+    return "(null thread)";
 }
 
 /* A copy of the next lower layer's target vector, before we modify it. */
@@ -447,6 +479,31 @@ thread_db_err_str (td_err_e errcode)
     return buf;
   }
 }
+
+
+/* Return a string naming the event type EVENT.  */
+static const char *
+thread_db_event_str (td_event_e event)
+{
+  switch (event) {
+  case TD_READY:		return "TD_READY";
+  case TD_SLEEP:		return "TD_SLEEP";
+  case TD_SWITCHTO:		return "TD_SWITCHTO";
+  case TD_SWITCHFROM:		return "TD_SWITCHFROM";
+  case TD_LOCK_TRY:		return "TD_LOCK_TRY";
+  case TD_CATCHSIG:		return "TD_CATCHSIG";
+  case TD_IDLE:			return "TD_IDLE";
+  case TD_CREATE:		return "TD_CREATE";
+  case TD_DEATH:		return "TD_DEATH";
+  case TD_PREEMPT:		return "TD_PREEMPT";
+  case TD_PRI_INHERIT:		return "TD_PRI_INHERIT";
+  case TD_REAP:			return "TD_REAP";
+  case TD_CONCURRENCY:		return "TD_CONCURRENCY";
+  case TD_TIMEOUT:		return "TD_TIMEOUT";
+  default:                      return "<unknown>";
+  }
+}
+
 
 /* flag which indicates if the map_id2thr cache is valid.  See below.  */
 static int thread_db_map_id2thr_cache_valid;
@@ -742,6 +799,339 @@ thread_db_setgregs (const td_thrhandle_t *th, const GREGSET_T gregset)
   return thread_db_set_regset (&gregset_cache, th, gregset);
 }
 
+
+/* Function: get_target_int_by_name
+   Read the value of a target integer, given its name and size.
+   Returns -1 for failure, zero for success. */
+
+static int
+get_target_int_by_name (char *name, void *value, int size)
+{
+  paddr_t addr;
+
+  if (ps_pglobal_lookup (&proc_handle, NULL, name, &addr) == PS_OK)
+    {
+      if (ps_pdread (&proc_handle, addr,
+		     (gdb_ps_read_buf_t) value,
+		     (gdb_ps_size_t) size) == PS_OK)
+	return 0;
+    }
+  return -1;		/* fail */
+}
+
+/* Function: set_target_int_by_name
+   Read the value of a target integer, given its name and size.
+   Returns -1 for failure, zero for success. */
+
+static int
+set_target_int_by_name (char *name, void *value, int size)
+{
+  paddr_t addr;
+
+  if (ps_pglobal_lookup (&proc_handle, NULL, name, &addr) == PS_OK)
+    {
+      if (ps_pdwrite (&proc_handle, addr,
+		      (gdb_ps_write_buf_t) value,
+		      (gdb_ps_size_t) size) == PS_OK)
+	return 0;
+    }
+  return -1;		/* fail */
+}
+
+/* Function: get_thread_signals
+
+   Obtain the values of the "cancel", "restart" and "debug" signals
+   used by LinuxThreads, and store them in a set of global variables
+   for use by check_child_state and friends.
+
+   Return 0 for success: we obtained the signal numbers and enabled
+   debugging in the thread library.  Return -1 for failure.
+
+   Recent versions of NPTL don't define these symbols at all; you must
+   use the libthread_db event functions instead (td_ta_event_addr,
+   ...) to find out about thread creation, thread exits, and so on.
+
+   Older versions of LinuxThreads provide both interfaces.  To avoid
+   changing RDA's behavior on any system it supports, we use the older
+   signal-based interface if present, and use the event-based
+   interface as a fall-back.  */
+
+static int cancel_signal;
+static int restart_signal;
+static int debug_signal;
+static int got_thread_signals;
+
+static int
+get_thread_signals (void)
+{
+  int cancel, restart, debug;
+
+  /* If we've already gotten the thread signals, that's great.  */
+  if (got_thread_signals)
+    return 0;
+
+  if (get_target_int_by_name ("__pthread_sig_cancel", 
+			      &cancel, sizeof (cancel)) == -1
+      || get_target_int_by_name ("__pthread_sig_restart",
+				 &restart, sizeof (restart)) == -1
+      || get_target_int_by_name ("__pthread_sig_debug", 
+				 &debug, sizeof (debug)) == -1)
+    return -1;
+
+  restart_signal = restart;
+  cancel_signal  = cancel;
+  debug_signal   = debug;
+
+  got_thread_signals = 1;
+
+  {
+    static int debug_flag = 1;
+    set_target_int_by_name ("__pthread_threads_debug", 
+			    &debug_flag, sizeof (debug_flag));
+  }
+
+  return 0;
+}
+
+
+/* Return true if PROCESS stopped for a libpthread-related signal that
+   should not be reported to GDB.  */
+static int
+ignore_thread_signal (struct child_process *process)
+{
+  if (process->stop_status == 'T')
+    /* Child stopped with a signal.  
+       See if it was one of our special signals. */
+    return (process->stop_signal == cancel_signal  ||	/* ignore */
+	    process->stop_signal == restart_signal ||	/* ignore */
+	    process->stop_signal == debug_signal   ||	/* ignore */
+	    process->stop_signal == SIGCHLD);		/* ignore */
+
+  return 0;
+}
+
+
+/* NPTL and later versions of LinuxThreads support a set of "event"
+   functions for notifying the debugger of interesting events that
+   have taken place in the thread library, like thread creation and
+   thread death.
+
+   There are three steps to using this interface:
+
+   - First, the debugger asks libthread_db how a given event will be
+     reported; libthread_db fills in a 'td_notify_t' structure whose
+     'type' says how.  The debuggee may call functions on which the
+     debugger can set breakpoints (type == NOTIFY_BPT), hit breakpoint
+     instructions hard-coded into the program (type == NOTIFY_AUTOBPT),
+     or perform system calls to indicate that an event has occurred
+     (type == NOTIFY_SYSCALL).
+
+   - Second, the debugger tells libthread_db which events it's
+     interested in.  It can ask to be notified when a given event
+     occurs in any thread, or when a given event occurs in a given
+     thread.
+
+   - Finally, the debugger watches for the given event to occur.
+
+   We make a few simplifications here:
+
+   - NPTL and LinuxThreads only actually use one kind of event
+     notification: calling a function on which the debugger can set a
+     breakpoint (NOTIFY_BPT).  So although, strictly speaking, the
+     thread library could notify us in other ways, we only support
+     NOTIFY_BPT.
+
+   - NPTL and LinuxThreads only support a few kinds of events:
+     TD_CREATE (a new thread has been created), TD_DEATH (a thread has
+     exited), and TD_REAP (not sure).  We are only interested in
+     TD_CREATE and TD_DEATH.  */
+
+/* Ideally, these would be members of some structure somewhere, and
+   not global variables, but that's how this file is written.  */
+
+/* True if we're using libthread_db events.  */
+int using_thread_db_events;
+
+/* How we are notified of thread creation and death.  */
+static td_notify_t create_notification, death_notification;
+
+/* Breakpoints set at the addresses indicated by create_notification
+   and death_notification.  These are raw arch breakpoints, so we have
+   to delete them to step over them; the objects here will generally
+   get regenerated every time we receive an event.  */
+static struct arch_bp *create_event_breakpoint;
+static struct arch_bp *death_event_breakpoint;
+  
+
+/* Set NOTIFICATION to the notification method for EVENT, and check
+   that it uses NOTIFY_BPT notification.  Return -1 for failure, zero
+   for success.  */
+static int
+get_event_notification (td_event_e event, td_notify_t *notification)
+{
+  td_err_e ret = td_ta_event_addr_p (thread_agent, event, notification);
+  if (ret != TD_OK)
+    {
+      if (thread_db_noisy)
+	fprintf (stderr, "td_ta_event_addr (%s) -> %s\n",
+		 thread_db_event_str (event),
+		 thread_db_err_str (ret));
+      return -1;
+    }
+
+  if (notification->type != NOTIFY_BPT)
+    {
+      if (thread_db_noisy)
+	fprintf (stderr, "notification for %s is not NOTIFY_BPT\n",
+		 thread_db_event_str (event));
+      return -1;
+    }
+
+  return 0;
+}
+
+
+/* Insert a breakpoint in SERV at the address given by NOTIFICATION.
+   Return NULL for failure, or the breakpoint for success.  */
+static struct arch_bp *
+set_event_breakpoint (struct gdbserv *serv, td_notify_t *notification)
+{
+  struct child_process *process = gdbserv_target_data (serv);
+  struct gdbserv_reg addr;
+
+  /* Use the widest type for the conversion, just in case.  */
+  gdbserv_ulonglong_to_reg (serv, (paddr_t) notification->u.bptaddr,
+			    &addr);
+  
+  return process->arch->set_bp (process->breakpoint_table, &addr);
+}
+
+
+/* Insert breakpoints at all functions needed for communication with
+   the underlying thread library.  Return 0 for success, -1 for
+   failure.  */
+static int
+insert_thread_db_event_breakpoints (struct gdbserv *serv)
+{
+  struct child_process *process = gdbserv_target_data (serv);
+
+  create_event_breakpoint = set_event_breakpoint (serv, &create_notification);
+  death_event_breakpoint  = set_event_breakpoint (serv, &death_notification);
+
+  if (! create_event_breakpoint || ! death_event_breakpoint)
+    {
+      if (create_event_breakpoint)
+	process->arch->delete_bp (create_event_breakpoint);
+      if (death_event_breakpoint)
+	process->arch->delete_bp (death_event_breakpoint);
+      create_event_breakpoint = death_event_breakpoint = 0;
+      return -1;
+    }
+
+  return 0;
+}
+
+
+/* Remove breakpoints from all libthread_db event notification
+   addresses.  Return 0 for success, -1 for failure.  */
+static int
+delete_thread_db_event_breakpoints (struct gdbserv *serv)
+{
+  struct child_process *process = gdbserv_target_data (serv);
+  int create_ret, death_ret;
+
+  create_ret = process->arch->delete_bp (create_event_breakpoint);
+  death_ret = process->arch->delete_bp (death_event_breakpoint);
+
+  create_event_breakpoint = death_event_breakpoint = 0;
+
+  if (create_ret == 0 && death_ret == 0)
+    return 0;
+  else
+    return -1;
+}
+
+
+/* If we don't have event set manipulation macros, then we can't use
+   the event interface.  */
+#if defined (td_event_emptyset)
+
+/* Tell the program being debugged by SERV to notify us of thread
+   creation and death.  Return -1 for failure, zero for success.  */
+static int
+request_thread_db_events (struct gdbserv *serv)
+{
+  struct child_process *process = gdbserv_target_data (serv);
+
+  /* If we don't have the libthread_db functions we need, then we
+     can't use the event interface.  */
+  if (! td_ta_event_addr_p
+      || ! td_ta_event_getmsg_p
+      || ! td_thr_event_enable_p
+      || ! td_ta_set_event_p)
+    return -1;
+
+  /* If we don't have an architecture object, then we don't know how
+     to insert breakpoints, even if our thread library supports the
+     event interface.  */
+  if (! process->arch
+      || ! process->breakpoint_table)
+    return -1;
+
+  /* Get the notification addresses for TD_CREATE and TD_DEATH,
+     and ensure that they use NOTIFY_BPT notification.  */
+  if (get_event_notification (TD_CREATE, &create_notification) == -1
+      || get_event_notification (TD_DEATH,  &death_notification) == -1)
+    return -1;
+
+  insert_thread_db_event_breakpoints (serv);
+
+  /* Tell the thread library to send us those events.  */
+  {
+    td_thr_events_t events;
+    td_err_e err;
+
+    /* The td_event_ thingies are all documented to be macros.  So we
+       don't need to access them via pointers.  */
+    td_event_emptyset (&events);
+    td_event_addset (&events, TD_CREATE);
+    td_event_addset (&events, TD_DEATH);
+    err = td_ta_set_event_p (thread_agent, &events);
+    if (err != TD_OK)
+      fprintf (stderr, "couldn't set global event mask: %s",
+	       thread_db_err_str (err));
+  }
+
+  using_thread_db_events = 1;
+  return 0;
+}
+
+#else /* ! defined (td_event_emptyset) */
+
+/* td_event_emptyset is not defined, so we can't use the event
+   interface.  */
+static int
+request_thread_db_events (struct gdbserv *serv)
+{
+  return -1;
+}
+
+#endif /* ! defined (td_event_emptyset) */
+
+
+/* Return non-zero if BREAKPOINT is a libthread_db event breakpoint,
+   zero otherwise.  */
+static int
+hit_thread_db_event_breakpoint (struct gdbserv *serv,
+				struct gdbserv_thread *thread)
+{
+  struct child_process *process = gdbserv_target_data (serv);
+
+  return (process->arch->bp_hit_p (thread, create_event_breakpoint)
+	  || process->arch->bp_hit_p (thread, death_event_breakpoint));
+}
+
+
 /* Call dlsym() to find the address of a symbol.  If symbol lookup fails,
    print the reason to stderr.  */
 
@@ -834,7 +1224,7 @@ thread_db_dlopen (void)
 
 /* Function: thread_db_open
    Open a channel to the child's thread library.
-   Returns: -1 for success, 0 for failure
+   Returns: 0 for success, -1 for failure
    FIXME: closure.
    FIXME: where should we be called from?  We will not succeed
    until the thread shlib is loaded.  The call from attach will not
@@ -850,25 +1240,40 @@ thread_db_open (struct gdbserv *serv, int pid)
      I make GDB respond to symbol callbacks from there somehow. */
   td_err_e ret;
 
-  if (thread_agent == NULL)
-    {
-      proc_handle.pid = pid;
-      proc_handle.serv = serv;
+  /* If we already have a thread agent, we're all set.  */
+  if (thread_agent)
+    return 0;
+
+  /* Have the proc service handle point back to our serv object and
+     the target's overall pid. */
+  proc_handle.pid = pid;
+  proc_handle.serv = serv;
       
-      ret = td_ta_new_p (&proc_handle, &thread_agent);
-      if (ret == TD_OK)
-	{
-	  return -1;	/* success */
-	}
-      else if (thread_db_noisy)
-	{
-	  fprintf (stderr, "< -- failed, thread_agent = 0x%08x>\n", 
-		   (long) thread_agent);
-	}
-      return 0;		/* failure */
+  ret = td_ta_new_p (&proc_handle, &thread_agent);
+  if (ret != TD_OK)
+    {
+      if (thread_db_noisy)
+	fprintf (stderr, "< -- failed, thread_agent = 0x%08x>\n", 
+		 (long) thread_agent);
+      
+      return -1;		/* failure */
     }
-  return -1;		/* success */
+
+  /* All LinuxThreads versions support the signal-based debugging
+     interface.  Newer versions of LinuxThreads also provide the
+     event-based debugging interface.  NPTL has only ever supported
+     the event-based debugging interface.  Prefer the signal-based
+     interface to the event-based interface, to leave behavior on
+     older systems unchanged.  */
+  if (get_thread_signals () == 0)
+    return 0;
+
+  if (request_thread_db_events (serv) == -1)
+    return 0;
+
+  return -1;
 }
+
 
 /* Function: thread_db_detach
    FIXME: gdbserv kills the inferior and exits when gdb detaches.
@@ -930,11 +1335,24 @@ find_new_threads_callback (const td_thrhandle_t *thandle, void *data)
       if (ti.ti_state != TD_THR_UNKNOWN)
 	{
 	  thread = add_thread_to_list (&ti);
+
+	  if (thread_db_noisy)
+	    fprintf (stderr, "(new thread %s)\n", thread_debug_name (thread));
+
 	  /* Now make sure we've attached to it.  
 	     Skip the main pid (already attached). */
 	  if (thread->ti.ti_lid != proc_handle.pid)
 	    {
 	      attach_thread (thread);
+	    }
+
+	  if (using_thread_db_events)
+	    {
+	      /* Enable event reporting in this thread.  */
+	      if (td_thr_event_enable_p (thandle, 1) != TD_OK)
+		fprintf (stderr, "couldn't enable event reporting "
+			 "in thread %d\n",
+			 ti.ti_lid);
 	    }
 	}
     }
@@ -1189,89 +1607,6 @@ thread_db_thread_info (struct gdbserv *serv, struct gdbserv_thread *thread)
   return info;
 }
 
-/* Function: get_target_int_by_name
-   Read the value of a target integer, given its name and size.
-   Returns -1 for failure, zero for success. */
-
-static int
-get_target_int_by_name (char *name, void *value, int size)
-{
-  paddr_t addr;
-
-  if (ps_pglobal_lookup (&proc_handle, NULL, name, &addr) == PS_OK)
-    {
-      if (ps_pdread (&proc_handle, addr,
-		     (gdb_ps_read_buf_t) value,
-		     (gdb_ps_size_t) size) == PS_OK)
-	return 0;
-    }
-  return -1;		/* fail */
-}
-
-/* Function: set_target_int_by_name
-   Read the value of a target integer, given its name and size.
-   Returns -1 for failure, zero for success. */
-
-static int
-set_target_int_by_name (char *name, void *value, int size)
-{
-  paddr_t addr;
-
-  if (ps_pglobal_lookup (&proc_handle, NULL, name, &addr) == PS_OK)
-    {
-      if (ps_pdwrite (&proc_handle, addr,
-		      (gdb_ps_write_buf_t) value,
-		      (gdb_ps_size_t) size) == PS_OK)
-	return 0;
-    }
-  return -1;		/* fail */
-}
-
-/* Function: get_thread_signals
-
-   Obtain the values of the "cancel", "restart" and "debug" signals
-   used by LinuxThreads, and store them in a set of global variables
-   for use by check_child_state and friends.
-
-   Recent versions of NPTL don't define these symbols at all; you must
-   use the libthread_db event functions instead (td_ta_event_addr,
-   ...) to find out about thread creation, thread exits, and so on.
-
-   Older versions of LinuxThreads provide both interfaces.  To avoid
-   changing RDA's behavior on any system it supports, we use the older
-   signal-based interface if present, and use the event-based
-   interface as a fall-back.  */
-
-static int cancel_signal;
-static int restart_signal;
-static int debug_signal;
-static int got_thread_signals;
-
-static void
-get_thread_signals (void)
-{
-  int cancel, restart, debug, debug_flag;
-
-  if (!got_thread_signals)
-    {
-      if (get_target_int_by_name ("__pthread_sig_cancel", 
-				  &cancel, sizeof (cancel)) == 0 &&
-	  get_target_int_by_name ("__pthread_sig_restart",
-				  &restart, sizeof (restart)) == 0 &&
-	  get_target_int_by_name ("__pthread_sig_debug", 
-				  &debug, sizeof (debug)) == 0)
-	{
-	  restart_signal = restart;
-	  cancel_signal  = cancel;
-	  debug_signal   = debug;
-	  got_thread_signals = 1;
-	}
-      debug_flag = 1;
-      set_target_int_by_name ("__pthread_threads_debug", 
-			      &debug_flag, sizeof (debug_flag));
-    }
-}
-
 /* Function: stop_thread 
    Use SIGSTOP to force a thread to stop. */
 
@@ -1280,6 +1615,8 @@ stop_thread (struct gdbserv_thread *thread)
 {
   if (thread->ti.ti_lid != 0)
     {
+      if (thread_db_noisy)
+	fprintf (stderr, "(stop thread %s)\n", thread_debug_name (thread));
       if (stop_lwp (thread->ti.ti_lid) == 0)
 	thread->stopped = 1;
       else
@@ -1303,19 +1640,23 @@ stop_all_threads (struct child_process *process)
     {
       if (thread->ti.ti_lid == process->pid)
 	{
-	  /* HACK mark him signalled. */
+	  /* HACK: mark him stopped.
+	     It would make more sense to do this in
+	     thread_db_check_child_state, where we received his
+	     waitstatus and thus know he's stopped.  But that code is
+	     also used when we don't have a thread list yet, so the
+	     'struct gdbserv_thread' whose 'stopped' flag we want to
+	     set may not exist.  */
 	  thread->stopped = 1;
 	  continue;	/* This thread is already stopped. */
 	}
-      /* All threads must be stopped, unles
+      /* All threads must be stopped, unless
 	 a) they have only just been attached, or 
 	 b) they're already stopped. */
       if (!thread->attached && !thread->stopped &&
 	  thread->ti.ti_state != TD_THR_ZOMBIE &&
 	  thread->ti.ti_state != TD_THR_UNKNOWN)
-	{
-	  stop_thread (thread);
-	}
+	stop_thread (thread);
     }
 }
 
@@ -1331,6 +1672,7 @@ static struct event_list {
   struct gdbserv_thread *thread;
   union wait waited;
   int selected;
+  int thread_db_event;
 } *pending_events;
 static int pending_events_listsize;
 static int pending_events_top;
@@ -1360,17 +1702,47 @@ add_pending_event (struct gdbserv_thread *thread, union wait waited)
   pending_events [pending_events_top].thread = thread;
   pending_events [pending_events_top].waited = waited;
   pending_events [pending_events_top].selected = 0;
+  pending_events [pending_events_top].thread_db_event = 0;
   pending_events_top ++;
 }
 
+
+/* Delete the I'th pending event.  This will reorder events at indices
+   I and higher, but not events whose indices are less than I.
+
+   This function runs in constant time, so you can iterate through the
+   whole pending event pool by deleting events as you process them.
+   But the nice thing about this function is that you can also handle
+   only selected events, and leave others for later.  */
+static void
+delete_pending_event (int i)
+{
+  /* You shouldn't ask to delete an event that's not actually in the
+     list.  */
+  assert (i <= i && i < pending_events_top);
+
+  /* Copy the last element down into this element's position, unless
+     this is the last element itself.  */
+  if (i < pending_events_top - 1)
+    pending_events[i] = pending_events[pending_events_top - 1];
+
+  /* Now the deleted space is at the end of the array.  So just
+     decrement the top pointer, and we're done.  */
+  pending_events_top--;
+}
+
+
 /* Function: select_pending_event
-   Helper function for wait_all_threads.
+   Helper function for thread_db_check_child_state.
 
    Having collected a list of events from various threads, 
-   choose one "favored event" to be returned to the debugger. */
+   choose one "favored event" to be returned to the debugger.
+
+   Return non-zero if we selected an event, or zero if we couldn't
+   find anything interesting to report.  */
 
 
-static void
+static int
 select_pending_event (struct child_process *process)
 {
   int i = 0;
@@ -1382,7 +1754,11 @@ select_pending_event (struct child_process *process)
   /* Selection criterion #0:
      If there are no events, don't do anything!  (paranoia) */
   if (pending_events_top == 0)
-    return;
+    {
+      if (thread_db_noisy)
+	fprintf (stderr, "(selected nothing)\n");
+      return 0;
+    }
 
   /* Selection criterion #1: 
      If the thread pointer is null, then the thread library is
@@ -1442,6 +1818,11 @@ select_pending_event (struct child_process *process)
   i = 0;
 
  selected:	/* Got our favored event. */
+
+  if (thread_db_noisy)
+    fprintf (stderr, "(selected %s)\n",
+	     thread_debug_name (pending_events[i].thread));
+
   pending_events[i].selected = 1;
   process->event_thread = pending_events[i].thread;
   if (pending_events[i].thread)
@@ -1451,11 +1832,11 @@ select_pending_event (struct child_process *process)
   if (thread_db_noisy)
     fprintf (stderr, "<select_pending_event: pid %d '%c' %d>\n",
 	    process->pid, process->stop_status, process->stop_signal);
-  return;
+  return 1;
 }
 
 /* Function: send_pending_signals
-   Helper function for wait_all_threads.
+   Helper function for thread_db_check_child_state.
 
    When we call waitpid for each thread (trying to consume the SIGSTOP
    events that we sent from stop_all_threads), we sometimes inadvertantly
@@ -1534,30 +1915,33 @@ wait_all_threads (struct child_process *process)
 	     !thread->waited)
 	{
 	  errno = 0;
+	  if (thread_db_noisy)
+	    fprintf (stderr, "(waiting for %s)\n",
+		     thread_debug_name (thread));
 	  ret = waitpid (thread->ti.ti_lid, (int *) &w, 
 			 thread->ti.ti_lid == proc_handle.pid ? 0 : __WCLONE);
 	  if (ret == -1)
 	    {
 	      if (errno == ECHILD)
 		fprintf (stderr, "<wait_all_threads: %d has disappeared>\n", 
-			thread->ti.ti_lid);
+			 thread->ti.ti_lid);
 	      else
 		fprintf (stderr, "<wait_all_threads: waitpid %d failed, '%s'>\n", 
-			thread->ti.ti_lid, strerror (errno));
+			 thread->ti.ti_lid, strerror (errno));
 	      break;
 	    }
 	  if (WIFEXITED (w))
 	    {
 	      add_pending_event (thread, w);
 	      fprintf (stderr, "<wait_all_threads: %d has exited>\n", 
-		      thread->ti.ti_lid);
+		       thread->ti.ti_lid);
 	      break;
 	    }
 	  if (WIFSIGNALED (w))
 	    {
 	      add_pending_event (thread, w);
 	      fprintf (stderr, "<wait_all_threads: %d died with signal %d>\n", 
-		      thread->ti.ti_lid, WTERMSIG (w));
+		       thread->ti.ti_lid, WTERMSIG (w));
 	      break;
 	    }
 	  stopsig = WSTOPSIG (w);
@@ -1569,7 +1953,7 @@ wait_all_threads (struct child_process *process)
 	    if (thread_db_noisy)
 	      fprintf (stderr, "<waitpid (%d, SIGSTOP)>\n", thread->ti.ti_lid);
 #endif
-	    thread->waited = 1;
+	      thread->waited = 1;
 	    break;
 	  default:
 	    if (stopsig == debug_signal)
@@ -1577,16 +1961,16 @@ wait_all_threads (struct child_process *process)
 		/* This signal does not need to be forwarded. */
 		if (thread_db_noisy)
 		  fprintf (stderr, "<wait_all_threads: ignoring SIGDEBUG (%d) for %d>\n",
-			  debug_signal,
-			  thread->ti.ti_lid);
+			   debug_signal,
+			   thread->ti.ti_lid);
 	      }
 	    else
 	      {
 		if (thread_db_noisy)
 		  fprintf (stderr, "<wait_all_threads: stash sig %d for %d at 0x%08x>\n",
 			   stopsig, thread->ti.ti_lid,
-			  (unsigned long) debug_get_pc (process->serv,
-			                                thread->ti.ti_lid));
+			   (unsigned long) debug_get_pc (process->serv,
+							 thread->ti.ti_lid));
 		add_pending_event (thread, w);
 	      }
 	  }
@@ -1598,9 +1982,123 @@ wait_all_threads (struct child_process *process)
 	    }
 	}
     }
-  select_pending_event (process);
-  send_pending_signals (process);
 }
+
+
+/* Scan the list for threads that have stopped at libthread_db event
+   breakpoints, process the events they're reporting, and step the
+   threads past the breakpoints, updating the pending_events
+   table.
+
+   This function assumes that all threads have been stopped.  */
+static void
+handle_thread_db_events (struct child_process *process)
+{
+  struct gdbserv *serv = process->serv;
+  int i;
+  int any_events;
+
+  /* Are there any threads at all stopped at libthread_db event
+     breakpoints?  */
+  any_events = 0;
+  for (i = 0; i < pending_events_top; i++)
+    {
+      struct event_list *e = &pending_events[i];
+      if (e->thread
+	  && WIFSTOPPED (e->waited)
+	  && WSTOPSIG (e->waited) == SIGTRAP
+	  && hit_thread_db_event_breakpoint (serv, e->thread))
+	{
+	  any_events = 1;
+	  e->thread_db_event = 1;
+	}
+    }
+
+  if (! any_events)
+    return;
+
+  /* Consume events.  */
+  for (;;)
+    {
+      td_event_msg_t msg;
+      td_err_e status = td_ta_event_getmsg_p (thread_agent, &msg);
+
+      if (status == TD_NOMSG)
+	break;
+
+      if (status != TD_OK)
+	{
+	  fprintf (stderr, "error getting thread messages: %s\n",
+		   thread_db_err_str (status));
+	  break;
+	}
+
+      /* The only messages we're concerned with are TD_CREATE and
+	 TD_DEATH.  But since we call update_thread_list every time
+	 thread_db_check_child_state gets a wait status from waitpid,
+	 our list is always up to date, so we don't actually need to
+	 do anything with these messages.
+
+	 (Ignore the question, for now, of how RDA loses when threads
+	 spawn off new threads after we've updated our list, but
+	 before we've managed to send each of the threads on our list
+	 a SIGSTOP.)  */
+    }
+
+  /* Disable the event breakpoints while we step the threads across
+     them.  */
+  delete_thread_db_event_breakpoints (serv);
+
+  for (i = 0; i < pending_events_top;)
+    {
+      struct event_list *e = &pending_events[i];
+      if (e->thread_db_event)
+	{
+	  struct gdbserv_thread *thread = e->thread;
+	  lwpid_t lwp = thread->ti.ti_lid;
+	  union wait w;
+
+	  /* Delete this pending event.  If appropriate, we'll add a
+	     new pending event below, but if stepping across the event
+	     breakpoint is successful, then this pending event, at
+	     least, has been addressed.  */
+	  delete_pending_event (i);
+
+	  /* Back up the thread, if needed.  */
+	  decr_pc_after_break (serv, lwp);
+
+	  /* Single-step the thread across the breakpoint.  */
+	  singlestep_lwp (serv, lwp, 0);
+
+	  /* Get a new status for that thread.  */
+	  if (thread_db_noisy)
+	    fprintf (stderr, "(waiting after event bp step %s)\n",
+		     thread_debug_name (thread));
+	  if (waitpid (lwp, (int *) &w, lwp == proc_handle.pid ? 0 : __WCLONE)
+	      < 0)
+	    fprintf (stderr, "error waiting for thread %d after "
+		     "stepping over event breakpoint:\n%s",
+		     lwp, strerror (errno));
+	  else
+	    {
+	      /* If the result is a SIGTRAP signal, then that means
+		 the single-step proceeded normally.  Otherwise, it's
+		 a new pending event.  */
+	      if (WIFSTOPPED (w)
+		  && WSTOPSIG (w) == SIGTRAP)
+		;
+	      else
+		add_pending_event (thread, w);
+	    }
+	}
+      else
+	i++;
+    }
+
+  /* Re-insert the event breakpoints.  */
+  insert_thread_db_event_breakpoints (serv);
+}
+
 
 /* Function: continue_thread
    Send continue to a struct gdbserv_thread. */
@@ -1636,8 +2134,9 @@ continue_all_threads (struct gdbserv *serv)
        thread;
        thread = next_thread_in_list (thread))
     {
-      /* Send any newly attached thread the restart signal. */
-      if (thread->attached)
+      /* If we're using signals to communicate with the thread
+	 library, send any newly attached thread the restart signal. */
+      if (got_thread_signals && thread->attached)
 	continue_thread (thread, restart_signal);
       else
 	continue_thread (thread, 0);
@@ -1835,6 +2334,8 @@ thread_db_check_child_state (struct child_process *process)
 
       if (eventpid > 0)	/* found an event */
 	{
+	  int selected_anything;
+
 	  /* Allow underlying target to use the event process by default,
 	     since it is stopped and the others are still running. */
 	  process->pid = eventpid;
@@ -1859,9 +2360,13 @@ thread_db_check_child_state (struct child_process *process)
 	     bad from the point of view of synchronization. */
 	  handle_waitstatus (process, w);
 	  if (thread_db_noisy)
-	    fprintf (stderr, "<check_child_state: %d got '%c' - %d at 0x%08x>\n", 
+	    fprintf (stderr, "\n<check_child_state: %d got '%c' - %d at 0x%08x>\n", 
 		     process->pid, process->stop_status, process->stop_signal,
 		     (unsigned long) debug_get_pc (process->serv, process->pid));
+	  /* It shouldn't hurt to call this twice.  But if there are a
+	     lot of other threads running, it can take a *long* time
+	     for the thread list update to complete.  */
+	  stop_all_threads (process);
 
 	  /* Update the thread list. */
 	  update_thread_list ();
@@ -1875,50 +2380,56 @@ thread_db_check_child_state (struct child_process *process)
 
 	  stop_all_threads (process);
 	  wait_all_threads (process);
+	  if (using_thread_db_events)
+	    handle_thread_db_events (process);
+	  selected_anything = select_pending_event (process);
+	  send_pending_signals (process);
+
+	  /* If there weren't any pending events to report, then
+	     continue the program, and let the main loop know that
+	     nothing interesting happened.  */
+	  if (! selected_anything)
+	    {
+	      currentvec->continue_program (serv);
+	      return 0;
+	    }
+
 	  /* Note: if more than one thread has an event ready to be
 	     handled, wait_all_threads will have chosen one at random. */
 
-	  if (got_thread_signals && process->stop_status == 'T')
+	  if (got_thread_signals && ignore_thread_signal (process))
 	    {
-	      /* Child stopped with a signal.  
-		 See if it was one of our special signals. */
-
-	      if (process->stop_signal == cancel_signal  ||	/* ignore */
-		  process->stop_signal == restart_signal ||	/* ignore */
-		  process->stop_signal == debug_signal   ||	/* ignore */
-		  process->stop_signal == SIGCHLD)		/* ignore */
+	      /* Ignore this signal, restart the child. */
+	      if (thread_db_noisy)
+		fprintf (stderr, "<check_child_state: ignoring signal %d for %d>\n",
+			 process->stop_signal, process->pid);
+	      if (process->stop_signal == debug_signal)
 		{
-		  /* Ignore this signal, restart the child. */
-		  if (thread_db_noisy)
-		    fprintf (stderr, "<check_child_state: ignoring signal %d for %d>\n",
-			     process->stop_signal, process->pid);
-		  if (process->stop_signal == debug_signal)
-		    {
-		      /* The debug signal arrives under two circumstances:
-			 1) The main thread raises it once, upon the first call
-			 to pthread_create.  This lets us detect the manager
-			 thread.  The main thread MUST be given the restart
-			 signal when this occurs. 
-		         2) The manager thread raises it each time a new
-			 child thread is created.  The child thread will be
-			 in sigsuspend, and MUST be sent the restart signal.
-			 However, the manager thread, which raised the debug
-			 signal, does not need to be restarted.  
+		  /* The debug signal arrives under two circumstances:
+		     1) The main thread raises it once, upon the first call
+		     to pthread_create.  This lets us detect the manager
+		     thread.  The main thread MUST be given the restart
+		     signal when this occurs. 
+		     2) The manager thread raises it each time a new
+		     child thread is created.  The child thread will be
+		     in sigsuspend, and MUST be sent the restart signal.
+		     However, the manager thread, which raised the debug
+		     signal, does not need to be restarted.  
 
-		         Sending the restart signal to the newly attached
-		         child thread (which is not the event thread) is
-		         handled in continue_all_threads.  */
+		     Sending the restart signal to the newly attached
+		     child thread (which is not the event thread) is
+		     handled in continue_all_threads.  */
 
-		      if (process->pid == proc_handle.pid)  /* main thread */
-			process->stop_signal = restart_signal;
-		      else				/* not main thread */
-			process->stop_signal = 0;
-		    }
-		  process->signal_to_send = process->stop_signal;
-		  currentvec->continue_program (serv);
-		  return 0;
+		  if (process->pid == proc_handle.pid)  /* main thread */
+		    process->stop_signal = restart_signal;
+		  else				/* not main thread */
+		    process->stop_signal = 0;
 		}
+	      process->signal_to_send = process->stop_signal;
+	      currentvec->continue_program (serv);
+	      return 0;
 	    }
+
 	  if (process->stop_status == 'W')
 	    {
 	      if (process->pid == proc_handle.pid)

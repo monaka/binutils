@@ -70,6 +70,14 @@ case "$target" in
     ;;
 esac
 
+# Some architectures use the stock breakpoint model.
+case "$target" in
+  i?86*linux*)
+    TARGET_MODULES="$TARGET_MODULES stock-breakpoints.o"
+    AC_DEFINE(STOCK_BREAKPOINTS)
+  ;;
+esac
+
 AC_SUBST(TARGET_MODULES)
 
 case "$target" in

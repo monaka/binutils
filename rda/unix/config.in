@@ -136,3 +136,6 @@
 
 /* Define name / location of libthread_db.so */
 #undef LIBTHREAD_DB_SO
+
+/* Define if we're using the stock breakpoint implementation.  */
+#undef STOCK_BREAKPOINTS

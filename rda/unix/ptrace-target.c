@@ -33,6 +33,8 @@
 #include <errno.h>
 #include <signal.h>
 #include <unistd.h>
+#include <sys/types.h>
+#include <linux/unistd.h>
 
 #include "gdbserv.h" 
 #include "gdbserv-target.h" 
@@ -1334,6 +1336,11 @@ attach_lwp (lwpid_t lwpid)
     }
 }
 
+
+/* Generate code for the tkill system call.  */
+_syscall2(int, tkill, pid_t, tid, int, sig)
+
+
 /* Function: stop_lwp
    Use SIGSTOP to force an lwp to stop. 
    Returns -1 for failure, zero for success. */
@@ -1341,17 +1348,17 @@ attach_lwp (lwpid_t lwpid)
 extern int
 stop_lwp (lwpid_t lwpid)
 {
-  if (kill (lwpid, SIGSTOP) == 0)
+  if (tkill (lwpid, SIGSTOP) == 0)
     {
 #if 0 /* Too noisy! */
       if (thread_db_noisy)
-	fprintf (stderr, "<kill (%d, SIGSTOP)>\n", lwpid);
+	fprintf (stderr, "<tkill (%d, SIGSTOP)>\n", lwpid);
 #endif
       return 0;
     }
   else
     {
-      fprintf (stderr, "<<< ERROR -- kill (%d, SIGSTOP) failed >>>\n", lwpid);
+      fprintf (stderr, "<<< ERROR -- tkill (%d, SIGSTOP) failed >>>\n", lwpid);
       return -1;
     }
 }
