@@ -17,7 +17,7 @@
 
 #include "tclInt.h"
 
-#ifdef WIN32
+#if defined(WIN32) || defined(__CYGWIN__)
 #include "tclWinInt.h"
 #else
 extern Tcl_Mutex *TclpNewAllocMutex(void);
@@ -276,7 +276,7 @@ TclFreeAllocCache(void *arg)
     *nextPtrPtr = cachePtr->nextPtr;
     cachePtr->nextPtr = NULL;
     Tcl_MutexUnlock(listLockPtr);
-#ifdef WIN32
+#if defined(WIN32) || defined(__CYGWIN__)
     TlsFree((DWORD) cachePtr);
 #else
     free(cachePtr);
