@@ -1,6 +1,6 @@
 /* cygthread.cc
 
-   Copyright 1998, 1999, 2000, 2001, 2002 Red Hat, Inc.
+   Copyright 1998, 1999, 2000, 2001, 2002, 2003 Red Hat, Inc.
 
 This software is a copyrighted work licensed under the terms of the
 Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
@@ -177,7 +177,7 @@ cygthread::cygthread (LPTHREAD_START_ROUTINE start, LPVOID param,
     low_priority_sleep (0);
 #else
     {
-      thread_printf ("waiting for %s<%p> to become active", __name, h);
+      system_printf ("waiting for %s<%p> to become active", __name, h);
       low_priority_sleep (0);
     }
 #endif
@@ -276,7 +276,7 @@ cygthread::detach (HANDLE sigwait)
     system_printf ("called detach on available thread %d?", avail);
   else
     {
-      DWORD avail = id;
+      DWORD newavail = id;
       DWORD res;
 
       if (!sigwait)
@@ -299,7 +299,7 @@ cygthread::detach (HANDLE sigwait)
 	      terminate_thread ();
 	      set_sig_errno (EINTR);	/* caller should be dealing with return
 					   values. */
-	      avail = 0;
+	      newavail = 0;
 	      signalled = true;
 	    }
 	}
@@ -307,7 +307,7 @@ cygthread::detach (HANDLE sigwait)
       thread_printf ("%s returns %d, id %p", sigwait ? "WFMO" : "WFSO",
 		     res, id);
 
-      if (!avail)
+      if (!newavail)
 	/* already handled */;
       else if (is_freerange)
 	{
@@ -318,7 +318,7 @@ cygthread::detach (HANDLE sigwait)
 	{
 	  ResetEvent (*this);
 	  /* Mark the thread as available by setting avail to non-zero */
-	  (void) InterlockedExchange ((LPLONG) &this->avail, avail);
+	  (void) InterlockedExchange ((LPLONG) &avail, newavail);
 	}
     }
   return signalled;
