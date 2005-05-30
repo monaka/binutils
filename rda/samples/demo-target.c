@@ -130,6 +130,12 @@ sched_break (struct gdbserv *serv, long timeout)
 				   serv, NULL, NULL);
 }
 
+static void
+demo_process_set_gen (struct gdbserv *serv)
+{
+  if (demo_set_gen_hook)
+    demo_set_gen_hook (serv);
+}
 
 /* Track sole connection to a remote gdb client. */
 static struct gdbserv* sole_connection = NULL;
@@ -157,7 +163,7 @@ demo_target (struct gdbserv *serv, void *context)
      functions. */
 
   target->process_get_gen = NULL;
-  target->process_set_gen = NULL;
+  target->process_set_gen = demo_process_set_gen;
   target->process_rcmd = demo_process_rcmd;
   target->process_set_args = NULL;
   target->process_set_reg = NULL;
@@ -281,6 +287,11 @@ demo_process_get_regs (struct gdbserv* serv)
 {
   int i;
 
+  if (demo_get_regs_hook)
+    {
+      demo_get_regs_hook (serv);
+      return;
+    }
   for (i=0; i<180; i++) /* 180 bytes < gdb's PBUFSIZ/2 */
     gdbserv_output_byte (serv, target_regs.buf[i]);
 }
@@ -376,8 +387,10 @@ demo_get_mem (struct gdbserv* serv,
 
   for (n=0; n<len; n++)
     {
-      if (request_base + n >= target_mem.base &&
-	  request_base + n <  target_mem.base + target_mem.len)
+      if (demo_get_mem_hook)
+	*d++ = demo_get_mem_hook (request_base + n);
+      else if (request_base + n >= target_mem.base &&
+	       request_base + n <  target_mem.base + target_mem.len)
 	*d++ = target_mem.buf[request_base + n - target_mem.base];
       else
 	*d++ = 0;

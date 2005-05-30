@@ -43,4 +43,9 @@ struct gdbserv_target *demo_target (struct gdbserv *gdbserv, void *data);
 
 struct gdbserv_target *demo_attach (struct gdbserv* serv, void* data);
 
+extern void (*demo_set_gen_hook)  (struct gdbserv *);
+extern void (*demo_get_regs_hook) (struct gdbserv *);
+extern int  (*demo_get_mem_hook)  (unsigned long);
+
+extern void demo_tfind_open (char *);
 #endif

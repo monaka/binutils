@@ -74,10 +74,11 @@ void
 usage (void)
 {
   fprintf (stderr,
-	   "Usage: sample [-d] [-|<port>]\n"
-	   "Where:\n"
+	   "Usage: sample [-d] [-v] [-t filename] [-|<port>]\n"
+	   "Where options are:\n"
 	   "\t-d\tDaemon mode\n"
 	   "\t-v\tVerbose/trace\n"
+	   "\t-t\tOpen filename for tfind input\n"
 	   "\t-\tUse stdin/stdout\n"
 	   "\t<port>\tSocket number\n"
 	   );
@@ -120,6 +121,8 @@ main (int argc, char* argv[])
 	daemon_p = 1;
       else if (strcmp (argv[i], "-v") == 0)
 	gdbsocket_log = stdio_log (stderr);
+      else if (strcmp (argv[i], "-t") == 0)
+	demo_tfind_open (argv[++i]);
       else if (strcmp (argv[i], "-?") == 0
 	       || strcmp (argv[i], "-h") == 0)
 	{
