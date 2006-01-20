@@ -4,49 +4,15 @@
 	about whether they should be using something called __invalid_d_ino or
 	not.
 
-2006-01-20  Corinna Vinschen  <corinna@vinschen.de>
-
-	* fhandler_socket.cc (fhandler_socket::prepare): Fix debug output.
-	(fhandler_socket::release): Add debug output for WSAEventSelect failure.
-	(fhandler_socket::ioctl): Always cancel WSAEventSelect before switching
-	to blocking mode.  Only set nonblocking flag if ioctlsocket call
-	succeeded.  Only print new socket state if ioctlsocket call succeeded.
-
 2006-01-19  Christopher Faylor  <cgf@timesys.com>
 
-	* fhandler_disk_file.cc (fhandler_disk_file::opendir): Check posix path
-	for root rather than windows path.
-
-2006-01-19  Christopher Faylor  <cgf@timesys.com>
-
-	* dir.cc (readdir_worker): Fill in invalid fields with -1.  Accommodate
-	name change from __ino32 to __invalid_ino32.
 	* include/sys/dirent.h (__invalid_ino32): Rename from __ino32.  Don't
 	define unused d_type macros.
-
-2006-01-18  Christopher Faylor  <cgf@timesys.com>
-
-	* heap.cc (heap_init): Remove Sleep.
-
-2006-01-18  Corinna Vinschen  <corinna@vinschen.de>
-
-	* net.cc (rresvport): Remove extern declaration.
-
-2006-01-18  Corinna Vinschen  <corinna@vinschen.de>
-
-	* autoload.cc (rresvport): Remove.
-	* net.cc (last_used_rrecvport): New global shared variable.
-	(cygwin_rresvport): Implement rresvport without using rresvport from
-	wsock32.
 
 2006-01-18  Corinna Vinschen  <corinna@vinschen.de>
 
 	* include/cygwin/socket.h (struct sockaddr_storage): Fix typo in
 	ss_family member name.
-
-2006-01-16  Christopher Faylor  <cgf@timesys.com>
-
-	* include/cygwin/version.h: Bump DLL minor version number to 20.
 
 2006-01-13  Corinna Vinschen  <corinna@vinschen.de>
 
