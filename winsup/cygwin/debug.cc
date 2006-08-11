@@ -166,7 +166,6 @@ add_handle (const char *func, int ln, HANDLE h, const char *name, bool inh)
   hl->pid = GetCurrentProcessId ();
   cygheap->debug.endh->next = hl;
   cygheap->debug.endh = hl;
-  SetHandleInformation (h, HANDLE_FLAG_PROTECT_FROM_CLOSE, HANDLE_FLAG_PROTECT_FROM_CLOSE);
   debug_printf ("protecting handle '%s'(%p), inherited flag %d", hl->name, hl->h, hl->inherited);
 }
 
@@ -235,12 +234,11 @@ close_handle (const char *func, int ln, HANDLE h, const char *name, bool force)
   if (!mark_closed (func, ln, h, name, force))
     return false;
 
-  SetHandleInformation (h, HANDLE_FLAG_PROTECT_FROM_CLOSE, 0);
   ret = CloseHandle (h);
 
-#if 1 /* Uncomment to see CloseHandle failures */
+#if 0 /* Uncomment to see CloseHandle failures */
   if (!ret)
-    small_printf ("CloseHandle(%s) failed %s:%d\n", name, func, ln);
+    small_printf ("CloseHandle(%s) %p failed %s:%d\n", name, h, func, ln);
 #endif
   return ret;
 }
