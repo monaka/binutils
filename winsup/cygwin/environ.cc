@@ -28,7 +28,6 @@ details. */
 #include "environ.h"
 #include "child_info.h"
 
-extern bool dos_file_warning;
 extern bool allow_glob;
 extern bool ignore_case_with_glob;
 extern bool allow_winsymlinks;
@@ -42,8 +41,6 @@ extern bool allow_server;
 #endif
 
 static char **lastenviron;
-
-extern "C" int env_win32_to_posix_path_list (const char *, char *posix);
 
 #define ENVMALLOC \
   (CYGWIN_VERSION_DLL_MAKE_COMBINED (user_data->api_major, user_data->api_minor) \
@@ -59,7 +56,7 @@ extern "C" int env_win32_to_posix_path_list (const char *, char *posix);
 static int return_MAX_PATH (const char *) {return CYG_MAX_PATH;}
 static win_env conv_envvars[] =
   {
-    {NL ("PATH="), NULL, NULL, env_win32_to_posix_path_list,
+    {NL ("PATH="), NULL, NULL, cygwin_win32_to_posix_path_list,
      cygwin_posix_to_win32_path_list,
      cygwin_win32_to_posix_path_list_buf_size,
      cygwin_posix_to_win32_path_list_buf_size, true},
@@ -183,17 +180,8 @@ posify (char **here, const char *value)
 
   char *outenv = (char *) malloc (1 + len + conv->posix_len (value));
   memcpy (outenv, src, len);
-  char *newvalue = outenv + len;
-  if (!conv->toposix (value, newvalue) || _impure_ptr->_errno != EIDRM)
-    conv->add_cache (newvalue, *value != '/' ? value : NULL);
-  else
-    {
-      /* The conversion routine removed elements from a path list so we have
-	 to recalculate the windows path to remove elements there, too. */
-      char cleanvalue[strlen (value) + 1];
-      conv->towin32 (newvalue, cleanvalue);
-      conv->add_cache (newvalue, cleanvalue);
-    }
+  conv->toposix (value, outenv + len);
+  conv->add_cache (outenv + len, *value != '/' ? value : NULL);
 
   debug_printf ("env var converted to %s", outenv);
   *here = outenv;
@@ -605,7 +593,6 @@ static struct parse_thing
   {"binmode", {x: &binmode}, justset, NULL, {{O_TEXT}, {O_BINARY}}},
   {"check_case", {func: &check_case_init}, isfunc, NULL, {{0}, {0}}},
   {"codepage", {func: &codepage_init}, isfunc, NULL, {{0}, {0}}},
-  {"dosfilewarning", {&dos_file_warning}, justset, NULL, {{false}, {true}}},
   {"envcache", {&envcache}, justset, NULL, {{true}, {false}}},
   {"error_start", {func: &error_start_init}, isfunc, NULL, {{0}, {0}}},
   {"export", {&export_settings}, justset, NULL, {{false}, {true}}},
@@ -613,7 +600,7 @@ static struct parse_thing
   {"glob", {func: &glob_init}, isfunc, NULL, {{0}, {s: "normal"}}},
   {"ntea", {func: set_ntea}, isfunc, NULL, {{0}, {s: "yes"}}},
   {"ntsec", {func: set_ntsec}, isfunc, NULL, {{0}, {s: "yes"}}},
-  {"proc_retry", {func: set_proc_retry}, isfunc, NULL, {{0}, {5}}},
+  {"traverse", {func: set_traverse}, isfunc, NULL, {{0}, {s: "yes"}}},
   {"reset_com", {&reset_com}, justset, NULL, {{false}, {true}}},
 #ifdef USE_SERVER
   {"server", {&allow_server}, justset, NULL, {{false}, {true}}},
@@ -622,10 +609,10 @@ static struct parse_thing
   {"strip_title", {&strip_title_path}, justset, NULL, {{false}, {true}}},
   {"subauth_id", {func: &subauth_id_init}, isfunc, NULL, {{0}, {0}}},
   {"title", {&display_title}, justset, NULL, {{false}, {true}}},
-  {"traverse", {func: set_traverse}, isfunc, NULL, {{0}, {s: "yes"}}},
   {"tty", {NULL}, set_process_state, NULL, {{0}, {PID_USETTY}}},
   {"winsymlinks", {&allow_winsymlinks}, justset, NULL, {{false}, {true}}},
   {"transparent_exe", {&transparent_exe}, justset, NULL, {{false}, {true}}},
+  {"proc_retry", {func: set_proc_retry}, isfunc, NULL, {{0}, {5}}},
   {NULL, {0}, justset, 0, {{0}, {0}}}
 };
 
@@ -1064,30 +1051,31 @@ build_env (const char * const *envp, char *&envblock, int &envc,
 	  const char *p;
 	  win_env *conv;
 	  len = strcspn (*srcp, "=") + 1;
+	  const char *rest = *srcp + len;
 
 	  /* Check for a bad entry.  This is necessary to get rid of empty
 	     strings, induced by putenv and changing the string afterwards.
 	     Note that this doesn't stop invalid strings without '=' in it
 	     etc., but we're opting for speed here for now.  Adding complete
 	     checking would be pretty expensive. */
-	  if (len == 1)
+	  if (len == 1 || !*rest)
 	    continue;
 
 	  /* See if this entry requires posix->win32 conversion. */
-	  conv = getwinenv (*srcp, *srcp + len, &temp);
+	  conv = getwinenv (*srcp, rest, &temp);
 	  if (conv)
 	    p = conv->native;	/* Use win32 path */
 	  else
 	    p = *srcp;		/* Don't worry about it */
 
-	  len = strlen (p);
+	  len = strlen (p) + 1;
 	  if (len >= 32 * 1024)
 	    {
 	      free (envblock);
 	      envblock = NULL;
 	      goto out;
 	    }
-	  new_tl += len + 1;	/* Keep running total of block length so far */
+	  new_tl += len;	/* Keep running total of block length so far */
 
 	  /* See if we need to increase the size of the block. */
 	  if (new_tl > tl)
@@ -1103,7 +1091,7 @@ build_env (const char * const *envp, char *&envblock, int &envc,
 		}
 	    }
 
-	  memcpy (s, p, len + 1);
+	  memcpy (s, p, len);
 
 	  /* See if environment variable is "special" in a Windows sense.
 	     Under NT, the current directories for visited drives are stored
@@ -1112,7 +1100,7 @@ build_env (const char * const *envp, char *&envblock, int &envc,
 	  if (s[0] == '!' && (isdrive (s + 1) || (s[1] == ':' && s[2] == ':'))
 	      && s[3] == '=')
 	    *s = '=';
-	  s += len + 1;
+	  s += len;
 	}
       *s = '\0';			/* Two null bytes at the end */
       assert ((s - envblock) <= tl);	/* Detect if we somehow ran over end

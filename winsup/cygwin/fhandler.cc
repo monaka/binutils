@@ -223,10 +223,8 @@ fhandler_base::raw_read (void *ptr, size_t& ulen)
 
   HANDLE h = NULL;	/* grumble */
   int prio = 0;		/* ditto */
-  int try_noreserve = 1;
   DWORD len = ulen;
 
-retry:
   ulen = (size_t) -1;
   if (read_state)
     {
@@ -261,20 +259,6 @@ retry:
 	      bytes_read = 0;
 	      break;
 	    }
-	  if (try_noreserve)
-	    {
-	      try_noreserve = 0;
-	      switch (mmap_is_attached_or_noreserve (ptr, len))
-		{
-		case MMAP_NORESERVE_COMMITED:
-		  goto retry;
-		case MMAP_RAISE_SIGBUS:
-		  raise(SIGBUS);
-		case MMAP_NONE:
-		  break;
-		}
-	    }
-	  /*FALLTHRU*/
 	case ERROR_INVALID_FUNCTION:
 	case ERROR_INVALID_PARAMETER:
 	case ERROR_INVALID_HANDLE:
@@ -620,13 +604,22 @@ fhandler_base::open (int flags, mode_t mode)
 	create_options = FILE_OPEN_FOR_BACKUP_INTENT | FILE_OPEN_FOR_RECOVERY;
 	break;
       default:
-	create_options = 0;
 	if ((flags & O_ACCMODE) == O_RDONLY)
-	  access = GENERIC_READ;
+	  {
+	    access = GENERIC_READ;
+	    create_options = FILE_OPEN_FOR_BACKUP_INTENT;
+	  }
 	else if ((flags & O_ACCMODE) == O_WRONLY)
-	  access = GENERIC_WRITE | FILE_READ_ATTRIBUTES;
+	  {
+	    access = GENERIC_WRITE | FILE_READ_ATTRIBUTES;
+	    create_options = FILE_OPEN_FOR_RECOVERY;
+	  }
 	else
-	  access = GENERIC_READ | GENERIC_WRITE;
+	  {
+	    access = GENERIC_READ | GENERIC_WRITE;
+	    create_options = FILE_OPEN_FOR_BACKUP_INTENT
+			     | FILE_OPEN_FOR_RECOVERY;
+	  }
 	if (flags & O_SYNC)
 	  create_options |= FILE_WRITE_THROUGH;
 	if (flags & O_DIRECT)
@@ -716,7 +709,17 @@ void
 fhandler_base::read (void *in_ptr, size_t& len)
 {
   char *ptr = (char *) in_ptr;
-  ssize_t copied_chars = get_readahead_into_buffer (ptr, len);
+  ssize_t copied_chars = 0;
+  int c;
+
+  while (len)
+    if ((c = get_readahead ()) < 0)
+      break;
+    else
+      {
+	ptr[copied_chars++] = (unsigned char) (c & 0xff);
+	len--;
+      }
 
   if (copied_chars && is_slow ())
     {
@@ -724,7 +727,6 @@ fhandler_base::read (void *in_ptr, size_t& len)
       goto out;
     }
 
-  len -= copied_chars;
   if (!len)
     {
       len = (size_t) copied_chars;
@@ -1652,14 +1654,7 @@ fhandler_base::facl (int cmd, int nentries, __aclent32_t *aclbufp)
 }
 
 int
-fhandler_base::fadvise (_off64_t offset, _off64_t length, int advice)
-{
-  set_errno (EINVAL);
-  return -1;
-}
-
-int
-fhandler_base::ftruncate (_off64_t length, bool allow_truncate)
+fhandler_base::ftruncate (_off64_t length)
 {
   set_errno (EINVAL);
   return -1;
