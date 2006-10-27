@@ -155,7 +155,7 @@ extern unsigned int signal_shift_subtract;
 
 extern int __api_fatal_exit_val;
 #define set_api_fatal_return(n) do {extern int __api_fatal_exit_val; __api_fatal_exit_val = (n);} while (0)
-#define api_fatal(fmt, args...) __api_fatal ("%P: *** " fmt,## args)
+#define api_fatal(fmt, args...) __api_fatal (fmt,## args)
 
 #undef issep
 #define issep(ch) (strchr (" \t\n\r", (ch)) != NULL)
@@ -299,13 +299,7 @@ size_t getsystempagesize ();
 
 /* mmap functions. */
 void mmap_init ();
-enum mmap_region_status
-  {
-    MMAP_NONE,
-    MMAP_RAISE_SIGBUS,
-    MMAP_NORESERVE_COMMITED
-  };
-mmap_region_status mmap_is_attached_or_noreserve (void *addr, size_t len);
+int mmap_is_attached_or_noreserve_page (ULONG_PTR addr);
 
 int winprio_to_nice (DWORD) __attribute__ ((regparm (1)));
 DWORD nice_to_winprio (int &) __attribute__ ((regparm (1)));
