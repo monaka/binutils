@@ -1,7 +1,7 @@
 /* shared.cc: shared data area support.
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
-   2006 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005
+   Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -29,7 +29,6 @@ details. */
 #include "child_info.h"
 #include "mtinfo.h"
 
-static shared_info cygwin_shared_area __attribute__((section (".cygwin_dll_common"), shared));
 shared_info NO_COPY *cygwin_shared;
 user_info NO_COPY *user_shared;
 HANDLE NO_COPY cygwin_user_h;
@@ -49,18 +48,30 @@ shared_name (char *ret_buf, const char *str, int num)
 #define page_const (65535)
 #define pround(n) (((size_t) (n) + page_const) & ~page_const)
 
-static ptrdiff_t offsets[] =
+static char *offsets[] =
 {
-  - pround (sizeof (user_info))
-  - pround (sizeof (console_state))
-  - pround (sizeof (_pinfo)),
-  - pround (sizeof (console_state))
-  - pround (sizeof (_pinfo)),
-  - pround (sizeof (_pinfo)),
-  0
+  (char *) cygwin_shared_address,
+  (char *) cygwin_shared_address
+    + pround (sizeof (shared_info)),
+  (char *) cygwin_shared_address
+    + pround (sizeof (shared_info))
+    + pround (sizeof (user_info)),
+  (char *) cygwin_shared_address
+    + pround (sizeof (shared_info))
+    + pround (sizeof (user_info))
+    + pround (sizeof (console_state)),
+  (char *) cygwin_shared_address
+    + pround (sizeof (shared_info))
+    + pround (sizeof (user_info))
+    + pround (sizeof (console_state))
+    + pround (sizeof (_pinfo)),
+  (char *) cygwin_shared_address
+    + pround (sizeof (shared_info))
+    + pround (sizeof (user_info))
+    + pround (sizeof (console_state))
+    + pround (sizeof (_pinfo))
+    + pround (sizeof (mtinfo))
 };
-
-#define off_addr(x)	((void *)((caddr_t) cygwin_hmodule + offsets[x]))
 
 void * __stdcall
 open_shared (const char *name, int n, HANDLE& shared_h, DWORD size,
@@ -74,7 +85,7 @@ open_shared (const char *name, int n, HANDLE& shared_h, DWORD size,
     addr = NULL;
   else
     {
-      addr = off_addr (m);
+      addr = offsets[m];
       VirtualFree (addr, 0, MEM_RELEASE);
     }
 
@@ -117,24 +128,30 @@ open_shared (const char *name, int n, HANDLE& shared_h, DWORD size,
       if (wincap.is_winnt ())
 	system_printf ("relocating shared object %s(%d) from %p to %p on Windows NT", name, n, addr, shared);
 #endif
-      offsets[0] = 0;
+      offsets[0] = NULL;
     }
 
   if (!shared)
     api_fatal ("MapViewOfFileEx '%s'(%p), %E.  Terminating.", mapname, shared_h);
 
-  if (m == SH_USER_SHARED && offsets[0] && wincap.needs_memory_protection ())
+  if (m == SH_CYGWIN_SHARED && offsets[0] && wincap.needs_memory_protection ())
     {
-      ptrdiff_t delta = (caddr_t) shared - (caddr_t) off_addr (0);
-      offsets[0] = (caddr_t) shared - (caddr_t) cygwin_hmodule;
-      for (int i = SH_USER_SHARED + 1; i < SH_TOTAL_SIZE; i++)
+      unsigned delta = (char *) shared - offsets[0];
+      offsets[0] = (char *) shared;
+      for (int i = SH_CYGWIN_SHARED + 1; i < SH_TOTAL_SIZE; i++)
 	{
 	  unsigned size = offsets[i + 1] - offsets[i];
 	  offsets[i] += delta;
-	  if (!VirtualAlloc (off_addr (i), size, MEM_RESERVE, PAGE_NOACCESS))
+	  if (!VirtualAlloc (offsets[i], size, MEM_RESERVE, PAGE_NOACCESS))
 	    continue;  /* oh well */
 	}
       offsets[SH_TOTAL_SIZE] += delta;
+
+#if 0
+      if (!child_proc_info && wincap.needs_memory_protection ())
+	for (DWORD s = 0x950000; s <= 0xa40000; s += 0x1000)
+	  VirtualAlloc ((void *) s, 4, MEM_RESERVE, PAGE_NOACCESS);
+#endif
     }
 
   debug_printf ("name %s, n %d, shared %p (wanted %p), h %p", mapname, n, shared, addr, shared_h);
@@ -227,11 +244,46 @@ memory_init ()
       cygheap->user.init ();
     }
 
-  cygwin_shared = &cygwin_shared_area;
+  /* Initialize general shared memory */
+  shared_locations sh_cygwin_shared = SH_CYGWIN_SHARED;
+  cygwin_shared = (shared_info *) open_shared ("shared",
+					       CYGWIN_VERSION_SHARED_DATA,
+					       cygheap->shared_h,
+					       sizeof (*cygwin_shared),
+					       sh_cygwin_shared);
+
   cygwin_shared->initialize ();
+  ProtectHandleINH (cygheap->shared_h);
 
   user_shared_initialize (false);
   mtinfo_init ();
+}
+
+unsigned
+shared_info::heap_slop_size ()
+{
+  if (!heap_slop)
+    {
+      /* Fetch from registry, first user then local machine.  */
+      for (int i = 0; i < 2; i++)
+	{
+	  reg_key reg (i, KEY_READ, NULL);
+
+	  if ((heap_slop = reg.get_int ("heap_slop_in_mb", 0)))
+	    break;
+	  heap_slop = wincap.heapslop ();
+	}
+
+      if (heap_slop < 0)
+	heap_slop = 0;
+      else
+	heap_slop <<= 20;
+#ifdef DEBUGGING
+      system_printf ("fixed heap slop is %p", heap_slop);
+#endif
+    }
+
+  return heap_slop;
 }
 
 unsigned
@@ -260,7 +312,9 @@ shared_info::heap_chunk_size ()
 	heap_chunk <<= 20;
       if (!heap_chunk)
 	heap_chunk = 384 * 1024 * 1024;
-      debug_printf ("fixed heap size is %u", heap_chunk);
+#ifdef DEBUGGING
+      system_printf ("fixed heap size is %u", heap_chunk);
+#endif
     }
 
   return heap_chunk;

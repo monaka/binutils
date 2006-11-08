@@ -1,6 +1,6 @@
 /* shared_info.h: shared info for cygwin
 
-   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006 Red Hat, Inc.
+   Copyright 2000, 2001, 2002, 2003, 2004, 2005 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -44,7 +44,7 @@ class mount_item
 
 #define USER_VERSION	1	// increment when mount table changes and
 #define USER_VERSION_MAGIC CYGWIN_VERSION_MAGIC (USER_MAGIC, USER_VERSION)
-#define CURR_USER_MAGIC 0x38edd704U
+#define CURR_USER_MAGIC 0x8dc7b1d5U
 
 class reg_key;
 struct device;
@@ -133,7 +133,6 @@ public:
   DWORD version;
   DWORD cb;
   delqueue_list delqueue;
-  bool warned_msdos;
   mount_info mountinfo;
 };
 /******** Shared Info ********/
@@ -143,9 +142,9 @@ public:
 				  cygwin_version.api_minor)
 #define SHARED_VERSION_MAGIC CYGWIN_VERSION_MAGIC (SHARED_MAGIC, SHARED_VERSION)
 
-#define SHARED_INFO_CB 19984
+#define SHARED_INFO_CB 19988
 
-#define CURR_SHARED_MAGIC 0x818f75beU
+#define CURR_SHARED_MAGIC 0xb632a4cU
 
 /* NOTE: Do not make gratuitous changes to the names or organization of the
    below class.  The layout is checksummed to determine compatibility between
@@ -156,11 +155,13 @@ class shared_info
   DWORD cb;
  public:
   unsigned heap_chunk;
+  unsigned heap_slop;
   DWORD sys_mount_table_counter;
 
   tty_list tty;
   void initialize ();
   unsigned heap_chunk_size ();
+  unsigned heap_slop_size ();
 };
 
 extern shared_info *cygwin_shared;
@@ -170,9 +171,11 @@ extern HANDLE cygwin_user_h;
 
 enum shared_locations
 {
+  SH_CYGWIN_SHARED,
   SH_USER_SHARED,
   SH_SHARED_CONSOLE,
   SH_MYSELF,
+  SH_MTINFO,
   SH_TOTAL_SIZE,
   SH_JUSTCREATE,
   SH_JUSTOPEN
@@ -184,6 +187,8 @@ void __stdcall memory_init ();
   ((char *) (system_info.dwAllocationGranularity * \
 	     (((DWORD) ((p) + 1) + system_info.dwAllocationGranularity - 1) / \
 	      system_info.dwAllocationGranularity)))
+
+#define cygwin_shared_address	((void *) 0x60000000)
 
 #ifdef _FHANDLER_H_
 struct console_state
@@ -198,3 +203,4 @@ void *__stdcall open_shared (const char *name, int n, HANDLE &shared_h, DWORD si
 			     shared_locations&, PSECURITY_ATTRIBUTES psa = &sec_all,
 			     DWORD access = FILE_MAP_READ | FILE_MAP_WRITE);
 extern void user_shared_initialize (bool reinit);
+
