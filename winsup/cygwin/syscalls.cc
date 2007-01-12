@@ -1,7 +1,7 @@
 /* syscalls.cc: syscalls
 
    Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
-   2005 Red Hat, Inc.
+   2005, 2006, 2007 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -1001,7 +1001,7 @@ sync ()
       if (is_floppy ("A:"))
 	GetVolumeNameForVolumeMountPointA ("A:\\", a_drive, CYG_MAX_PATH);
       if (is_floppy ("B:"))
-	GetVolumeNameForVolumeMountPointA ("B:\\", a_drive, CYG_MAX_PATH);
+	GetVolumeNameForVolumeMountPointA ("B:\\", b_drive, CYG_MAX_PATH);
 
       HANDLE sh = FindFirstVolumeA (vol, CYG_MAX_PATH);
       if (sh != INVALID_HANDLE_VALUE)
@@ -1753,44 +1753,12 @@ cygwin_setmode (int fd, int mode)
 }
 
 extern "C" int
-posix_fadvise (int fd, _off64_t offset, _off64_t len, int advice)
-{
-  int res = -1;
-  cygheap_fdget cfd (fd);
-  if (cfd >= 0)
-    res = cfd->fadvise (offset, len, advice);
-  else
-    set_errno (EBADF);
-  syscall_printf ("%d = posix_fadvice (%d, %D, %D, %d)",
-  		  res, fd, offset, len, advice);
-  return res;
-}
-
-extern "C" int
-posix_fallocate (int fd, _off64_t offset, _off64_t len)
-{
-  int res = -1;
-  if (offset < 0 || len == 0)
-    set_errno (EINVAL);
-  else
-    {
-      cygheap_fdget cfd (fd);
-      if (cfd >= 0)
-	res = cfd->ftruncate (offset + len, false);
-      else
-	set_errno (EBADF);
-    }
-  syscall_printf ("%d = posix_fallocate (%d, %D, %D)", res, fd, offset, len);
-  return res;
-}
-
-extern "C" int
 ftruncate64 (int fd, _off64_t length)
 {
   int res = -1;
   cygheap_fdget cfd (fd);
   if (cfd >= 0)
-    res = cfd->ftruncate (length, true);
+    res = cfd->ftruncate (length);
   else
     set_errno (EBADF);
   syscall_printf ("%d = ftruncate (%d, %D)", res, fd, length);
@@ -2204,27 +2172,16 @@ seteuid32 (__uid32_t uid)
      authenticate using NtCreateToken () or subauthentication. */
   if (new_token == INVALID_HANDLE_VALUE)
     {
-      new_token = subauth (pw_new);
+      new_token = create_token (usersid, groups, pw_new);
       if (new_token == INVALID_HANDLE_VALUE)
 	{
-	  debug_printf ("subauthentication failed, try create token.");
-	  new_token = create_token (usersid, groups, pw_new, NULL);
+	  /* create_token failed. Try subauthentication. */
+	  debug_printf ("create token failed, try subauthentication.");
+	  new_token = subauth (pw_new);
 	  if (new_token == INVALID_HANDLE_VALUE)
 	    {
 	      cygheap->user.reimpersonate ();
 	      return -1;
-	    }
-	}
-      else
-        {
-	  debug_printf ("subauthentication succeeded, try create token.");
-	  HANDLE new_token2 = create_token (usersid, groups, pw_new, new_token);
-	  if (new_token2 == INVALID_HANDLE_VALUE)
-	    debug_printf ("create token failed, use original token");
-	  else
-	    {
-	      CloseHandle (new_token);
-	      new_token = new_token2;
 	    }
 	}
       /* Keep at most one internal token */
