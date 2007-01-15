@@ -32,7 +32,7 @@ static const NO_COPY char pipeid_fmt[] = "stupid_pipe.%u.%u";
 
 fhandler_pipe::fhandler_pipe ()
   : fhandler_base (), guard (NULL), broken_pipe (false), writepipe_exists (NULL),
-    orig_pid (0), id (0)
+    orig_pid (0), id (0), popen_pid (0)
 {
   need_fork_fixup (true);
 }
@@ -151,20 +151,6 @@ fhandler_pipe::lseek (_off64_t offset, int whence)
   return -1;
 }
 
-int
-fhandler_pipe::fadvise (_off64_t offset, _off64_t length, int advice)
-{
-  set_errno (ESPIPE);
-  return -1;
-}
-
-int
-fhandler_pipe::ftruncate (_off64_t length, bool allow_truncate)
-{
-  set_errno (allow_truncate ? EINVAL : ESPIPE);
-  return -1;
-}
-
 void
 fhandler_pipe::set_close_on_exec (bool val)
 {
@@ -280,6 +266,7 @@ fhandler_pipe::dup (fhandler_base *child)
 {
   int res = -1;
   fhandler_pipe *ftp = (fhandler_pipe *) child;
+  ftp->set_popen_pid (0);
   ftp->guard = ftp->writepipe_exists = ftp->read_state = NULL;
 
   if (get_handle () && fhandler_base::dup (child))

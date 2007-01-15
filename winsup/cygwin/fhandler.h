@@ -167,7 +167,7 @@ class fhandler_base
   void set_flags (int x, int supplied_bin = 0);
 
   bool is_nonblocking ();
-  void set_nonblocking (int yes);
+  void set_nonblocking (int);
 
   bool wbinary () const { return status.wbinset ? status.wbinary : 1; }
   bool rbinary () const { return status.rbinset ? status.rbinary : 1; }
@@ -249,15 +249,15 @@ class fhandler_base
   virtual char *get_proc_fd_name (char *buf);
 
   virtual void hclose (HANDLE h) {CloseHandle (h);}
-  virtual void set_no_inheritance (HANDLE &h, int not_inheriting);
+  virtual void set_no_inheritance (HANDLE &, bool);
 
   /* fixup fd possibly non-inherited handles after fork */
-  bool fork_fixup (HANDLE parent, HANDLE &h, const char *name);
+  bool fork_fixup (HANDLE, HANDLE &, const char *);
   virtual bool need_fixup_before () const {return false;}
 
-  int open_9x (int flags, mode_t mode = 0);
-  virtual int open (int flags, mode_t mode = 0);
-  int open_fs (int flags, mode_t mode = 0);
+  int open_9x (int, mode_t = 0);
+  virtual int open (int, mode_t = 0);
+  int open_fs (int, mode_t = 0);
   virtual int close ();
   int close_fs ();
   virtual int __stdcall fstat (struct __stat64 *buf) __attribute__ ((regparm (2)));
@@ -279,8 +279,7 @@ class fhandler_base
   virtual int __stdcall fchmod (mode_t mode) __attribute__ ((regparm (1)));
   virtual int __stdcall fchown (__uid32_t uid, __gid32_t gid) __attribute__ ((regparm (2)));
   virtual int __stdcall facl (int, int, __acl32 *) __attribute__ ((regparm (3)));
-  virtual int __stdcall fadvise (_off64_t, _off64_t, int) __attribute__ ((regparm (3)));
-  virtual int __stdcall ftruncate (_off64_t, bool) __attribute__ ((regparm (3)));
+  virtual int __stdcall ftruncate (_off64_t) __attribute__ ((regparm (2)));
   virtual int __stdcall link (const char *) __attribute__ ((regparm (2)));
   virtual int __stdcall utimes (const struct timeval *) __attribute__ ((regparm (2)));
   virtual int __stdcall fsync () __attribute__ ((regparm (1)));
@@ -379,32 +378,12 @@ class fhandler_mailslot : public fhandler_base
   select_record *select_read (select_record *s);
 };
 
-struct wsa_event
-{
-  LONG serial_number;
-  long events;
-  int  connect_errorcode;
-  pid_t owner;
-};
-
 class fhandler_socket: public fhandler_base
 {
  private:
   int addr_family;
   int type;
   int connect_secret[4];
-
-  wsa_event *wsock_events;
-  HANDLE wsock_mtx;
-  HANDLE wsock_evt;
- public:
-  bool init_events ();
-  int evaluate_events (const long event_mask, long &events, const bool erase);
-  const HANDLE wsock_event () const { return wsock_evt; }
-  const LONG serial_number () const { return wsock_events->serial_number; }
- private:
-  int wait_for_events (const long event_mask);
-  void release_events ();
 
   pid_t     sec_pid;
   __uid32_t sec_uid;
@@ -427,6 +406,7 @@ class fhandler_socket: public fhandler_base
   void af_local_set_sockpair_cred ();
 
  private:
+  struct _WSAPROTOCOL_INFOA *prot_info_ptr;
   char *sun_path;
   struct status_flags
   {
@@ -434,14 +414,19 @@ class fhandler_socket: public fhandler_base
     unsigned saw_shutdown_read     : 1; /* Socket saw a SHUT_RD */
     unsigned saw_shutdown_write    : 1; /* Socket saw a SHUT_WR */
     unsigned saw_reuseaddr         : 1; /* Socket saw SO_REUSEADDR call */
-    unsigned listener              : 1; /* listen called */
+    unsigned closed		   : 1;
+    unsigned owner		   : 1;
     unsigned connect_state         : 2;
    public:
     status_flags () :
       async_io (0), saw_shutdown_read (0), saw_shutdown_write (0),
-      listener (0), connect_state (unconnected)
+      closed (0), owner (0), connect_state (unconnected)
       {}
   } status;
+
+  bool prepare (HANDLE &event, long event_mask);
+  int wait (HANDLE event, int flags, DWORD timeout = 10);
+  void release (HANDLE event);
 
  public:
   fhandler_socket ();
@@ -453,7 +438,8 @@ class fhandler_socket: public fhandler_base
   IMPLEMENT_STATUS_FLAG (bool, saw_shutdown_read)
   IMPLEMENT_STATUS_FLAG (bool, saw_shutdown_write)
   IMPLEMENT_STATUS_FLAG (bool, saw_reuseaddr)
-  IMPLEMENT_STATUS_FLAG (bool, listener)
+  IMPLEMENT_STATUS_FLAG (bool, closed)
+  IMPLEMENT_STATUS_FLAG (bool, owner)
   IMPLEMENT_STATUS_FLAG (conn_state, connect_state)
 
   int bind (const struct sockaddr *name, int namelen);
@@ -466,19 +452,14 @@ class fhandler_socket: public fhandler_base
 
   int open (int flags, mode_t mode = 0);
   ssize_t readv (const struct iovec *, int iovcnt, ssize_t tot = -1);
-  inline ssize_t recv_internal (struct _WSABUF *wsabuf, DWORD wsacnt,
-  				DWORD flags,
-				struct sockaddr *from, int *fromlen);
-  ssize_t recvfrom (void *ptr, size_t len, int flags,
-		    struct sockaddr *from, int *fromlen);
-  ssize_t recvmsg (struct msghdr *msg, int flags);
+  int recvfrom (void *ptr, size_t len, int flags,
+		struct sockaddr *from, int *fromlen);
+  int recvmsg (struct msghdr *msg, int flags, ssize_t tot = -1);
 
   ssize_t writev (const struct iovec *, int iovcnt, ssize_t tot = -1);
-  inline ssize_t send_internal (struct _WSABUF *wsabuf, DWORD wsacnt, int flags,
-				const struct sockaddr *to, int tolen);
-  ssize_t sendto (const void *ptr, size_t len, int flags,
+  int sendto (const void *ptr, size_t len, int flags,
 	      const struct sockaddr *to, int tolen);
-  ssize_t sendmsg (const struct msghdr *msg, int flags);
+  int sendmsg (const struct msghdr *msg, int flags, ssize_t tot = -1);
 
   int ioctl (unsigned int cmd, void *);
   int fcntl (int cmd, void *);
@@ -489,13 +470,15 @@ class fhandler_socket: public fhandler_base
   int dup (fhandler_base *child);
 
   void set_close_on_exec (bool val);
+  virtual void fixup_before_fork_exec (DWORD);
   void fixup_after_fork (HANDLE);
+  void fixup_after_exec ();
+  bool need_fixup_before () const {return true;}
   char *get_proc_fd_name (char *buf);
 
   select_record *select_read (select_record *s);
   select_record *select_write (select_record *s);
   select_record *select_except (select_record *s);
-  int ready_for_read (int, DWORD) { return true; }
   void set_addr_family (int af) {addr_family = af;}
   int get_addr_family () {return addr_family;}
   void set_socket_type (int st) { type = st;}
@@ -519,8 +502,12 @@ protected:
   HANDLE writepipe_exists;
   DWORD orig_pid;
   unsigned id;
+private:
+  pid_t popen_pid;
 public:
   fhandler_pipe ();
+  void set_popen_pid (pid_t pid) {popen_pid = pid;}
+  pid_t get_popen_pid () const {return popen_pid;}
   _off64_t lseek (_off64_t offset, int whence);
   select_record *select_read (select_record *s);
   select_record *select_write (select_record *s);
@@ -537,8 +524,6 @@ public:
   }
   int dup (fhandler_base *child);
   int ioctl (unsigned int cmd, void *);
-  int __stdcall fadvise (_off64_t, _off64_t, int) __attribute__ ((regparm (3)));
-  int __stdcall ftruncate (_off64_t, bool) __attribute__ ((regparm (3)));
   void fixup_in_child ();
   virtual void fixup_after_fork (HANDLE);
   void fixup_after_exec ();
@@ -687,8 +672,7 @@ class fhandler_disk_file: public fhandler_base
   int __stdcall fchmod (mode_t mode) __attribute__ ((regparm (1)));
   int __stdcall fchown (__uid32_t uid, __gid32_t gid) __attribute__ ((regparm (2)));
   int __stdcall facl (int, int, __acl32 *) __attribute__ ((regparm (3)));
-  int __stdcall fadvise (_off64_t, _off64_t, int) __attribute__ ((regparm (3)));
-  int __stdcall ftruncate (_off64_t, bool) __attribute__ ((regparm (3)));
+  int __stdcall ftruncate (_off64_t) __attribute__ ((regparm (2)));
   int __stdcall link (const char *) __attribute__ ((regparm (2)));
   int __stdcall utimes (const struct timeval *) __attribute__ ((regparm (2)));
 
