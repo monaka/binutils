@@ -1,11 +1,7 @@
-2006-08-09  Christopher Faylor  <cgf@timesys.com>
+2007-06-28  Brian Dessent  <brian@dessent.net>
 
-	* overview2.sgml: Remove inaccurate "full support for windows
-	pathnames" clause.
-
-2006-08-01  Christopher Faylor  <cgf@timesys.com>
-
-	* cygwinenv.sgml: Document [no]dosfilewarning option.
+        Backport documentation changes from HEAD.
+        * cygwin-api.in.sgml: Accommodate new "Compatibility" section layout.
 
 2006-07-18  Corinna Vinschen  <corinna@vinschen.de>
 
