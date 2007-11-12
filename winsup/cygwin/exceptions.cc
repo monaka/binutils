@@ -1,7 +1,7 @@
 /* exceptions.cc
 
    Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
-   2005, 2006 Red Hat, Inc.
+   2005, 2006, 2007 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -297,7 +297,7 @@ inside_kernel (CONTEXT *cx)
   int res;
   MEMORY_BASIC_INFORMATION m;
 
-  if (in_dllentry)
+  if (!_my_tls.isinitialized ())
     return true;
 
   memset (&m, 0, sizeof m);
@@ -526,13 +526,12 @@ _cygtls::handle_exceptions (EXCEPTION_RECORD *e, exception_list *frame, CONTEXT 
       break;
 
     case STATUS_ACCESS_VIOLATION:
-      switch (mmap_is_attached_or_noreserve ((void *)e->ExceptionInformation[1],
-					     1))
+      switch (mmap_is_attached_or_noreserve_page (e->ExceptionInformation[1]))
         {
-	case MMAP_NORESERVE_COMMITED:
+	case 2:		/* MAP_NORESERVE page, now commited. */
 	  return 0;
-	case MMAP_RAISE_SIGBUS:	/* MAP_NORESERVE page, commit failed, or
-				   access to mmap page beyond EOF. */
+	case 1:		/* MAP_NORESERVE page, commit failed, or
+			   access to mmap page beyond EOF. */
 	  si.si_signo = SIGBUS;
 	  si.si_code = BUS_OBJERR;
 	  break;
@@ -1288,7 +1287,7 @@ _cygtls::signal_exit (int rc)
     stackdump (thread_context.ebp, 1, 1);
 
   lock_process until_exit (true);
-  if (hExeced || exit_state)
+  if (hExeced || exit_state > ES_PROCESS_LOCKED)
     myself.exit (rc);
 
   /* Starve other threads in a vain attempt to stop them from doing something
