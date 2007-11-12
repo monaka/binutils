@@ -1,17 +1,12 @@
-2006-08-02  Christopher Faylor  <cgf@timesys.com>
+2007-07-06  Corinna Vinschen  <corinna@vinschen.de>
 
-	* Makefile.in (subauth): Add dependency on mingw.
+	* CYGWIN_LICENSE: Fix URL to open source definition.
 
 2006-07-23  Christopher Faylor  <cgf@timesys.com>
 
 	* Makefile.in: Update copyright.  Fix 'check' target so that it will
 	once-again create a working testsuite directory.  Add a comment this
 	time to explain the unusual behavior.
-
-2006-07-14  Corinna Vinschen  <corinna@vinschen.de>
-
-	* configure.in: Reenable building the subauth subdir.
-	* configure: Regenerate.
 
 2006-05-24  Christopher Faylor  <cgf@timesys.com>
 
