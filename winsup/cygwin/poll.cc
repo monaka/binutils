@@ -1,6 +1,6 @@
 /* poll.cc. Implements poll(2) via usage of select(2) call.
 
-   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006 Red Hat, Inc.
+   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007 Red Hat, Inc.
 
    This file is part of Cygwin.
 
@@ -63,7 +63,9 @@ poll (struct pollfd *fds, nfds_t nfds, int timeout)
 	    FD_SET(fds[i].fd, read_fds);
 	  if (fds[i].events & POLLOUT)
 	    FD_SET(fds[i].fd, write_fds);
-	  if (fds[i].events & POLLPRI)
+	  /* On sockets, except_fds is needed to catch failed connects. */
+	  if ((fds[i].events & POLLPRI)
+	      || cygheap->fdtab[fds[i].fd]->is_socket ())
 	    FD_SET(fds[i].fd, except_fds);
 	}
       else if (fds[i].fd >= 0)
@@ -76,44 +78,82 @@ poll (struct pollfd *fds, nfds_t nfds, int timeout)
   if (invalid_fds)
     return invalid_fds;
 
-  int ret = cygwin_select (max_fd + 1, read_fds, write_fds, except_fds, timeout < 0 ? NULL : &tv);
+  int ret = cygwin_select (max_fd + 1, read_fds, write_fds, except_fds,
+			   timeout < 0 ? NULL : &tv);
+  if (ret <= 0)
+    return ret;
 
-  if (ret > 0)
-    for (unsigned int i = 0; i < nfds; ++i)
-      {
-	if (fds[i].fd >= 0)
-	  {
-	    if (cygheap->fdtab.not_open (fds[i].fd))
-	      fds[i].revents = POLLHUP;
-	    else
-	      {
-		fhandler_socket *sock;
+  /* Set revents fields and count fds with non-zero revents fields for
+     return value. */
+  ret = 0;
+  for (unsigned int i = 0; i < nfds; ++i)
+    {
+      if (fds[i].fd >= 0)
+	{
+	  if (cygheap->fdtab.not_open (fds[i].fd))
+	    fds[i].revents = POLLHUP;
+	  else
+	    {
+	      fhandler_socket *sock;
 
-		if (FD_ISSET(fds[i].fd, read_fds))
-		  /* This should be sufficient for sockets, too.  Using
-		     MSG_PEEK, as before, can be considered dangerous at
-		     best.  Quote from W. Richard Stevens: "The presence
-		     of an error can be considered either normal data or
-		     an error (POLLERR).  In either case, a subsequent read
-		     will return -1 with errno set to the appropriate value."
-		     So it looks like there's actually no good reason to
-		     return POLLERR. */
-		  fds[i].revents |= POLLIN;
-		/* Handle failed connect. */
-		if (FD_ISSET(fds[i].fd, write_fds)
-		    && (sock = cygheap->fdtab[fds[i].fd]->is_socket ())
-		    && sock->connect_state () == connect_failed)
-		  fds[i].revents |= (POLLIN | POLLERR);
-		else
-		  {
-		    if (FD_ISSET(fds[i].fd, write_fds))
-		      fds[i].revents |= POLLOUT;
-		    if (FD_ISSET(fds[i].fd, except_fds))
-		      fds[i].revents |= POLLPRI;
-		  }
-	      }
-	  }
-      }
+	      if (FD_ISSET(fds[i].fd, read_fds))
+		{
+		  char peek[1];
+		  sock = cygheap->fdtab[fds[i].fd]->is_socket ();
+		  if (!sock)
+		    fds[i].revents |= POLLIN;
+		  else
+		    {
+		      /* The following action can change errno.  We have to
+			 reset it to it's old value. */
+		      int old_errno = get_errno ();
+		      switch (sock->recvfrom (peek, sizeof (peek), MSG_PEEK,
+					      NULL, NULL))
+			{
+			  case -1: /* Something weird happened */
+			    /* When select returns that data is available,
+			       that could mean that the socket is in
+			       listen mode and a client tries to connect.
+			       Unfortunately, recvfrom() doesn't make much
+			       sense then.  It returns WSAENOTCONN in that
+			       case.  Since that's not actually an error,
+			       we must not set POLLERR but POLLIN. */
+			    if (WSAGetLastError () != WSAENOTCONN)
+			      fds[i].revents |= POLLERR;
+			    else
+			      fds[i].revents |= POLLIN;
+			    break;
+			  case 0:  /* Closed on the read side... */
+			    /* ...or shutdown(SHUT_WR) on the write side.
+			       We set revents to POLLHUP until 1.5.18, but
+			       this is semantically borderline. */
+			    fds[i].revents |= POLLIN;
+			    break;
+			  default:
+			    fds[i].revents |= POLLIN;
+			    break;
+			}
+		      set_errno (old_errno);
+		    }
+		}
+	      /* Handle failed connect. */
+	      if (FD_ISSET(fds[i].fd, write_fds)
+		  && FD_ISSET(fds[i].fd, except_fds)
+		  && (sock = cygheap->fdtab[fds[i].fd]->is_socket ())
+		  && sock->connect_state () == connect_failed)
+		fds[i].revents |= (POLLIN | POLLERR);
+	      else
+		{
+		  if (FD_ISSET(fds[i].fd, write_fds))
+		    fds[i].revents |= POLLOUT;
+		  if (FD_ISSET(fds[i].fd, except_fds))
+		    fds[i].revents |= POLLPRI;
+		}
+	    }
+	  if (fds[i].revents)
+	    ++ret;
+	}
+    }
 
   return ret;
 }
