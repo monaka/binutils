@@ -75,10 +75,8 @@ details. */
 #include "shared_info.h"
 #include "registry.h"
 #include "cygtls.h"
-#include "environ.h"
 #include <assert.h>
 
-bool dos_file_warning = true;
 static int normalize_win32_path (const char *, char *, char *&);
 static void slashify (const char *, char *, int);
 static void backslashify (const char *, char *, int);
@@ -210,7 +208,8 @@ pathmatch (const char *path1, const char *path2)
 
 /* TODO: This function is used in mkdir and rmdir to generate correct
    error messages in case of paths ending in /. or /.. components.
-   Right now, normalize_posix_path will just normalize
+   This test should eventually end up in path_conv::check in one way
+   or another.  Right now, normalize_posix_path will just normalize
    those components away, which changes the semantics.  */
 bool
 has_dot_last_component (const char *dir)
@@ -323,7 +322,7 @@ win32_path:
   if (!err)
     for (char *p = dst; (p = strchr (p, '\\')); p++)
       *p = '/';
-  return err ?: -1;
+  return err;
 }
 
 inline void
@@ -424,17 +423,23 @@ fs_info::update (const char *win32_path)
       return false;
     }
 
-#define FS_IS_SAMBA (FILE_CASE_SENSITIVE_SEARCH \
-		     | FILE_CASE_PRESERVED_NAMES \
-		     | FILE_PERSISTENT_ACLS)
-#define FS_IS_SAMBA_WITH_QUOTA \
-		    (FILE_CASE_SENSITIVE_SEARCH \
-		     | FILE_CASE_PRESERVED_NAMES \
-		     | FILE_PERSISTENT_ACLS \
-		     | FILE_VOLUME_QUOTAS)
+/* Test only flags indicating capabilities, ignore flags indicating a specific
+   state of the volume.  At present ignore FILE_VOLUME_IS_COMPRESSED and
+   FILE_READ_ONLY_VOLUME. */
+#define GETVOLINFO_VALID_MASK (0x003701ffUL)
+/* Volume quotas are potentially supported since Samba 3.0, object ids and
+   the unicode on disk flag since Samba 3.2. */
+#define SAMBA_IGNORE (FILE_VOLUME_QUOTAS \
+			| FILE_SUPPORTS_OBJECT_IDS \
+			| FILE_UNICODE_ON_DISK)
+#define SAMBA_REQIURED (FILE_CASE_SENSITIVE_SEARCH \
+			| FILE_CASE_PRESERVED_NAMES \
+			| FILE_PERSISTENT_ACLS)
+#define FS_IS_SAMBA	((flags () & GETVOLINFO_VALID_MASK & ~SAMBA_IGNORE) \
+			 ==  SAMBA_REQIURED)
+
   is_fat (strncasematch (fsname, "FAT", 3));
-  is_samba (strcmp (fsname, "NTFS") == 0 && is_remote_drive ()
-	    && (flags () == FS_IS_SAMBA || flags () == FS_IS_SAMBA_WITH_QUOTA));
+  is_samba (strcmp (fsname, "NTFS") == 0 && is_remote_drive () && FS_IS_SAMBA);
   is_ntfs (strcmp (fsname, "NTFS") == 0 && !is_samba ());
   is_nfs (strcmp (fsname, "NFS") == 0);
 
@@ -540,26 +545,6 @@ path_conv::get_nt_native_path (UNICODE_STRING &upath)
   return &upath;
 }
 
-void
-warn_msdos (const char *src)
-{
-  if (user_shared->warned_msdos || !dos_file_warning)
-    return;
-  char posix_path[CYG_MAX_PATH];
-  small_printf ("cygwin warning:\n");
-  if (cygwin_conv_to_full_posix_path (src, posix_path))
-    small_printf ("  MS-DOS style path detected: %s\n  POSIX equivalent preferred.\n",
-		  src);
-  else
-    small_printf ("  MS-DOS style path detected: %s\n  Preferred POSIX equivalent is: %s\n",
-		  src, posix_path);
-  small_printf ("  CYGWIN environment variable option \"nodosfilewarning\" turns off this warning.\n"
-		"  Consult the user's guide for more details about POSIX paths:\n"
-		"    http://cygwin.com/cygwin-ug-net/using.html#using-pathnames\n");
-
-  user_shared->warned_msdos = true;
-}
-
 /* Convert an arbitrary path SRC to a pure Win32 path, suitable for
    passing to Win32 API routines.
 
@@ -623,7 +608,6 @@ path_conv::check (const char *src, unsigned opt,
       return;
     }
 
-  bool is_msdos = false;
   /* This loop handles symlink expansion.  */
   for (;;)
     {
@@ -632,14 +616,8 @@ path_conv::check (const char *src, unsigned opt,
 
       is_relpath = !isabspath (src);
       error = normalize_posix_path (src, path_copy, tail);
-      if (error > 0)
+      if (error)
 	return;
-      if (error < 0)
-	{
-	  if (component == 0)
-	    is_msdos = true;
-	  error = 0;
-	}
 
       /* Detect if the user was looking for a directory.  We have to strip the
 	 trailing slash initially while trying to add extensions but take it
@@ -1087,8 +1065,6 @@ out:
       if (tail < path_end && tail > path_copy + 1)
 	*tail = '/';
       set_normalized_path (path_copy, strip_tail);
-      if (is_msdos && !(opt & PC_NOWARN))
-	warn_msdos (src);
     }
 
 #if 0
@@ -1330,7 +1306,6 @@ conv_path_list (const char *src, char *dst, int to_posix)
 
   int err = 0;
   char *d = dst - 1;
-  bool saw_empty = false;
   do
     {
       char *s = strccpy (srcbuf, &src, src_delim);
@@ -1345,20 +1320,13 @@ conv_path_list (const char *src, char *dst, int to_posix)
       else if (!to_posix)
 	err = conv_fn (".", ++d);
       else
-	{
-	  if (to_posix == ENV_CVT)
-	    saw_empty = true;
-	  continue;
-	}
+	continue;
       if (err)
 	break;
       d = strchr (d, '\0');
       *d = dst_delim;
     }
   while (*src++);
-
-  if (saw_empty)
-    err = EIDRM;
 
   if (d < dst)
     d++;
@@ -3684,7 +3652,7 @@ fchdir (int fd)
 extern "C" int
 cygwin_conv_to_win32_path (const char *path, char *win32_path)
 {
-  path_conv p (path, PC_SYM_FOLLOW | PC_NO_ACCESS_CHECK | PC_NOFULL | PC_NOWARN);
+  path_conv p (path, PC_SYM_FOLLOW | PC_NO_ACCESS_CHECK | PC_NOFULL);
   if (p.error)
     {
       win32_path[0] = '\0';
@@ -3700,7 +3668,7 @@ cygwin_conv_to_win32_path (const char *path, char *win32_path)
 extern "C" int
 cygwin_conv_to_full_win32_path (const char *path, char *win32_path)
 {
-  path_conv p (path, PC_SYM_FOLLOW | PC_NO_ACCESS_CHECK | PC_NOWARN);
+  path_conv p (path, PC_SYM_FOLLOW | PC_NO_ACCESS_CHECK);
   if (p.error)
     {
       win32_path[0] = '\0';
@@ -3892,12 +3860,6 @@ extern "C" int
 cygwin_posix_to_win32_path_list_buf_size (const char *path_list)
 {
   return conv_path_list_buf_size (path_list, false);
-}
-
-extern "C" int
-env_win32_to_posix_path_list (const char *win32, char *posix)
-{
-  return_with_errno (conv_path_list (win32, posix, ENV_CVT));
 }
 
 extern "C" int
