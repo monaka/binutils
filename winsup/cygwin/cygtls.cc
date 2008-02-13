@@ -106,7 +106,7 @@ _cygtls::init_thread (void *x, DWORD (*func) (void *, void *))
 
   thread_id = GetCurrentThreadId ();
   initialized = CYGTLS_INITIALIZED;
-  locals.select_sockevt = INVALID_HANDLE_VALUE;
+  locals.exitsock = INVALID_SOCKET;
   errno_addr = &(local_clib._errno);
 
   if ((void *) func == (void *) cygthread::stub
@@ -137,7 +137,7 @@ _cygtls::fixup_after_fork ()
       sig = 0;
     }
   stacklock = spinning = 0;
-  locals.select_sockevt = INVALID_HANDLE_VALUE;
+  locals.exitsock = INVALID_SOCKET;
   wq.thread_ev = NULL;
 }
 
@@ -152,7 +152,7 @@ void
 _cygtls::remove (DWORD wait)
 {
   initialized = 0;
-  if (!locals.select_sockevt || exit_state >= ES_FINAL)
+  if (!locals.exitsock || exit_state >= ES_FINAL)
     return;
 
   debug_printf ("wait %p", wait);
@@ -160,10 +160,10 @@ _cygtls::remove (DWORD wait)
     {
       /* FIXME: Need some sort of atthreadexit function to allow things like
 	 select to control this themselves. */
-      if (locals.select_sockevt != INVALID_HANDLE_VALUE)
+      if (locals.exitsock != INVALID_SOCKET)
 	{
-	  CloseHandle (locals.select_sockevt);
-	  locals.select_sockevt = (HANDLE) NULL;
+	  closesocket (locals.exitsock);
+	  locals.exitsock = (SOCKET) NULL;
 	}
       free_local (process_ident);
       free_local (ntoa_buf);
@@ -261,7 +261,23 @@ void
 _cygtls::init_exception_handler (exception_handler *eh)
 {
   el.handler = eh;
-  el.prev = &el;
+  /* Apparently Windows stores some information about an exception and tries
+     to figure out if the SEH which returned 0 last time actually solved the
+     problem, or if the problem still persists (e.g. same exception at same
+     address).  In this case Windows seems to decide that it can't trust
+     that SEH and calls the next handler in the chain instead.
+
+     At one point this was a loop (el.prev = &el;).  This outsmarted the
+     above behaviour.  Unfortunately this trick doesn't work anymore with
+     Windows 2008, which irremediably gets into an endless loop, taking 100%
+     CPU.  That's why we reverted to a normal SEH chain.
+
+     On the bright side, Windows' behaviour is covered by POSIX:
+
+     "If and when the function returns, if the value of sig was SIGFPE,
+     SIGILL, or SIGSEGV or any other implementation-defined value
+     corresponding to a computational exception, the behavior is undefined." */
+  el.prev = _except_list;
   _except_list = &el;
 }
 
