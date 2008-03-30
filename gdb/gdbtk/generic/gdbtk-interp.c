@@ -1,7 +1,7 @@
 /* Insight Definitions for GDB, the GNU debugger.
    Written by Keith Seitz <kseitz@sources.redhat.com>
 
-   Copyright (C) 2003, 2004 Free Software Foundation, Inc.
+   Copyright (C) 2003, 2004, 2008 Free Software Foundation, Inc.
 
    This file is part of Insight.
 
@@ -33,6 +33,12 @@
 #include "tcl.h"
 #include "tk.h"
 #include "gdbtk.h"
+
+#ifdef __MINGW32__
+# define WIN32_LEAN_AND_MEAN
+# include <windows.h>
+#endif
+
 
 static void gdbtk_command_loop (void);
 static void hack_disable_interpreter_exec (char *, int);
