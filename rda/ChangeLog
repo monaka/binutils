@@ -1,3 +1,9 @@
+2008-06-11  Michael Snyder  <msnyder@specifix.com>
+
+	* gdbserv-state.c (gdbserv_data_packet): Parse reverse step
+	and reverse continue packets.  For now, uses an ugly global
+	variable to export the reverse flag.
+
 2005-03-03  Kevin Buettner  <kevinb@redhat.com>
 
 	* lib/crc32.h, lib/crc32.c: New files.

@@ -693,10 +693,15 @@ do_qCRC_packet (struct gdbserv *gdbserv)
   gdbserv_output_reg_beb (gdbserv, &crc_reg, 0);
 }
 
+int demo_reverse_flag;
+
 void
 gdbserv_data_packet (struct gdbserv *gdbserv)
 {
   char packet_type = gdbserv_input_char (gdbserv);
+
+  demo_reverse_flag = 0;
+
   if (gdbserv_state_log)
     {
       gdblog_string (gdbserv_state_log, "<gdbserv_data_packet:");
@@ -706,6 +711,7 @@ gdbserv_data_packet (struct gdbserv *gdbserv)
   
   /* NB: default is for this to send an empty packet */
 
+ backward:
   switch (packet_type)
     {
 
@@ -1046,6 +1052,32 @@ gdbserv_data_packet (struct gdbserv *gdbserv)
 	      gdbserv_output_string (gdbserv, "E04");
 	    }
 	}
+      break;
+
+    case 'b':
+      /* The 'b' prefix before 's' or 'c' means "backward".
+	 This is for reverse debugging.  
+
+	 Fetch the next char, and if it is 's' or 'c', then
+	 just set reverse_flag and go back to the switch statement
+	 (from there to return to step or continue as appropriate).
+	 
+	 Else, error.  */
+
+      packet_type = gdbserv_input_char (gdbserv);
+      switch (packet_type) {
+      case 'S': case 's':
+      case 'C': case 'c': 
+	demo_reverse_flag = 1;
+	goto backward;
+	break;
+
+      default:
+	if (gdbserv_state_log)
+	  gdblog_string (gdbserv_state_log, "<target_packet>\n");
+	gdbserv_output_string (gdbserv, "");
+	break;
+      }
       break;
 
     case 's': case 'c': case 'i':
