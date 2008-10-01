@@ -1,12 +1,12 @@
 /* Reverse execution and reverse debugging.
 
-   Copyright (C) 2006-2012 Free Software Foundation, Inc.
+   Copyright (C) 2006, 2007, 2008 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,7 +15,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor,
+   Boston, MA 02110-1301, USA.  */
 
 #include "defs.h"
 #include "gdb_string.h"
@@ -23,45 +25,90 @@
 #include "top.h"
 #include "cli/cli-cmds.h"
 #include "cli/cli-decode.h"
-#include "cli/cli-utils.h"
-#include "inferior.h"
-#include "regcache.h"
 
-/* User interface:
-   reverse-step, reverse-next etc.  */
+/* User interface for reverse debugging:
+   Set exec-direction / show exec-direction commands
+   (returns error unles target implements to_set_execdir method).  */
+
+static const char exec_forward[] = "forward";
+static const char exec_reverse[] = "reverse";
+static const char *exec_direction = exec_forward;
+static const char *exec_direction_names[] = {
+  exec_forward,
+  exec_reverse,
+  NULL
+};
 
 static void
-exec_direction_default (void *notused)
+set_exec_direction_func (char *args, int from_tty,
+			 struct cmd_list_element *cmd)
 {
-  /* Return execution direction to default state.  */
-  execution_direction = EXEC_FORWARD;
+  if (target_get_execution_direction () != EXEC_ERROR)
+    {
+      enum exec_direction_kind dir = EXEC_ERROR;
+
+      if (!strcmp (exec_direction, exec_forward))
+	dir = EXEC_FORWARD;
+      else if (!strcmp (exec_direction, exec_reverse))
+	dir = EXEC_REVERSE;
+
+      if (target_set_execution_direction (dir) != EXEC_ERROR)
+	return;
+    }
 }
 
-/* exec_reverse_once -- accepts an arbitrary gdb command (string), 
-   and executes it with exec-direction set to 'reverse'.
+static void
+show_exec_direction_func (struct ui_file *out, int from_tty,
+			  struct cmd_list_element *cmd, const char *value)
+{
+  enum exec_direction_kind dir = target_get_execution_direction ();
 
-   Used to implement reverse-next etc. commands.  */
+  switch (dir) {
+  case EXEC_FORWARD:
+    fprintf_filtered (out, "Forward.\n");
+    break;
+  case EXEC_REVERSE:
+    fprintf_filtered (out, "Reverse.\n");
+    break;
+  case EXEC_ERROR:
+  default:
+    fprintf_filtered,  (out, 
+			_("Target `%s' does not support execution-direction."),
+			target_shortname);
+    break;
+  }
+}
+
+/* User interface:
+   reverse-step, reverse-next etc.
+   (returns error unles target implements to_set_execdir method).  */
+
+static void execdir_default (void *notused)
+{
+  /* Return execution direction to default state.  */
+  target_set_execution_direction (EXEC_FORWARD);
+}
 
 static void
 exec_reverse_once (char *cmd, char *args, int from_tty)
 {
-  char *reverse_command;
-  enum exec_direction_kind dir = execution_direction;
-  struct cleanup *old_chain;
+  /* String buffer for command consing.  */
+  char reverse_command[512];
+  enum exec_direction_kind dir = target_get_execution_direction ();
+
+  if (dir == EXEC_ERROR)
+    error (_("Target %s does not support this command."), target_shortname);
 
   if (dir == EXEC_REVERSE)
     error (_("Already in reverse mode.  Use '%s' or 'set exec-dir forward'."),
 	   cmd);
 
-  if (!target_can_execute_reverse)
+  if (target_set_execution_direction (EXEC_REVERSE) == EXEC_ERROR)
     error (_("Target %s does not support this command."), target_shortname);
 
-  reverse_command = xstrprintf ("%s %s", cmd, args ? args : "");
-  old_chain = make_cleanup (exec_direction_default, NULL);
-  make_cleanup (xfree, reverse_command);
-  execution_direction = EXEC_REVERSE;
+  make_cleanup (execdir_default, NULL);
+  sprintf (reverse_command, "%s %s", cmd, args ? args : "");
   execute_command (reverse_command, from_tty);
-  do_cleanups (old_chain);
 }
 
 static void
@@ -100,251 +147,17 @@ reverse_finish (char *args, int from_tty)
   exec_reverse_once ("finish", args, from_tty);
 }
 
-/* Data structures for a bookmark list.  */
-
-struct bookmark {
-  struct bookmark *next;
-  int number;
-  CORE_ADDR pc;
-  struct symtab_and_line sal;
-  gdb_byte *opaque_data;
-};
-
-static struct bookmark *bookmark_chain;
-static int bookmark_count;
-
-#define ALL_BOOKMARKS(B) for ((B) = bookmark_chain; (B); (B) = (B)->next)
-
-#define ALL_BOOKMARKS_SAFE(B,TMP)           \
-     for ((B) = bookmark_chain;             \
-          (B) ? ((TMP) = (B)->next, 1) : 0; \
-          (B) = (TMP))
-
-/* save_bookmark_command -- implement "bookmark" command.
-   Call target method to get a bookmark identifier.
-   Insert bookmark identifier into list.
-
-   Identifier will be a malloc string (gdb_byte *).
-   Up to us to free it as required.  */
-
-static void
-save_bookmark_command (char *args, int from_tty)
-{
-  /* Get target's idea of a bookmark.  */
-  gdb_byte *bookmark_id = target_get_bookmark (args, from_tty);
-  struct bookmark *b, *b1;
-  struct gdbarch *gdbarch = get_regcache_arch (get_current_regcache ());
-
-  /* CR should not cause another identical bookmark.  */
-  dont_repeat ();
-
-  if (bookmark_id == NULL)
-    error (_("target_get_bookmark failed."));
-
-  /* Set up a bookmark struct.  */
-  b = xcalloc (1, sizeof (struct bookmark));
-  b->number = ++bookmark_count;
-  init_sal (&b->sal);
-  b->pc = regcache_read_pc (get_current_regcache ());
-  b->sal = find_pc_line (b->pc, 0);
-  b->sal.pspace = get_frame_program_space (get_current_frame ());
-  b->opaque_data = bookmark_id;
-  b->next = NULL;
-
-  /* Add this bookmark to the end of the chain, so that a list
-     of bookmarks will come out in order of increasing numbers.  */
-
-  b1 = bookmark_chain;
-  if (b1 == 0)
-    bookmark_chain = b;
-  else
-    {
-      while (b1->next)
-	b1 = b1->next;
-      b1->next = b;
-    }
-  printf_filtered (_("Saved bookmark %d at %s\n"), b->number,
-		     paddress (gdbarch, b->sal.pc));
-}
-
-/* Implement "delete bookmark" command.  */
-
-static int
-delete_one_bookmark (int num)
-{
-  struct bookmark *b1, *b;
-
-  /* Find bookmark with corresponding number.  */
-  ALL_BOOKMARKS (b)
-    if (b->number == num)
-      break;
-
-  /* Special case, first item in list.  */
-  if (b == bookmark_chain)
-    bookmark_chain = b->next;
-
-  /* Find bookmark preceding "marked" one, so we can unlink.  */
-  if (b)
-    {
-      ALL_BOOKMARKS (b1)
-	if (b1->next == b)
-	  {
-	    /* Found designated bookmark.  Unlink and delete.  */
-	    b1->next = b->next;
-	    break;
-	  }
-      xfree (b->opaque_data);
-      xfree (b);
-      return 1;		/* success */
-    }
-  return 0;		/* failure */
-}
-
-static void
-delete_all_bookmarks (void)
-{
-  struct bookmark *b, *b1;
-
-  ALL_BOOKMARKS_SAFE (b, b1)
-    {
-      xfree (b->opaque_data);
-      xfree (b);
-    }
-  bookmark_chain = NULL;
-}
-
-static void
-delete_bookmark_command (char *args, int from_tty)
-{
-  struct bookmark *b;
-  int num;
-  struct get_number_or_range_state state;
-
-  if (bookmark_chain == NULL)
-    {
-      warning (_("No bookmarks."));
-      return;
-    }
-
-  if (args == NULL || args[0] == '\0')
-    {
-      if (from_tty && !query (_("Delete all bookmarks? ")))
-	return;
-      delete_all_bookmarks ();
-      return;
-    }
-
-  init_number_or_range (&state, args);
-  while (!state.finished)
-    {
-      num = get_number_or_range (&state);
-      if (!delete_one_bookmark (num))
-	/* Not found.  */
-	warning (_("No bookmark #%d."), num);
-    }
-}
-
-/* Implement "goto-bookmark" command.  */
-
-static void
-goto_bookmark_command (char *args, int from_tty)
-{
-  struct bookmark *b;
-  unsigned long num;
-
-  if (args == NULL || args[0] == '\0')
-    error (_("Command requires an argument."));
-
-  if (strncmp (args, "start", strlen ("start")) == 0
-      || strncmp (args, "begin", strlen ("begin")) == 0
-      || strncmp (args, "end",   strlen ("end")) == 0)
-    {
-      /* Special case.  Give target opportunity to handle.  */
-      target_goto_bookmark (args, from_tty);
-      return;
-    }
-
-  if (args[0] == '\'' || args[0] == '\"')
-    {
-      /* Special case -- quoted string.  Pass on to target.  */
-      if (args[strlen (args) - 1] != args[0])
-	error (_("Unbalanced quotes: %s"), args);
-      target_goto_bookmark (args, from_tty);
-      return;
-    }
-
-  /* General case.  Bookmark identified by bookmark number.  */
-  num = get_number (&args);
-  ALL_BOOKMARKS (b)
-    if (b->number == num)
-      break;
-
-  if (b)
-    {
-      /* Found.  Send to target method.  */
-      target_goto_bookmark (b->opaque_data, from_tty);
-      return;
-    }
-  /* Not found.  */
-  error (_("goto-bookmark: no bookmark found for '%s'."), args);
-}
-
-static int
-bookmark_1 (int bnum)
-{
-  struct gdbarch *gdbarch = get_regcache_arch (get_current_regcache ());
-  struct bookmark *b;
-  int matched = 0;
-
-  ALL_BOOKMARKS (b)
-  {
-    if (bnum == -1 || bnum == b->number)
-      {
-	printf_filtered ("   %d       %s    '%s'\n",
-			 b->number,
-			 paddress (gdbarch, b->pc),
-			 b->opaque_data);
-	matched++;
-      }
-  }
-
-  if (bnum > 0 && matched == 0)
-    printf_filtered ("No bookmark #%d\n", bnum);
-
-  return matched;
-}
-
-/* Implement "info bookmarks" command.  */
-
-static void
-bookmarks_info (char *args, int from_tty)
-{
-  int bnum = -1;
-
-  if (!bookmark_chain)
-    printf_filtered (_("No bookmarks.\n"));
-  else if (args == NULL || *args == '\0')
-    bookmark_1 (-1);
-  else
-    {
-      struct get_number_or_range_state state;
-
-      init_number_or_range (&state, args);
-      while (!state.finished)
-	{
-	  bnum = get_number_or_range (&state);
-	  bookmark_1 (bnum);
-	}
-    }
-}
-
-
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-extern initialize_file_ftype _initialize_reverse;
-
 void
 _initialize_reverse (void)
 {
+  add_setshow_enum_cmd ("exec-direction", class_run, exec_direction_names,
+			&exec_direction, "Set direction of execution.\n\
+Options are 'forward' or 'reverse'.",
+			"Show direction of execution (forward/reverse).",
+			"Tells gdb whether to execute forward or backward.",
+			set_exec_direction_func, show_exec_direction_func,
+			&setlist, &showlist);
+
   add_com ("reverse-step", class_run, reverse_step, _("\
 Step program backward until it reaches the beginning of another source line.\n\
 Argument N means do this N times (or till program stops for another reason).")
@@ -372,7 +185,7 @@ Argument N means do this N times (or till program stops for another reason).")
   add_com_alias ("rni", "reverse-nexti", class_alias, 0);
 
   add_com ("reverse-continue", class_run, reverse_continue, _("\
-Continue program being debugged but run it in reverse.\n\
+Continue program being debugged, running in reverse.\n\
 If proceeding from breakpoint, a number N may be used as an argument,\n\
 which means to set the ignore count of that breakpoint to N - 1 (so that\n\
 the breakpoint won't break until the Nth time it is reached)."));
@@ -380,25 +193,4 @@ the breakpoint won't break until the Nth time it is reached)."));
 
   add_com ("reverse-finish", class_run, reverse_finish, _("\
 Execute backward until just before selected stack frame is called."));
-
-  add_com ("bookmark", class_bookmark, save_bookmark_command, _("\
-Set a bookmark in the program's execution history.\n\
-A bookmark represents a point in the execution history \n\
-that can be returned to at a later point in the debug session."));
-  add_info ("bookmarks", bookmarks_info, _("\
-Status of user-settable bookmarks.\n\
-Bookmarks are user-settable markers representing a point in the \n\
-execution history that can be returned to later in the same debug \n\
-session."));
-  add_cmd ("bookmark", class_bookmark, delete_bookmark_command, _("\
-Delete a bookmark from the bookmark list.\n\
-Argument is a bookmark number or numbers,\n\
- or no argument to delete all bookmarks.\n"),
-	   &deletelist);
-  add_com ("goto-bookmark", class_bookmark, goto_bookmark_command, _("\
-Go to an earlier-bookmarked point in the program's execution history.\n\
-Argument is the bookmark number of a bookmark saved earlier by using \n\
-the 'bookmark' command, or the special arguments:\n\
-  start (beginning of recording)\n\
-  end   (end of recording)\n"));
 }
