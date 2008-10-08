@@ -1,8 +1,9 @@
 /* Variables that describe the inferior process running under GDB:
    Where it is, why it stopped, and how to step it.
 
-   Copyright (C) 1986, 1988-1996, 1998-2001, 2003-2012 Free Software
-   Foundation, Inc.
+   Copyright (C) 1986, 1988, 1989, 1990, 1991, 1992, 1993, 1994, 1995, 1996,
+   1998, 1999, 2000, 2001, 2003, 2004, 2005, 2006, 2007, 2008
+   Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -29,9 +30,6 @@ struct type;
 struct gdbarch;
 struct regcache;
 struct ui_out;
-struct terminal_info;
-
-#include "ptid.h"
 
 /* For bpstat.  */
 #include "breakpoint.h"
@@ -42,37 +40,54 @@ struct terminal_info;
 /* For struct frame_id.  */
 #include "frame.h"
 
-#include "progspace.h"
+/* Structure in which to save the status of the inferior.  Create/Save
+   through "save_inferior_status", restore through
+   "restore_inferior_status".
 
-struct infcall_suspend_state;
-struct infcall_control_state;
+   This pair of routines should be called around any transfer of
+   control to the inferior which you don't want showing up in your
+   control variables.  */
 
-extern struct infcall_suspend_state *save_infcall_suspend_state (void);
-extern struct infcall_control_state *save_infcall_control_state (void);
+struct inferior_status;
 
-extern void restore_infcall_suspend_state (struct infcall_suspend_state *);
-extern void restore_infcall_control_state (struct infcall_control_state *);
+extern struct inferior_status *save_inferior_status (int);
 
-extern struct cleanup *make_cleanup_restore_infcall_suspend_state
-					    (struct infcall_suspend_state *);
-extern struct cleanup *make_cleanup_restore_infcall_control_state
-					    (struct infcall_control_state *);
+extern void restore_inferior_status (struct inferior_status *);
 
-extern void discard_infcall_suspend_state (struct infcall_suspend_state *);
-extern void discard_infcall_control_state (struct infcall_control_state *);
+extern struct cleanup *make_cleanup_restore_inferior_status (struct inferior_status *);
 
-extern struct regcache *
-  get_infcall_suspend_state_regcache (struct infcall_suspend_state *);
+extern void discard_inferior_status (struct inferior_status *);
 
-/* Returns true if PTID matches filter FILTER.  FILTER can be the wild
-   card MINUS_ONE_PTID (all ptid match it); can be a ptid representing
-   a process (ptid_is_pid returns true), in which case, all lwps and
-   threads of that given process match, lwps and threads of other
-   processes do not; or, it can represent a specific thread, in which
-   case, only that thread will match true.  PTID must represent a
-   specific LWP or THREAD, it can never be a wild card.  */
+extern void write_inferior_status_register (struct inferior_status
+					    *inf_status, int regno,
+					    LONGEST val);
 
-extern int ptid_match (ptid_t ptid, ptid_t filter);
+/* The -1 ptid, often used to indicate either an error condition
+   or a "don't care" condition, i.e, "run all threads."  */
+extern ptid_t minus_one_ptid;
+
+/* The null or zero ptid, often used to indicate no process. */
+extern ptid_t null_ptid;
+
+/* Attempt to find and return an existing ptid with the given PID, LWP,
+   and TID components.  If none exists, create a new one and return
+   that.  */
+ptid_t ptid_build (int pid, long lwp, long tid);
+
+/* Find/Create a ptid from just a pid. */
+ptid_t pid_to_ptid (int pid);
+
+/* Fetch the pid (process id) component from a ptid. */
+int ptid_get_pid (ptid_t ptid);
+
+/* Fetch the lwp (lightweight process) component from a ptid. */
+long ptid_get_lwp (ptid_t ptid);
+
+/* Fetch the tid (thread id) component from a ptid. */
+long ptid_get_tid (ptid_t ptid);
+
+/* Compare two ptids to see if they are equal */
+extern int ptid_equal (ptid_t p1, ptid_t p2);
 
 /* Save value of inferior_ptid so that it may be restored by
    a later call to do_cleanups().  Returns the struct cleanup
@@ -83,28 +98,40 @@ extern void set_sigint_trap (void);
 
 extern void clear_sigint_trap (void);
 
+extern void set_sigio_trap (void);
+
+extern void clear_sigio_trap (void);
+
 /* Set/get file name for default use for standard in/out in the inferior.  */
 
 extern void set_inferior_io_terminal (const char *terminal_name);
 extern const char *get_inferior_io_terminal (void);
 
 /* Collected pid, tid, etc. of the debugged inferior.  When there's
-   no inferior, PIDGET (inferior_ptid) will be 0.  */
+   no inferior, PIDGET (inferior_ptid) will be 0. */
 
 extern ptid_t inferior_ptid;
 
 /* Are we simulating synchronous execution? This is used in async gdb
    to implement the 'run', 'continue' etc commands, which will not
-   redisplay the prompt until the execution is actually over.  */
+   redisplay the prompt until the execution is actually over. */
 extern int sync_execution;
 
-/* Inferior environment.  */
+/* Some targets (stupidly) report more than one exec event per actual
+   call to an event() system call.  If only the last such exec event
+   need actually be noticed and responded to by the debugger (i.e.,
+   be reported to the user), then this is the number of "leading"
+   exec events which should be ignored.
+ */
+extern int inferior_ignoring_leading_exec_events;
+
+/* Inferior environment. */
+
+extern struct gdb_environ *inferior_environ;
 
 extern void clear_proceed_status (void);
 
 extern void proceed (CORE_ADDR, enum target_signal, int);
-
-extern int sched_multi;
 
 /* When set, stop the 'step' command if we enter a function which has
    no line number information.  The normal behavior is that we step
@@ -113,19 +140,10 @@ extern int step_stop_if_no_debug;
 
 /* If set, the inferior should be controlled in non-stop mode.  In
    this mode, each thread is controlled independently.  Execution
-   commands apply only to the selected thread by default, and stop
+   commands apply only to the the selected thread by default, and stop
    events stop only the thread that had the event -- the other threads
    are kept running freely.  */
 extern int non_stop;
-
-/* If set (default), when following a fork, GDB will detach from one
-   the fork branches, child or parent.  Exactly which branch is
-   detached depends on 'set follow-fork-mode' setting.  */
-extern int detach_fork;
-
-/* When set (default), the target should attempt to disable the operating
-   system's address space randomization feature when starting an inferior.  */
-extern int disable_randomization;
 
 extern void generic_mourn_inferior (void);
 
@@ -133,26 +151,26 @@ extern void terminal_save_ours (void);
 
 extern void terminal_ours (void);
 
-extern CORE_ADDR unsigned_pointer_to_address (struct gdbarch *gdbarch,
-					      struct type *type,
+extern CORE_ADDR read_pc (void);
+
+extern void write_pc (CORE_ADDR);
+
+extern CORE_ADDR unsigned_pointer_to_address (struct type *type,
 					      const gdb_byte *buf);
-extern void unsigned_address_to_pointer (struct gdbarch *gdbarch,
-					 struct type *type, gdb_byte *buf,
+extern void unsigned_address_to_pointer (struct type *type, gdb_byte *buf,
 					 CORE_ADDR addr);
-extern CORE_ADDR signed_pointer_to_address (struct gdbarch *gdbarch,
-					    struct type *type,
+extern CORE_ADDR signed_pointer_to_address (struct type *type,
 					    const gdb_byte *buf);
-extern void address_to_signed_pointer (struct gdbarch *gdbarch,
-				       struct type *type, gdb_byte *buf,
+extern void address_to_signed_pointer (struct type *type, gdb_byte *buf,
 				       CORE_ADDR addr);
 
-extern void wait_for_inferior (void);
-
-extern void prepare_for_detach (void);
+extern void wait_for_inferior (int treat_exec_as_sigtrap);
 
 extern void fetch_inferior_event (void *);
 
 extern void init_wait_for_inferior (void);
+
+extern void close_exec_file (void);
 
 extern void reopen_exec_file (void);
 
@@ -160,12 +178,6 @@ extern void reopen_exec_file (void);
    Normally, use `proceed', which handles a lot of bookkeeping.  */
 
 extern void resume (int, enum target_signal);
-
-extern ptid_t user_visible_resume_ptid (int step);
-
-extern void insert_step_resume_breakpoint_at_sal (struct gdbarch *,
-						  struct symtab_and_line ,
-						  struct frame_id);
 
 /* From misc files */
 
@@ -186,24 +198,30 @@ extern void terminal_init_inferior (void);
 
 extern void terminal_init_inferior_with_pgrp (int pgrp);
 
+/* From procfs.c */
+
+extern int proc_iterate_over_mappings (int (*)(int, CORE_ADDR));
+
+extern ptid_t procfs_first_available (void);
+
 /* From fork-child.c */
 
-extern int fork_inferior (char *, char *, char **,
-			  void (*)(void),
-			  void (*)(int), void (*)(void), char *,
-                          void (*)(const char *,
-                                   char * const *, char * const *));
+extern void fork_inferior (char *, char *, char **,
+			   void (*)(void),
+			   void (*)(int), void (*)(void), char *);
 
 
 extern void startup_inferior (int);
 
-extern char *construct_inferior_arguments (int, char **);
+extern char *construct_inferior_arguments (struct gdbarch *, int, char **);
+
+/* From inflow.c */
+
+extern void new_tty_prefork (const char *);
+
+extern int gdb_has_a_terminal (void);
 
 /* From infrun.c */
-
-extern int debug_infrun;
-
-extern int stop_on_solib_events;
 
 extern void start_remote (int from_tty);
 
@@ -232,9 +250,9 @@ extern void error_is_running (void);
 /* Calls error_is_running if the current thread is running.  */
 extern void ensure_not_running (void);
 
-void set_step_info (struct frame_info *frame, struct symtab_and_line sal);
-
 /* From infcmd.c */
+
+extern void tty_command (char *, int);
 
 extern void post_create_inferior (struct target_ops *, int);
 
@@ -242,7 +260,7 @@ extern void attach_command (char *, int);
 
 extern char *get_inferior_args (void);
 
-extern void set_inferior_args (char *);
+extern char *set_inferior_args (char *);
 
 extern void set_inferior_args_vector (int, char **);
 
@@ -260,31 +278,26 @@ extern void interrupt_target_command (char *args, int from_tty);
 
 extern void interrupt_target_1 (int all_threads);
 
-extern void delete_longjmp_breakpoint_cleanup (void *arg);
-
-extern void detach_command (char *, int);
-
-extern void notice_new_inferior (ptid_t, int, int);
-
-extern struct value *get_return_value (struct type *func_type,
-                                       struct type *value_type);
-
 /* Address at which inferior stopped.  */
 
 extern CORE_ADDR stop_pc;
 
+/* Flag indicating that a command has proceeded the inferior past the
+   current breakpoint.  */
+
+extern int breakpoint_proceeded;
+
 /* Nonzero if stopped due to completion of a stack dummy routine.  */
 
-extern enum stop_stack_kind stop_stack_dummy;
+extern int stop_stack_dummy;
 
 /* Nonzero if program stopped due to a random (unexpected) signal in
    inferior process.  */
 
 extern int stopped_by_random_signal;
 
-/* STEP_OVER_ALL means step over all subroutine calls.
-   STEP_OVER_UNDEBUGGABLE means step over calls to undebuggable functions.
-   STEP_OVER_NONE means don't step over any subroutine calls.  */
+/* 1 means step over all subroutine calls.
+   -1 means step over calls to undebuggable functions.  */
 
 enum step_over_calls_kind
   {
@@ -300,10 +313,10 @@ enum step_over_calls_kind
    setting up a remote connection; it is like STOP_QUIETLY_NO_SIGSTOP
    except that there is no need to hide a signal.  */
 
-/* It is also used after attach, due to attaching to a process.  This
+/* It is also used after attach, due to attaching to a process. This
    is a bit trickier.  When doing an attach, the kernel stops the
    debuggee with a SIGSTOP.  On newer GNU/Linux kernels (>= 2.5.61)
-   the handling of SIGSTOP for a ptraced process has changed.  Earlier
+   the handling of SIGSTOP for a ptraced process has changed. Earlier
    versions of the kernel would ignore these SIGSTOPs, while now
    SIGSTOP is treated like any other signal, i.e. it is not muffled.
    
@@ -311,7 +324,7 @@ enum step_over_calls_kind
    the global variable stop_signal (which stores the signal from the
    attach, SIGSTOP) to the ptrace(PTRACE_CONT,...)  call.  This is
    problematic, because the kernel doesn't ignore such SIGSTOP
-   now.  I.e. it is reported back to gdb, which in turn presents it
+   now. I.e. it is reported back to gdb, which in turn presents it
    back to the user.
  
    To avoid the problem, we use STOP_QUIETLY_NO_SIGSTOP, which allows
@@ -330,16 +343,19 @@ enum stop_kind
 enum exec_direction_kind
   {
     EXEC_FORWARD,
-    EXEC_REVERSE
+    EXEC_REVERSE,
+    EXEC_ERROR
   };
 
-/* The current execution direction.  This should only be set to enum
-   exec_direction_kind values.  It is only an int to make it
-   compatible with make_cleanup_restore_integer.  */
-extern int execution_direction;
+extern enum exec_direction_kind execution_direction;
 
-/* Save register contents here when executing a "finish" command or are
-   about to pop a stack dummy frame, if-and-only-if proceed_to_finish is set.
+/* Nonzero if proceed is being used for a "finish" command or a similar
+   situation when stop_registers should be saved.  */
+
+extern int proceed_to_finish;
+
+/* Save register contents here when about to pop a stack dummy frame,
+   if-and-only-if proceed_to_finish is set.
    Thus this contains the return value from the called function (assuming
    values are returned in a register).  */
 
@@ -352,7 +368,13 @@ extern int debug_displaced;
 void displaced_step_dump_bytes (struct ui_file *file,
                                 const gdb_byte *buf, size_t len);
 
-struct displaced_step_closure *get_displaced_step_closure_by_addr (CORE_ADDR addr);
+
+/* When set, normal_stop will not call the normal_stop observer.  */
+extern int suppress_stop_observer;
+
+/* When set, no calls to target_resumed observer will be made.  */
+extern int suppress_resume_observer;
+
 
 /* Possible values for gdbarch_call_dummy_location.  */
 #define ON_STACK 1
@@ -361,7 +383,7 @@ struct displaced_step_closure *get_displaced_step_closure_by_addr (CORE_ADDR add
 
 /* If STARTUP_WITH_SHELL is set, GDB's "run"
    will attempts to start up the debugee under a shell.
-   This is in order for argument-expansion to occur.  E.g.,
+   This is in order for argument-expansion to occur. E.g.,
    (gdb) run *
    The "*" gets expanded by the shell into a list of files.
    While this is a nice feature, it turns out to interact badly
@@ -374,31 +396,13 @@ struct displaced_step_closure *get_displaced_step_closure_by_addr (CORE_ADDR add
    be 1 if target is not started up with a shell, 2 if it is.
    - RT
    If you disable this, you need to decrement
-   START_INFERIOR_TRAPS_EXPECTED in tm.h.  */
+   START_INFERIOR_TRAPS_EXPECTED in tm.h. */
 #define STARTUP_WITH_SHELL 1
 #if !defined(START_INFERIOR_TRAPS_EXPECTED)
 #define START_INFERIOR_TRAPS_EXPECTED	2
 #endif
 
 struct private_inferior;
-
-/* Inferior process specific part of `struct infcall_control_state'.
-
-   Inferior thread counterpart is `struct thread_control_state'.  */
-
-struct inferior_control_state
-{
-  /* See the definition of stop_kind above.  */
-  enum stop_kind stop_soon;
-};
-
-/* Inferior process specific part of `struct infcall_suspend_state'.
-
-   Inferior thread counterpart is `struct thread_suspend_state'.  */
-
-struct inferior_suspend_state
-{
-};
 
 /* GDB represents the state of each program execution with an object
    called an inferior.  An inferior typically corresponds to a process
@@ -421,117 +425,17 @@ struct inferior
   /* Actual target inferior id, usually, a process id.  This matches
      the ptid_t.pid member of threads of this inferior.  */
   int pid;
-  /* True if the PID was actually faked by GDB.  */
-  int fake_pid_p;
 
-  /* State of GDB control of inferior process execution.
-     See `struct inferior_control_state'.  */
-  struct inferior_control_state control;
-
-  /* State of inferior process to restore after GDB is done with an inferior
-     call.  See `struct inferior_suspend_state'.  */
-  struct inferior_suspend_state suspend;
-
-  /* True if this was an auto-created inferior, e.g. created from
-     following a fork; false, if this inferior was manually added by
-     the user, and we should not attempt to prune it
-     automatically.  */
-  int removable;
-
-  /* The address space bound to this inferior.  */
-  struct address_space *aspace;
-
-  /* The program space bound to this inferior.  */
-  struct program_space *pspace;
-
-  /* The arguments string to use when running.  */
-  char *args;
-
-  /* The size of elements in argv.  */
-  int argc;
-
-  /* The vector version of arguments.  If ARGC is nonzero,
-     then we must compute ARGS from this (via the target).
-     This is always coming from main's argv and therefore
-     should never be freed.  */
-  char **argv;
-
-  /* The name of terminal device to use for I/O.  */
-  char *terminal;
-
-  /* Environment to use for running inferior,
-     in format described in environ.h.  */
-  struct gdb_environ *environment;
+  /* See the definition of stop_kind above.  */
+  enum stop_kind stop_soon;
 
   /* Nonzero if this child process was attached rather than
      forked.  */
   int attach_flag;
 
-  /* If this inferior is a vfork child, then this is the pointer to
-     its vfork parent, if GDB is still attached to it.  */
-  struct inferior *vfork_parent;
-
-  /* If this process is a vfork parent, this is the pointer to the
-     child.  Since a vfork parent is left frozen by the kernel until
-     the child execs or exits, a process can only have one vfork child
-     at a given time.  */
-  struct inferior *vfork_child;
-
-  /* True if this inferior should be detached when it's vfork sibling
-     exits or execs.  */
-  int pending_detach;
-
-  /* True if this inferior is a vfork parent waiting for a vfork child
-     not under our control to be done with the shared memory region,
-     either by exiting or execing.  */
-  int waiting_for_vfork_done;
-
-  /* True if we're in the process of detaching from this inferior.  */
-  int detaching;
-
-  /* What is left to do for an execution command after any thread of
-     this inferior stops.  For continuations associated with a
-     specific thread, see `struct thread_info'.  */
-  struct continuation *continuations;
-
   /* Private data used by the target vector implementation.  */
   struct private_inferior *private;
-
-  /* HAS_EXIT_CODE is true if the inferior exited with an exit code.
-     In this case, the EXIT_CODE field is also valid.  */
-  int has_exit_code;
-  LONGEST exit_code;
-
-  /* We keep a count of the number of times the user has requested a
-     particular syscall to be tracked, and pass this information to the
-     target.  This lets capable targets implement filtering directly.  */
-
-  /* Number of times that "any" syscall is requested.  */
-  int any_syscall_count;
-
-  /* Count of each system call.  */
-  VEC(int) *syscalls_counts;
-
-  /* This counts all syscall catch requests, so we can readily determine
-     if any catching is necessary.  */
-  int total_syscalls_count;
-
-  /* Per inferior data-pointers required by other GDB modules.  */
-  void **data;
-  unsigned num_data;
 };
-
-/* Keep a registry of per-inferior data-pointers required by other GDB
-   modules.  */
-
-extern const struct inferior_data *register_inferior_data (void);
-extern const struct inferior_data *register_inferior_data_with_cleanup
-  (void (*cleanup) (struct inferior *, void *));
-extern void clear_inferior_data (struct inferior *inf);
-extern void set_inferior_data (struct inferior *inf,
-			       const struct inferior_data *data, void *value);
-extern void *inferior_data (struct inferior *inf,
-			    const struct inferior_data *data);
 
 /* Create an empty inferior list, or empty the existing one.  */
 extern void init_inferior_list (void);
@@ -549,22 +453,12 @@ extern struct inferior *add_inferior_silent (int pid);
 /* Delete an existing inferior list entry, due to inferior exit.  */
 extern void delete_inferior (int pid);
 
-extern void delete_inferior_1 (struct inferior *todel, int silent);
-
 /* Same as delete_inferior, but don't print new inferior notifications
    to the CLI.  */
 extern void delete_inferior_silent (int pid);
 
 /* Delete an existing inferior list entry, due to inferior detaching.  */
 extern void detach_inferior (int pid);
-
-extern void exit_inferior (int pid);
-
-extern void exit_inferior_silent (int pid);
-
-extern void exit_inferior_num_silent (int num);
-
-extern void inferior_appeared (struct inferior *inf, int pid);
 
 /* Get rid of all inferiors.  */
 extern void discard_all_inferiors (void);
@@ -582,17 +476,10 @@ extern int in_inferior_list (int pid);
 
 /* Boolean test for an already-known inferior id (GDB's homegrown id,
    not the system's).  */
-extern int valid_gdb_inferior_id (int num);
+extern int valid_inferior_id (int num);
 
-/* Search function to lookup an inferior by target 'pid'.  */
+/* Search function to lookup a inferior by target 'pid'.  */
 extern struct inferior *find_inferior_pid (int pid);
-
-/* Search function to lookup an inferior by GDB 'num'.  */
-extern struct inferior *find_inferior_id (int num);
-
-/* Find an inferior bound to PSPACE.  */
-extern struct inferior *
-  find_inferior_for_program_space (struct program_space *pspace);
 
 /* Inferior iterator function.
 
@@ -608,36 +495,17 @@ extern struct inferior *iterate_over_inferiors (int (*) (struct inferior *,
 							 void *),
 						void *);
 
+/* Prints the list of inferiors and their details on UIOUT.
+
+   If REQUESTED_INFERIOR is not -1, it's the GDB id of the inferior
+   that should be printed.  Otherwise, all inferiors are printed.  */
+extern void print_inferior (struct ui_out *uiout, int requested_inferior);
+
 /* Returns true if the inferior list is not empty.  */
 extern int have_inferiors (void);
-
-/* Returns true if there are any live inferiors in the inferior list
-   (not cores, not executables, real live processes).  */
-extern int have_live_inferiors (void);
 
 /* Return a pointer to the current inferior.  It is an error to call
    this if there is no current inferior.  */
 extern struct inferior *current_inferior (void);
-
-extern void set_current_inferior (struct inferior *);
-
-extern struct cleanup *save_current_inferior (void);
-
-/* Traverse all inferiors.  */
-
-#define ALL_INFERIORS(I) \
-  for ((I) = inferior_list; (I); (I) = (I)->next)
-
-extern struct inferior *inferior_list;
-
-/* Prune away automatically added inferiors that aren't required
-   anymore.  */
-extern void prune_inferiors (void);
-
-extern int number_of_inferiors (void);
-
-extern struct inferior *add_inferior_with_spaces (void);
-
-extern void update_observer_mode (void);
 
 #endif /* !defined (INFERIOR_H) */
