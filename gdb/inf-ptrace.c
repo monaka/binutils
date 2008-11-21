@@ -1,7 +1,8 @@
 /* Low-level child interface to ptrace.
 
-   Copyright (C) 1988-1996, 1998-2002, 2004-2012 Free Software
-   Foundation, Inc.
+   Copyright (C) 1988, 1989, 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1998,
+   1999, 2000, 2001, 2002, 2004, 2005, 2006, 2007, 2008
+   Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -20,9 +21,9 @@
 
 #include "defs.h"
 #include "command.h"
+#include "exec.h"
 #include "inferior.h"
 #include "inflow.h"
-#include "terminal.h"
 #include "gdbcore.h"
 #include "regcache.h"
 
@@ -32,7 +33,6 @@
 #include "gdb_wait.h"
 #include <signal.h>
 
-#include "inf-ptrace.h"
 #include "inf-child.h"
 #include "gdbthread.h"
 
@@ -45,8 +45,20 @@ inf_ptrace_follow_fork (struct target_ops *ops, int follow_child)
 {
   pid_t pid, fpid;
   ptrace_state_t pe;
+  struct thread_info *last_tp = NULL;
 
-  pid = ptid_get_pid (inferior_ptid);
+  /* FIXME: kettenis/20050720: This stuff should really be passed as
+     an argument by our caller.  */
+  {
+    ptid_t ptid;
+    struct target_waitstatus status;
+
+    get_last_target_status (&ptid, &status);
+    gdb_assert (status.kind == TARGET_WAITKIND_FORKED);
+
+    pid = ptid_get_pid (ptid);
+    last_tp = find_thread_pid (ptid);
+  }
 
   if (ptrace (PT_GET_PROCESS_STATE, pid,
 	       (PTRACE_TYPE_ARG3)&pe, sizeof pe) == -1)
@@ -57,21 +69,21 @@ inf_ptrace_follow_fork (struct target_ops *ops, int follow_child)
 
   if (follow_child)
     {
-      struct inferior *parent_inf, *child_inf;
+      /* Copy user stepping state to the new inferior thread.  */
+      struct breakpoint *step_resume_breakpoint = last_tp->step_resume_breakpoint;
+      CORE_ADDR step_range_start = last_tp->step_range_start;
+      CORE_ADDR step_range_end = last_tp->step_range_end;
+      struct frame_id step_frame_id = last_tp->step_frame_id;
+
       struct thread_info *tp;
 
-      parent_inf = find_inferior_pid (pid);
-
-      /* Add the child.  */
-      child_inf = add_inferior (fpid);
-      child_inf->attach_flag = parent_inf->attach_flag;
-      copy_terminal_info (child_inf, parent_inf);
-      child_inf->pspace = parent_inf->pspace;
-      child_inf->aspace = parent_inf->aspace;
+      /* Otherwise, deleting the parent would get rid of this
+	 breakpoint.  */
+      last_tp->step_resume_breakpoint = NULL;
 
       /* Before detaching from the parent, remove all breakpoints from
 	 it.  */
-      remove_breakpoints ();
+      detach_breakpoints (pid);
 
       if (ptrace (PT_DETACH, pid, (PTRACE_TYPE_ARG3)1, 0) == -1)
 	perror_with_name (("ptrace"));
@@ -82,15 +94,26 @@ inf_ptrace_follow_fork (struct target_ops *ops, int follow_child)
       /* Delete the parent.  */
       detach_inferior (pid);
 
-      add_thread_silent (inferior_ptid);
+      /* Add the child.  */
+      add_inferior (fpid);
+      tp = add_thread_silent (inferior_ptid);
+
+      tp->step_resume_breakpoint = step_resume_breakpoint;
+      tp->step_range_start = step_range_start;
+      tp->step_range_end = step_range_end;
+      tp->step_frame_id = step_frame_id;
+
+      /* Reset breakpoints in the child as appropriate.  */
+      follow_inferior_reset_breakpoints ();
     }
   else
     {
-      /* Breakpoints have already been detached from the child by
-	 infrun.c.  */
+      inferior_ptid = pid_to_ptid (pid);
+      detach_breakpoints (fpid);
 
       if (ptrace (PT_DETACH, fpid, (PTRACE_TYPE_ARG3)1, 0) == -1)
 	perror_with_name (("ptrace"));
+      detach_inferior (pid);
     }
 
   return 0;
@@ -120,23 +143,17 @@ inf_ptrace_create_inferior (struct target_ops *ops,
 {
   int pid;
 
-  /* Do not change either targets above or the same target if already present.
-     The reason is the target stack is shared across multiple inferiors.  */
-  int ops_already_pushed = target_is_pushed (ops);
-  struct cleanup *back_to = NULL;
-
-  if (! ops_already_pushed)
-    {
-      /* Clear possible core file with its process_stratum.  */
-      push_target (ops);
-      back_to = make_cleanup_unpush_target (ops);
-    }
-
   pid = fork_inferior (exec_file, allargs, env, inf_ptrace_me, NULL,
-		       NULL, NULL, NULL);
+		       NULL, NULL);
 
-  if (! ops_already_pushed)
-    discard_cleanups (back_to);
+  push_target (ops);
+
+  /* On some targets, there must be some explicit synchronization
+     between the parent and child processes after the debugger
+     forks, and before the child execs the debuggee program.  This
+     call basically gives permission for the child to exec.  */
+
+  target_acknowledge_created_inferior (pid);
 
   /* START_INFERIOR_TRAPS_EXPECTED is defined in inferior.h, and will
      be 1 or 2 depending on whether we're starting without or with a
@@ -178,10 +195,8 @@ inf_ptrace_mourn_inferior (struct target_ops *ops)
      only report its exit status to its original parent.  */
   waitpid (ptid_get_pid (inferior_ptid), &status, 0);
 
+  unpush_target (ops);
   generic_mourn_inferior ();
-
-  if (!have_inferiors ())
-    unpush_target (ops);
 }
 
 /* Attach to the process specified by ARGS.  If FROM_TTY is non-zero,
@@ -192,31 +207,26 @@ inf_ptrace_attach (struct target_ops *ops, char *args, int from_tty)
 {
   char *exec_file;
   pid_t pid;
+  char *dummy;
   struct inferior *inf;
 
-  /* Do not change either targets above or the same target if already present.
-     The reason is the target stack is shared across multiple inferiors.  */
-  int ops_already_pushed = target_is_pushed (ops);
-  struct cleanup *back_to = NULL;
+  if (!args)
+    error_no_arg (_("process-id to attach"));
 
-  pid = parse_pid_to_attach (args);
+  dummy = args;
+  pid = strtol (args, &dummy, 0);
+  /* Some targets don't set errno on errors, grrr!  */
+  if (pid == 0 && args == dummy)
+    error (_("Illegal process-id: %s."), args);
 
   if (pid == getpid ())		/* Trying to masturbate?  */
     error (_("I refuse to debug myself!"));
-
-  if (! ops_already_pushed)
-    {
-      /* target_pid_to_str already uses the target.  Also clear possible core
-	 file with its process_stratum.  */
-      push_target (ops);
-      back_to = make_cleanup_unpush_target (ops);
-    }
 
   if (from_tty)
     {
       exec_file = get_exec_file (0);
 
-      if (exec_file)
+      if (exec_file && number_of_execs () == 1)
 	printf_unfiltered (_("Attaching to program: %s, %s\n"), exec_file,
 			   target_pid_to_str (pid_to_ptid (pid)));
       else
@@ -235,17 +245,16 @@ inf_ptrace_attach (struct target_ops *ops, char *args, int from_tty)
   error (_("This system does not support attaching to a process"));
 #endif
 
-  inf = current_inferior ();
-  inferior_appeared (inf, pid);
-  inf->attach_flag = 1;
   inferior_ptid = pid_to_ptid (pid);
+
+  inf = add_inferior (pid);
+  inf->attach_flag = 1;
 
   /* Always add a main thread.  If some target extends the ptrace
      target, it should decorate the ptid later with more info.  */
   add_thread_silent (inferior_ptid);
 
-  if (! ops_already_pushed)
-    discard_cleanups (back_to);
+  push_target(ops);
 }
 
 #ifdef PT_GET_PROCESS_STATE
@@ -276,11 +285,14 @@ inf_ptrace_detach (struct target_ops *ops, char *args, int from_tty)
 
   if (from_tty)
     {
-      char *exec_file = get_exec_file (0);
-      if (exec_file == 0)
-	exec_file = "";
-      printf_unfiltered (_("Detaching from program: %s, %s\n"), exec_file,
-			 target_pid_to_str (pid_to_ptid (pid)));
+      struct inferior *inf = find_inferior_pid (pid);
+      if (inf && inf->exec)
+	printf_unfiltered (_("Detaching from program: %s, %s\n"),
+			   inf->exec->name,
+			   target_pid_to_str (pid_to_ptid (pid)));
+      else
+	printf_unfiltered (_("Detaching from %s\n"),
+			   target_pid_to_str (pid_to_ptid (pid)));
       gdb_flush (gdb_stdout);
     }
   if (args)
@@ -301,15 +313,13 @@ inf_ptrace_detach (struct target_ops *ops, char *args, int from_tty)
 
   inferior_ptid = null_ptid;
   detach_inferior (pid);
-
-  if (!have_inferiors ())
-    unpush_target (ops);
+  unpush_target (ops);
 }
 
 /* Kill the inferior.  */
 
 static void
-inf_ptrace_kill (struct target_ops *ops)
+inf_ptrace_kill (void)
 {
   pid_t pid = ptid_get_pid (inferior_ptid);
   int status;
@@ -333,7 +343,7 @@ inf_ptrace_stop (ptid_t ptid)
      negative process number in kill() is a System V-ism.  The proper
      BSD interface is killpg().  However, all modern BSDs support the
      System V interface too.  */
-  kill (-inferior_process_group (), SIGINT);
+  kill (-inferior_process_group, SIGINT);
 }
 
 /* Resume execution of thread PTID, or all threads if PTID is -1.  If
@@ -341,21 +351,15 @@ inf_ptrace_stop (ptid_t ptid)
    that signal.  */
 
 static void
-inf_ptrace_resume (struct target_ops *ops,
-		   ptid_t ptid, int step, enum target_signal signal)
+inf_ptrace_resume (ptid_t ptid, int step, enum target_signal signal)
 {
   pid_t pid = ptid_get_pid (ptid);
-  int request;
+  int request = PT_CONTINUE;
 
   if (pid == -1)
     /* Resume all threads.  Traditionally ptrace() only supports
        single-threaded processes, so simply resume the inferior.  */
     pid = ptid_get_pid (inferior_ptid);
-
-  if (catch_syscall_enabled () > 0)
-    request = PT_SYSCALL;
-  else
-    request = PT_CONTINUE;
 
   if (step)
     {
@@ -381,8 +385,7 @@ inf_ptrace_resume (struct target_ops *ops,
    the status in *OURSTATUS.  */
 
 static ptid_t
-inf_ptrace_wait (struct target_ops *ops,
-		 ptid_t ptid, struct target_waitstatus *ourstatus, int options)
+inf_ptrace_wait (ptid_t ptid, struct target_waitstatus *ourstatus)
 {
   pid_t pid;
   int status, save_errno;
@@ -390,6 +393,7 @@ inf_ptrace_wait (struct target_ops *ops,
   do
     {
       set_sigint_trap ();
+      set_sigio_trap ();
 
       do
 	{
@@ -398,6 +402,7 @@ inf_ptrace_wait (struct target_ops *ops,
 	}
       while (pid == -1 && errno == EINTR);
 
+      clear_sigio_trap ();
       clear_sigint_trap ();
 
       if (pid == -1)
@@ -409,7 +414,7 @@ inf_ptrace_wait (struct target_ops *ops,
 	  /* Claim it exited with unknown signal.  */
 	  ourstatus->kind = TARGET_WAITKIND_SIGNALLED;
 	  ourstatus->value.sig = TARGET_SIGNAL_UNKNOWN;
-	  return inferior_ptid;
+	  return minus_one_ptid;
 	}
 
       /* Ignore terminated detached child processes.  */
@@ -581,26 +586,6 @@ inf_ptrace_xfer_partial (struct target_ops *ops, enum target_object object,
       return -1;
 
     case TARGET_OBJECT_AUXV:
-#if defined (PT_IO) && defined (PIOD_READ_AUXV)
-      /* OpenBSD 4.5 has a new PIOD_READ_AUXV operation for the PT_IO
-	 request that allows us to read the auxilliary vector.  Other
-	 BSD's may follow if they feel the need to support PIE.  */
-      {
-	struct ptrace_io_desc piod;
-
-	if (writebuf)
-	  return -1;
-	piod.piod_op = PIOD_READ_AUXV;
-	piod.piod_addr = readbuf;
-	piod.piod_offs = (void *) (long) offset;
-	piod.piod_len = len;
-
-	errno = 0;
-	if (ptrace (PT_IO, pid, (caddr_t)&piod, 0) == 0)
-	  /* Return the actual number of bytes read or written.  */
-	  return piod.piod_len;
-      }
-#endif
       return -1;
 
     case TARGET_OBJECT_WCOOKIE:
@@ -614,7 +599,7 @@ inf_ptrace_xfer_partial (struct target_ops *ops, enum target_object object,
 /* Return non-zero if the thread specified by PTID is alive.  */
 
 static int
-inf_ptrace_thread_alive (struct target_ops *ops, ptid_t ptid)
+inf_ptrace_thread_alive (ptid_t ptid)
 {
   /* ??? Is kill the right way to do this?  */
   return (kill (ptid_get_pid (ptid), 0) != -1);
@@ -631,47 +616,6 @@ inf_ptrace_files_info (struct target_ops *ignore)
 		   inf->attach_flag ? "attached" : "child",
 		   target_pid_to_str (inferior_ptid));
 }
-
-static char *
-inf_ptrace_pid_to_str (struct target_ops *ops, ptid_t ptid)
-{
-  return normal_pid_to_str (ptid);
-}
-
-#if defined (PT_IO) && defined (PIOD_READ_AUXV)
-
-/* Read one auxv entry from *READPTR, not reading locations >= ENDPTR.
-   Return 0 if *READPTR is already at the end of the buffer.
-   Return -1 if there is insufficient buffer for a whole entry.
-   Return 1 if an entry was read into *TYPEP and *VALP.  */
-
-static int
-inf_ptrace_auxv_parse (struct target_ops *ops, gdb_byte **readptr,
-		       gdb_byte *endptr, CORE_ADDR *typep, CORE_ADDR *valp)
-{
-  struct type *int_type = builtin_type (target_gdbarch)->builtin_int;
-  struct type *ptr_type = builtin_type (target_gdbarch)->builtin_data_ptr;
-  const int sizeof_auxv_type = TYPE_LENGTH (int_type);
-  const int sizeof_auxv_val = TYPE_LENGTH (ptr_type);
-  enum bfd_endian byte_order = gdbarch_byte_order (target_gdbarch);
-  gdb_byte *ptr = *readptr;
-
-  if (endptr == ptr)
-    return 0;
-
-  if (endptr - ptr < 2 * sizeof_auxv_val)
-    return -1;
-
-  *typep = extract_unsigned_integer (ptr, sizeof_auxv_type, byte_order);
-  ptr += sizeof_auxv_val;	/* Alignment.  */
-  *valp = extract_unsigned_integer (ptr, sizeof_auxv_val, byte_order);
-  ptr += sizeof_auxv_val;
-
-  *readptr = ptr;
-  return 1;
-}
-
-#endif
 
 /* Create a prototype ptrace target.  The client can override it with
    local methods.  */
@@ -695,12 +639,9 @@ inf_ptrace_target (void)
 #endif
   t->to_mourn_inferior = inf_ptrace_mourn_inferior;
   t->to_thread_alive = inf_ptrace_thread_alive;
-  t->to_pid_to_str = inf_ptrace_pid_to_str;
+  t->to_pid_to_str = normal_pid_to_str;
   t->to_stop = inf_ptrace_stop;
   t->to_xfer_partial = inf_ptrace_xfer_partial;
-#if defined (PT_IO) && defined (PIOD_READ_AUXV)
-  t->to_auxv_parse = inf_ptrace_auxv_parse;
-#endif
 
   return t;
 }
@@ -759,8 +700,7 @@ inf_ptrace_fetch_register (struct regcache *regcache, int regnum)
    for all registers.  */
 
 static void
-inf_ptrace_fetch_registers (struct target_ops *ops,
-			    struct regcache *regcache, int regnum)
+inf_ptrace_fetch_registers (struct regcache *regcache, int regnum)
 {
   if (regnum == -1)
     for (regnum = 0;
@@ -816,9 +756,8 @@ inf_ptrace_store_register (const struct regcache *regcache, int regnum)
 /* Store register REGNUM back into the inferior.  If REGNUM is -1, do
    this for all registers.  */
 
-static void
-inf_ptrace_store_registers (struct target_ops *ops,
-			    struct regcache *regcache, int regnum)
+void
+inf_ptrace_store_registers (struct regcache *regcache, int regnum)
 {
   if (regnum == -1)
     for (regnum = 0;

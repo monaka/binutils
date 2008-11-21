@@ -1,6 +1,6 @@
 /* Code dealing with blocks for GDB.
 
-   Copyright (C) 2003, 2007-2012 Free Software Foundation, Inc.
+   Copyright (C) 2003, 2007, 2008 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -29,6 +29,7 @@ struct using_direct;
 struct obstack;
 struct dictionary;
 struct addrmap;
+struct inferior;
 
 /* All of the name-scope contours of the program
    are represented by `struct block' objects.
@@ -65,7 +66,7 @@ struct block
   CORE_ADDR endaddr;
 
   /* The symbol that names this block, if the block is the body of a
-     function (real or inlined); otherwise, zero.  */
+     function; otherwise, zero.  */
 
   struct symbol *function;
 
@@ -128,11 +129,11 @@ struct blockvector
 #define BLOCKVECTOR_BLOCK(blocklist,n) (blocklist)->block[n]
 #define BLOCKVECTOR_MAP(blocklist) ((blocklist)->map)
 
+/* Special block numbers */
+
+enum { GLOBAL_BLOCK = 0, STATIC_BLOCK = 1, FIRST_LOCAL_BLOCK = 2 };
+
 extern struct symbol *block_linkage_function (const struct block *);
-
-extern struct symbol *block_containing_function (const struct block *);
-
-extern int block_inlined_p (const struct block *block);
 
 extern int contained_in (const struct block *, const struct block *);
 
@@ -143,12 +144,11 @@ extern struct blockvector *blockvector_for_pc_sect (CORE_ADDR,
 						    struct block **,
                                                     struct symtab *);
 
-extern struct call_site *call_site_for_pc (struct gdbarch *gdbarch,
-					   CORE_ADDR pc);
-
 extern struct block *block_for_pc (CORE_ADDR);
 
 extern struct block *block_for_pc_sect (CORE_ADDR, struct obj_section *);
+
+extern struct block *block_for_pc_inf (CORE_ADDR, struct inferior *);
 
 extern const char *block_scope (const struct block *block);
 

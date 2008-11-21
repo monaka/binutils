@@ -1,7 +1,8 @@
 /* Machine independent variables that describe the core file under GDB.
 
-   Copyright (C) 1986-1987, 1989-2001, 2004, 2007-2012 Free Software
-   Foundation, Inc.
+   Copyright (C) 1986, 1987, 1989, 1990, 1991, 1992, 1993, 1994, 1995, 1996,
+   1997, 1998, 1999, 2000, 2001, 2004, 2007, 2008
+   Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -27,7 +28,6 @@ struct type;
 struct regcache;
 
 #include "bfd.h"
-#include "exec.h"
 
 /* Return the name of the executable file as a string.
    ERR nonzero means get error if there is none specified;
@@ -47,34 +47,24 @@ extern void memory_error (int status, CORE_ADDR memaddr);
 
 extern void read_memory (CORE_ADDR memaddr, gdb_byte *myaddr, int len);
 
-/* Like target_read_stack, but report an error if can't read.  */
-
-extern void read_stack (CORE_ADDR memaddr, gdb_byte *myaddr, int len);
-
 /* Read an integer from debugged memory, given address and number of
    bytes.  */
 
-extern LONGEST read_memory_integer (CORE_ADDR memaddr,
-				    int len, enum bfd_endian byte_order);
-extern int safe_read_memory_integer (CORE_ADDR memaddr, int len,
-				     enum bfd_endian byte_order,
-				     LONGEST *return_value);
+extern LONGEST read_memory_integer (CORE_ADDR memaddr, int len);
+extern int safe_read_memory_integer (CORE_ADDR memaddr, int len, LONGEST *return_value);
 
 /* Read an unsigned integer from debugged memory, given address and
    number of bytes.  */
 
-extern ULONGEST read_memory_unsigned_integer (CORE_ADDR memaddr,
-					      int len,
-					      enum bfd_endian byte_order);
+extern ULONGEST read_memory_unsigned_integer (CORE_ADDR memaddr, int len);
 
-/* Read a null-terminated string from the debuggee's memory, given
-   address, a buffer into which to place the string, and the maximum
-   available space.  */
+/* Read a null-terminated string from the debuggee's memory, given address,
+ * a buffer into which to place the string, and the maximum available space */
 
 extern void read_memory_string (CORE_ADDR, char *, int);
 
 /* Read the pointer of type TYPE at ADDR, and return the address it
-   represents.  */
+   represents. */
 
 CORE_ADDR read_memory_typed_address (CORE_ADDR addr, struct type *type);
 
@@ -87,13 +77,16 @@ extern void write_memory (CORE_ADDR memaddr, const gdb_byte *myaddr, int len);
 
 /* Store VALUE at ADDR in the inferior as a LEN-byte unsigned integer.  */
 extern void write_memory_unsigned_integer (CORE_ADDR addr, int len,
-                                           enum bfd_endian byte_order,
-					   ULONGEST value);
+                                           ULONGEST value);
 
 /* Store VALUE at ADDR in the inferior as a LEN-byte unsigned integer.  */
 extern void write_memory_signed_integer (CORE_ADDR addr, int len,
-                                         enum bfd_endian byte_order,
                                          LONGEST value);
+
+extern void generic_search (int len, char *data, char *mask,
+			    CORE_ADDR startaddr, int increment,
+			    CORE_ADDR lorange, CORE_ADDR hirange,
+			    CORE_ADDR * addr_found, char *data_found);
 
 /* Hook for `exec_file_command' command to call.  */
 
@@ -106,11 +99,10 @@ extern void (*deprecated_file_changed_hook) (char *filename);
 
 extern void specify_exec_file_hook (void (*hook) (char *filename));
 
-/* Binary File Diddler for the core file.  */
+/* Binary File Diddlers for the exec and core files.  */
 
 extern bfd *core_bfd;
-
-extern struct target_ops *core_target;
+extern bfd *exec_bfd;
 
 /* Whether to open exec and core files read-only or read-write.  */
 
@@ -120,9 +112,15 @@ extern void core_file_command (char *filename, int from_tty);
 
 extern void exec_file_attach (char *filename, int from_tty);
 
+extern void exec_file_add (char *filename, int from_tty);
+
 extern void exec_file_clear (int from_tty);
 
 extern void validate_files (void);
+
+/* The target vector for core files. */
+
+extern struct target_ops core_ops;
 
 /* The current default bfd target.  */
 
@@ -139,7 +137,7 @@ struct core_fns
     /* BFD flavour that a core file handler is prepared to read.  This
        can be used by the handler's core tasting function as a first
        level filter to reject BFD's that don't have the right
-       flavour.  */
+       flavour. */
 
     enum bfd_flavour core_flavour;
 
@@ -148,13 +146,13 @@ struct core_fns
        into the BFD model, or may require other resources to identify
        them, that simply aren't available to BFD (such as symbols from
        another file).  Returns nonzero if the handler recognizes the
-       format, zero otherwise.  */
+       format, zero otherwise. */
 
     int (*check_format) (bfd *);
 
     /* Core file handler function to call to ask if it can handle a
        given core file format or not.  Returns zero if it can't,
-       nonzero otherwise.  */
+       nonzero otherwise. */
 
     int (*core_sniffer) (struct core_fns *, bfd *);
 
@@ -177,7 +175,7 @@ struct core_fns
        REG_ADDR is the offset from u.u_ar0 to the register values relative to
        core_reg_sect.  This is used with old-fashioned core files to locate the
        registers in a large upage-plus-stack ".reg" section.  Original upage
-       address X is at location core_reg_sect+x+reg_addr.  */
+       address X is at location core_reg_sect+x+reg_addr. */
 
     void (*core_read_registers) (struct regcache *regcache,
 				 char *core_reg_sect,
@@ -198,7 +196,5 @@ struct core_fns
 extern void deprecated_add_core_fns (struct core_fns *cf);
 extern int default_core_sniffer (struct core_fns *cf, bfd * abfd);
 extern int default_check_format (bfd * abfd);
-
-struct target_section *deprecated_core_resize_section_table (int num_added);
 
 #endif /* !defined (GDBCORE_H) */

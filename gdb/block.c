@@ -1,6 +1,6 @@
 /* Block-related functions for the GNU debugger, GDB.
 
-   Copyright (C) 2003, 2007-2012 Free Software Foundation, Inc.
+   Copyright (C) 2003, 2007, 2008 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -24,8 +24,6 @@
 #include "gdb_obstack.h"
 #include "cp-support.h"
 #include "addrmap.h"
-#include "gdbtypes.h"
-#include "exceptions.h"
 
 /* This is used by struct block to store namespace-related info for
    C++ files, namely using declarations and the current namespace in
@@ -42,27 +40,15 @@ static void block_initialize_namespace (struct block *block,
 
 /* Return Nonzero if block a is lexically nested within block b,
    or if a and b have the same pc range.
-   Return zero otherwise.  */
+   Return zero otherwise. */
 
 int
 contained_in (const struct block *a, const struct block *b)
 {
   if (!a || !b)
     return 0;
-
-  do
-    {
-      if (a == b)
-	return 1;
-      /* If A is a function block, then A cannot be contained in B,
-         except if A was inlined.  */
-      if (BLOCK_FUNCTION (a) != NULL && !block_inlined_p (a))
-        return 0;
-      a = BLOCK_SUPERBLOCK (a);
-    }
-  while (a != NULL);
-
-  return 0;
+  return BLOCK_START (a) >= BLOCK_START (b)
+    && BLOCK_END (a) <= BLOCK_END (b);
 }
 
 
@@ -74,33 +60,10 @@ contained_in (const struct block *a, const struct block *b)
 struct symbol *
 block_linkage_function (const struct block *bl)
 {
-  while ((BLOCK_FUNCTION (bl) == NULL || block_inlined_p (bl))
-	 && BLOCK_SUPERBLOCK (bl) != NULL)
+  while (BLOCK_FUNCTION (bl) == 0 && BLOCK_SUPERBLOCK (bl) != 0)
     bl = BLOCK_SUPERBLOCK (bl);
 
   return BLOCK_FUNCTION (bl);
-}
-
-/* Return the symbol for the function which contains a specified
-   block, described by a struct block BL.  The return value will be
-   the closest enclosing function, which might be an inline
-   function.  */
-
-struct symbol *
-block_containing_function (const struct block *bl)
-{
-  while (BLOCK_FUNCTION (bl) == NULL && BLOCK_SUPERBLOCK (bl) != NULL)
-    bl = BLOCK_SUPERBLOCK (bl);
-
-  return BLOCK_FUNCTION (bl);
-}
-
-/* Return one if BL represents an inlined function.  */
-
-int
-block_inlined_p (const struct block *bl)
-{
-  return BLOCK_FUNCTION (bl) != NULL && SYMBOL_INLINED (BLOCK_FUNCTION (bl));
 }
 
 /* Return the blockvector immediately containing the innermost lexical
@@ -175,38 +138,6 @@ blockvector_for_pc_sect (CORE_ADDR pc, struct obj_section *section,
   return 0;
 }
 
-/* Return call_site for specified PC in GDBARCH.  PC must match exactly, it
-   must be the next instruction after call (or after tail call jump).  Throw
-   NO_ENTRY_VALUE_ERROR otherwise.  This function never returns NULL.  */
-
-struct call_site *
-call_site_for_pc (struct gdbarch *gdbarch, CORE_ADDR pc)
-{
-  struct symtab *symtab;
-  void **slot = NULL;
-
-  /* -1 as tail call PC can be already after the compilation unit range.  */
-  symtab = find_pc_symtab (pc - 1);
-
-  if (symtab != NULL && symtab->call_site_htab != NULL)
-    slot = htab_find_slot (symtab->call_site_htab, &pc, NO_INSERT);
-
-  if (slot == NULL)
-    {
-      struct minimal_symbol *msym = lookup_minimal_symbol_by_pc (pc);
-
-      /* DW_TAG_gnu_call_site will be missing just if GCC could not determine
-	 the call target.  */
-      throw_error (NO_ENTRY_VALUE_ERROR,
-		   _("DW_OP_GNU_entry_value resolving cannot find "
-		     "DW_TAG_GNU_call_site %s in %s"),
-		   paddress (gdbarch, pc),
-		   msym == NULL ? "???" : SYMBOL_PRINT_NAME (msym));
-    }
-
-  return *slot;
-}
-
 /* Return the blockvector immediately containing the innermost lexical block
    containing the specified pc value, or 0 if there is none.
    Backward compatibility, no section.  */
@@ -216,6 +147,22 @@ blockvector_for_pc (CORE_ADDR pc, struct block **pblock)
 {
   return blockvector_for_pc_sect (pc, find_pc_mapped_section (pc),
 				  pblock, NULL);
+}
+
+/* Given a pc and an inferior, find the block.  */
+
+struct block *
+block_for_pc_inf (CORE_ADDR pc, struct inferior *inf)
+{
+  struct blockvector *bl;
+  struct block *b;
+  struct obj_section *section;
+
+  section = find_pc_inf_sect (pc, inf);
+  bl = blockvector_for_pc_sect (pc, section, &b, NULL);
+  if (bl)
+    return b;
+  return 0;
 }
 
 /* Return the innermost lexical block containing the specified pc value
@@ -275,16 +222,25 @@ block_set_scope (struct block *block, const char *scope,
   BLOCK_NAMESPACE (block)->scope = scope;
 }
 
-/* This returns the using directives list associated with BLOCK, if
+/* This returns the first using directives associated to BLOCK, if
    any.  */
+
+/* FIXME: carlton/2003-04-23: This uses the fact that we currently
+   only have using directives in static blocks, because we only
+   generate using directives from anonymous namespaces.  Eventually,
+   when we support using directives everywhere, we'll want to replace
+   this by some iterator functions.  */
 
 struct using_direct *
 block_using (const struct block *block)
 {
-  if (block == NULL || BLOCK_NAMESPACE (block) == NULL)
+  const struct block *static_block = block_static_block (block);
+
+  if (static_block == NULL
+      || BLOCK_NAMESPACE (static_block) == NULL)
     return NULL;
   else
-    return BLOCK_NAMESPACE (block)->using;
+    return BLOCK_NAMESPACE (static_block)->using;
 }
 
 /* Set BLOCK's using member to USING; if needed, allocate memory via

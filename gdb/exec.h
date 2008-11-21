@@ -1,6 +1,6 @@
 /* Work with executable files, for GDB, the GNU debugger.
 
-   Copyright (C) 2003, 2007-2012 Free Software Foundation, Inc.
+   Copyright (C) 2003, 2007, 2008 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -21,83 +21,81 @@
 #define EXEC_H
 
 #include "target.h"
-#include "progspace.h"
-#include "memrange.h"
+#include "vec.h"
 
-struct target_section;
+struct section_table;
 struct target_ops;
 struct bfd;
+struct objfile;
+struct inferior;
 
 extern struct target_ops exec_ops;
 
-#define exec_bfd current_program_space->ebfd
-#define exec_bfd_mtime current_program_space->ebfd_mtime
+/* This object represents an executable program. GDB can handle
+   arbitrarily many, although the traditional debugging scenario just
+   involves one. An executable always has a BFD managing the file
+   itself, but may or may not have an associated symbol table.  */
+
+struct exec
+  {
+    /* The full name of the executable.  */
+    char *name;
+
+    /* An abbreviated name, typically formed by pruning the directory
+       from the full name.  */
+    char *shortname;
+
+    /* The BFD for this executable.  */
+    bfd *ebfd;
+
+    /* The main objfile for this executable.  */
+    struct objfile *objfile;
+
+    /* The last-modified time, from when the exec was brought in.  */
+    long ebfd_mtime;
+
+    /* The "proto-inferior" that we use when setting things up.  */
+    struct inferior *inferior;
+
+    /* Pointers to section table for this executable.  */
+    struct section_table *sections;
+    struct section_table *sections_end;
+  };
+
+typedef struct exec *exec_p;
+DEF_VEC_P(exec_p);
+
+extern VEC(exec_p) *execs;
+
+extern struct exec *current_exec;
+
+extern struct exec *first_exec;
 
 /* Builds a section table, given args BFD, SECTABLE_PTR, SECEND_PTR.
    Returns 0 if OK, 1 on error.  */
 
-extern int build_section_table (struct bfd *, struct target_section **,
-				struct target_section **);
-
-/* Resize the section table held by TABLE, by NUM_ADDED.  Returns the
-   old size.  */
-
-extern int resize_section_table (struct target_section_table *, int);
-
-/* Appends all read-only memory ranges found in the target section
-   table defined by SECTIONS and SECTIONS_END, starting at (and
-   intersected with) MEMADDR for LEN bytes.  Returns the augmented
-   VEC.  */
-
-extern VEC(mem_range_s) *
-  section_table_available_memory (VEC(mem_range_s) *ranges,
-				  CORE_ADDR memaddr, ULONGEST len,
-				  struct target_section *sections,
-				  struct target_section *sections_end);
-
-/* Read or write from mappable sections of BFD executable files.
-
-   Request to transfer up to LEN 8-bit bytes of the target sections
-   defined by SECTIONS and SECTIONS_END.  The OFFSET specifies the
-   starting address.
-   If SECTION_NAME is not NULL, only access sections with that same
-   name.
-
-   Return the number of bytes actually transfered, or zero when no
-   data is available for the requested range.
-
-   This function is intended to be used from target_xfer_partial
-   implementations.  See target_read and target_write for more
-   information.
-
-   One, and only one, of readbuf or writebuf must be non-NULL.  */
-
-extern int section_table_xfer_memory_partial (gdb_byte *, const gdb_byte *,
-					      ULONGEST, LONGEST,
-					      struct target_section *,
-					      struct target_section *,
-					      const char *);
+extern int build_section_table (struct bfd *, struct section_table **,
+				struct section_table **);
 
 /* Set the loaded address of a section.  */
 extern void exec_set_section_address (const char *, int, CORE_ADDR);
 
-/* Remove all target sections taken from ABFD.  */
+/* Return the first exec whose name matches the given string.  */
+extern struct exec *find_exec_by_name (char *name);
 
-extern void remove_target_sections (bfd *abfd);
+/* Return the first exec whose name matches the chars between the
+   given bounds.  */
+extern struct exec *find_exec_by_substr (char *name, char *name_end);
 
-/* Add the sections array defined by [SECTIONS..SECTIONS_END[ to the
-   current set of target sections.  */
+/* Return the number of executables present.  */
+extern int number_of_execs ();
 
-extern void add_target_sections (struct target_section *sections,
-				 struct target_section *sections_end);
+extern void exec_file_update (struct exec *exec);
 
-/* Prints info about all sections defined in the TABLE.  ABFD is
-   special cased --- it's filename is omitted; if it is the executable
-   file, its entry point is printed.  */
+extern struct exec *create_exec (char *filename, bfd *abfd, long mtime);
 
-extern void print_section_info (struct target_section_table *table,
-				bfd *abfd);
+extern void set_current_exec (struct exec *exec);
 
-extern void exec_close (void);
+extern void maintenance_print_execs (char *, int);
 
 #endif

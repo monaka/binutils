@@ -1,5 +1,5 @@
-# Copyright 1997, 1999, 2002-2004, 2007-2012 Free Software Foundation,
-# Inc.
+# Copyright 1997, 1999, 2002, 2003, 2004, 2007, 2008
+# Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -14,6 +14,12 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
+if $tracelevel then {
+    strace $tracelevel
+}
+
+set prms_id 0
+set bug_id 0
 
 # On HP-UX 11.0, this test is causing a process running the program
 # "attach" to be left around spinning.  Until we figure out why, I am
@@ -24,6 +30,11 @@
 # "kill", and also a test for the R3 register warning.  JB
 if { [istarget "hppa*-*-hpux*"] } {
     return 0
+}
+
+# On SPU, this test currently fails because "sleep" is not supported.
+if { [istarget "spu*-*-*"] } {
+	return 0
 }
 
 # are we on a target board
@@ -87,28 +98,7 @@ proc do_attach_tests {} {
 
     set test "attach to nonsense is prohibited"
     gdb_test_multiple "attach abc" "$test" {
-	-re "Illegal process-id: abc\\.\r\n$gdb_prompt $" {
-	    pass "$test"
-	}
-	-re "Attaching to.*, process .*couldn't open /proc file.*$gdb_prompt $" {
-	    # Response expected from /proc-based systems.
-	    pass "$test" 
-	}
-	-re "Can't attach to process..*$gdb_prompt $" {
-	    # Response expected on Cygwin
-	    pass "$test"
-	}
-	-re "Attaching to.*$gdb_prompt $" {
-	    fail "$test (bogus pid allowed)"
-	}
-    }
-
-    # Verify that we cannot attach to nonsense even if its initial part is
-    # a valid PID.
-
-    set test "attach to digits-starting nonsense is prohibited"
-    gdb_test_multiple "attach ${testpid}x" "$test" {
-	-re "Illegal process-id: ${testpid}x\\.\r\n$gdb_prompt $" {
+	-re "Illegal process-id: abc.*$gdb_prompt $" {
 	    pass "$test"
 	}
 	-re "Attaching to.*, process .*couldn't open /proc file.*$gdb_prompt $" {
@@ -215,8 +205,8 @@ proc do_attach_tests {} {
     set timeout 15 
     set test "attach1, purging symbols after detach"
     gdb_test_multiple "file" "$test" {
-	-re "No executable file now.*Discard symbol table.*y or n. $" {
-	    gdb_test "y" "No symbol file now." "$test"
+	-re "No executable files now.*Discard all symbol tables.*y or n. $" {
+	    gdb_test "y" "No symbol files now." "$test"
 	}
     }
     set timeout $old_timeout
@@ -242,19 +232,38 @@ proc do_attach_tests {} {
     # Verify that we can modify the variable "should_exit" in the
     # program.
 
-    gdb_test_no_output "set should_exit=1" "after attach2, set should_exit"
+    gdb_test "set should_exit=1" "" "after attach2, set should_exit"
 
     # Verify that the modification really happened.
 
-    gdb_test "tbreak 19" "Temporary breakpoint .*at.*$srcfile, line 19.*" \
-	"after attach2, set tbreak postloop"
-
-    gdb_test "continue" "main.*at.*$srcfile:19.*" \
-	"after attach2, reach tbreak postloop"
+    send_gdb "tbreak 19\n"
+    gdb_expect {
+	-re "Temporary breakpoint .*at.*$srcfile, line 19.*$gdb_prompt $" {
+	    pass "after attach2, set tbreak postloop"
+	}
+	-re "$gdb_prompt $" {
+	    fail "after attach2, set tbreak postloop"
+	}
+	timeout {
+	    fail "(timeout) after attach2, set tbreak postloop"
+	}
+    }
+    send_gdb "continue\n"
+    gdb_expect {
+	-re "main.*at.*$srcfile:19.*$gdb_prompt $" {
+	    pass "after attach2, reach tbreak postloop"
+	}
+	-re "$gdb_prompt $" {
+	    fail "after attach2, reach tbreak postloop"
+	}
+	timeout {
+	    fail "(timeout) after attach2, reach tbreak postloop"
+	}
+    }
 
     # Allow the test process to exit, to cleanup after ourselves.
 
-    gdb_continue_to_end "after attach2, exit"
+    gdb_test "continue" "Program exited normally." "after attach2, exit"
 
     # Make sure we don't leave a process around to confuse
     # the next test run (and prevent the compile by keeping
@@ -287,17 +296,17 @@ proc do_attach_tests {} {
     # Explicitly flush out any knowledge of the previous attachment.
 
     set test "before attach3, flush symbols"
-    gdb_test_multiple "symbol-file" "$test" {
-	-re "Discard symbol table from.*y or n. $" {
-	    gdb_test "y" "No symbol file now." \
+    gdb_test_multiple "symbol" "$test" {
+	-re "Discard all symbol tables.*y or n. $" {
+	    gdb_test "y" "No symbol files now." \
 		"$test"
 	}
-	-re "No symbol file now.*$gdb_prompt $" {
+	-re "No symbol files now.*$gdb_prompt $" {
 	    pass "$test"
 	}
     }
 
-    gdb_test "exec" "No executable file now." \
+    gdb_test "exec" "No executable files now." \
 	"before attach3, flush exec"
 
     gdb_test "attach $testpid" \
@@ -305,11 +314,11 @@ proc do_attach_tests {} {
 	"attach when process' a.out not in cwd"
 
     set test "after attach3, exit"
-    gdb_test "kill" \
-	"" \
-	"$test" \
-	"Kill the program being debugged.*y or n. $" \
-	"y"
+    gdb_test_multiple "kill" "$test" {
+	-re "Kill the program being debugged.*y or n. $" {
+	    gdb_test "y" "" "$test"
+	}
+    }
     
     # Another "don't leave a process around"
     remote_exec build "kill -9 ${testpid}"
@@ -332,7 +341,7 @@ proc do_call_attach_tests {} {
 
     # Attach
    
-    gdb_test "file $binfile2" ".*" "force switch to gdb64, if necessary"
+    gdb_test "file $binfile2" "" "force switch to gdb64, if necessary"
     set test "attach call"
     gdb_test_multiple "attach $testpid" "$test" {
 	-re "warning: reading register.*I.*O error.*$gdb_prompt $" {
@@ -361,7 +370,7 @@ proc do_call_attach_tests {} {
     # Get rid of the process
     
     gdb_test "p should_exit = 1"
-    gdb_continue_to_end
+    gdb_test "c" "Program exited normally."
    
     # Be paranoid
    
