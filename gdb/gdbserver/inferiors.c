@@ -1,5 +1,5 @@
 /* Inferior process information for the remote server for GDB.
-   Copyright (C) 2002, 2005, 2007-2012 Free Software Foundation, Inc.
+   Copyright (C) 2002, 2005, 2007, 2008 Free Software Foundation, Inc.
 
    Contributed by MontaVista Software.
 
@@ -22,12 +22,95 @@
 
 #include "server.h"
 
+struct thread_info
+{
+  struct inferior_list_entry entry;
+  void *target_data;
+  void *regcache_data;
+  unsigned int gdb_id;
+};
+
 struct inferior_list all_processes;
 struct inferior_list all_threads;
 struct inferior_list all_dlls;
 int dlls_changed;
 
 struct thread_info *current_inferior;
+
+
+/* Oft used ptids */
+ptid_t null_ptid;
+ptid_t minus_one_ptid;
+
+/* Create a ptid given the necessary PID, LWP, and TID components.  */
+
+ptid_t
+ptid_build (int pid, long lwp, long tid)
+{
+  ptid_t ptid;
+
+  ptid.pid = pid;
+  ptid.lwp = lwp;
+  ptid.tid = tid;
+  return ptid;
+}
+
+/* Create a ptid from just a pid.  */
+
+ptid_t
+pid_to_ptid (int pid)
+{
+  return ptid_build (pid, 0, 0);
+}
+
+/* Fetch the pid (process id) component from a ptid.  */
+
+int
+ptid_get_pid (ptid_t ptid)
+{
+  return ptid.pid;
+}
+
+/* Fetch the lwp (lightweight process) component from a ptid.  */
+
+long
+ptid_get_lwp (ptid_t ptid)
+{
+  return ptid.lwp;
+}
+
+/* Fetch the tid (thread id) component from a ptid.  */
+
+long
+ptid_get_tid (ptid_t ptid)
+{
+  return ptid.tid;
+}
+
+/* ptid_equal() is used to test equality of two ptids.  */
+
+int
+ptid_equal (ptid_t ptid1, ptid_t ptid2)
+{
+  return (ptid1.pid == ptid2.pid
+	  && ptid1.lwp == ptid2.lwp
+	  && ptid1.tid == ptid2.tid);
+}
+
+/* Return true if this ptid represents a process.  */
+
+int
+ptid_is_pid (ptid_t ptid)
+{
+  if (ptid_equal (minus_one_ptid, ptid))
+    return 0;
+  if (ptid_equal (null_ptid, ptid))
+    return 0;
+
+  return (ptid_get_pid (ptid) != 0
+	  && ptid_get_lwp (ptid) == 0
+	  && ptid_get_tid (ptid) == 0);
+}
 
 #define get_thread(inf) ((struct thread_info *)(inf))
 #define get_dll(inf) ((struct dll_info *)(inf))
@@ -43,8 +126,6 @@ add_inferior_to_list (struct inferior_list *list,
     list->head = new_inferior;
   list->tail = new_inferior;
 }
-
-/* Invoke ACTION for each inferior in LIST.  */
 
 void
 for_each_inferior (struct inferior_list *list,
@@ -90,15 +171,13 @@ remove_inferior (struct inferior_list *list,
 void
 add_thread (ptid_t thread_id, void *target_data)
 {
-  struct thread_info *new_thread = xmalloc (sizeof (*new_thread));
+  struct thread_info *new_thread = malloc (sizeof (*new_thread));
 
   memset (new_thread, 0, sizeof (*new_thread));
 
   new_thread->entry.id = thread_id;
-  new_thread->last_resume_kind = resume_continue;
-  new_thread->last_status.kind = TARGET_WAITKIND_IGNORE;
 
-  add_inferior_to_list (&all_threads, & new_thread->entry);
+  add_inferior_to_list (&all_threads, &new_thread->entry);
 
   if (current_inferior == NULL)
     current_inferior = new_thread;
@@ -129,7 +208,7 @@ thread_to_gdb_id (struct thread_info *thread)
 }
 
 struct thread_info *
-find_thread_ptid (ptid_t ptid)
+find_thread_pid (ptid_t ptid)
 {
   struct inferior_list_entry *inf = all_threads.head;
 
@@ -147,7 +226,7 @@ find_thread_ptid (ptid_t ptid)
 ptid_t
 gdb_id_to_thread_id (ptid_t gdb_id)
 {
-  struct thread_info *thread = find_thread_ptid (gdb_id);
+  struct thread_info *thread = find_thread_pid (gdb_id);
 
   return thread ? thread->entry.id : null_ptid;
 }
@@ -166,9 +245,6 @@ remove_thread (struct thread_info *thread)
   remove_inferior (&all_threads, (struct inferior_list_entry *) thread);
   free_one_thread (&thread->entry);
 }
-
-/* Find the first inferior_list_entry E in LIST for which FUNC (E, ARG)
-   returns non-zero.  If no entry is found then return NULL.  */
 
 struct inferior_list_entry *
 find_inferior (struct inferior_list *list,
@@ -262,12 +338,12 @@ match_dll (struct inferior_list_entry *inf, void *arg)
 void
 loaded_dll (const char *name, CORE_ADDR base_addr)
 {
-  struct dll_info *new_dll = xmalloc (sizeof (*new_dll));
+  struct dll_info *new_dll = malloc (sizeof (*new_dll));
   memset (new_dll, 0, sizeof (*new_dll));
 
   new_dll->entry.id = minus_one_ptid;
 
-  new_dll->name = xstrdup (name);
+  new_dll->name = strdup (name);
   new_dll->base_addr = base_addr;
 
   add_inferior_to_list (&all_dlls, &new_dll->entry);
@@ -287,25 +363,9 @@ unloaded_dll (const char *name, CORE_ADDR base_addr)
   key_dll.base_addr = base_addr;
 
   dll = (void *) find_inferior (&all_dlls, match_dll, &key_dll);
-
-  if (dll == NULL)
-    /* For some inferiors we might get unloaded_dll events without having
-       a corresponding loaded_dll.  In that case, the dll cannot be found
-       in ALL_DLL, and there is nothing further for us to do.
-
-       This has been observed when running 32bit executables on Windows64
-       (i.e. through WOW64, the interface between the 32bits and 64bits
-       worlds).  In that case, the inferior always does some strange
-       unloading of unnamed dll.  */
-    return;
-  else
-    {
-      /* DLL has been found so remove the entry and free associated
-         resources.  */
-      remove_inferior (&all_dlls, &dll->entry);
-      free_one_dll (&dll->entry);
-      dlls_changed = 1;
-    }
+  remove_inferior (&all_dlls, &dll->entry);
+  free_one_dll (&dll->entry);
+  dlls_changed = 1;
 }
 
 #define clear_list(LIST) \
@@ -331,7 +391,7 @@ add_pid_to_list (struct inferior_list *list, unsigned long pid)
 {
   struct inferior_list_entry *new_entry;
 
-  new_entry = xmalloc (sizeof (struct inferior_list_entry));
+  new_entry = malloc (sizeof (struct inferior_list_entry));
   new_entry->id = pid_to_ptid (pid);
   add_inferior_to_list (list, new_entry);
 }
@@ -357,7 +417,8 @@ add_process (int pid, int attached)
 {
   struct process_info *process;
 
-  process = xcalloc (1, sizeof (*process));
+  process = (struct process_info *) malloc (sizeof (*process));
+  memset (process, 0, sizeof (*process));
 
   process->head.id = pid_to_ptid (pid);
   process->attached = attached;
@@ -367,78 +428,26 @@ add_process (int pid, int attached)
   return process;
 }
 
-/* Remove a process from the common process list and free the memory
-   allocated for it.
-   The caller is responsible for freeing private data first.  */
-
-void
-remove_process (struct process_info *process)
-{
-  clear_symbol_cache (&process->symbol_cache);
-  free_all_breakpoints (process);
-  remove_inferior (&all_processes, &process->head);
-  free (process);
-}
-
-struct process_info *
-find_process_pid (int pid)
-{
-  return (struct process_info *)
-    find_inferior_id (&all_processes, pid_to_ptid (pid));
-}
-
-/* Return non-zero if INF, a struct process_info, was started by us,
-   i.e. not attached to.  */
-
-static int
-started_inferior_callback (struct inferior_list_entry *entry, void *args)
-{
-  struct process_info *process = (struct process_info *) entry;
-
-  return ! process->attached;
-}
-
-/* Return non-zero if there are any inferiors that we have created
-   (as opposed to attached-to).  */
-
-int
-have_started_inferiors_p (void)
-{
-  return (find_inferior (&all_processes, started_inferior_callback, NULL)
-	  != NULL);
-}
-
-/* Return non-zero if INF, a struct process_info, was attached to.  */
-
-static int
-attached_inferior_callback (struct inferior_list_entry *entry, void *args)
-{
-  struct process_info *process = (struct process_info *) entry;
-
-  return process->attached;
-}
-
-/* Return non-zero if there are any inferiors that we have attached to.  */
-
-int
-have_attached_inferiors_p (void)
-{
-  return (find_inferior (&all_processes, attached_inferior_callback, NULL)
-	  != NULL);
-}
-
-struct process_info *
-get_thread_process (struct thread_info *thread)
-{
-  int pid = ptid_get_pid (thread->entry.id);
-  return find_process_pid (pid);
-}
-
 struct process_info *
 current_process (void)
 {
-  if (current_inferior == NULL)
-    fatal ("Current inferior requested, but current_inferior is NULL\n");
+  struct process_info *process;
+  int pid;
 
-  return get_thread_process (current_inferior);
+  if (current_inferior == NULL)
+    internal_error ("No current_inferior\n");
+
+  pid = ptid_get_pid (current_inferior->entry.id);
+  process = (struct process_info *) find_inferior_id (&all_processes,
+						      pid_to_ptid (pid));
+
+  return process;
+}
+
+
+void
+initialize_inferiors (void)
+{
+  null_ptid = ptid_build (0, 0, 0);
+  minus_one_ptid = ptid_build (-1, 0, 0);
 }

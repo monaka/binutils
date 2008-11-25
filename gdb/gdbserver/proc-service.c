@@ -1,5 +1,6 @@
 /* libthread_db helper functions for the remote server for GDB.
-   Copyright (C) 2002, 2004-2012 Free Software Foundation, Inc.
+   Copyright (C) 2002, 2004, 2005, 2006, 2007, 2008
+   Free Software Foundation, Inc.
 
    Contributed by MontaVista Software.
 
@@ -64,7 +65,7 @@ ps_pglobal_lookup (gdb_ps_prochandle_t ph, const char *obj,
 {
   CORE_ADDR addr;
 
-  if (thread_db_look_up_one_symbol (name, &addr) == 0)
+  if (look_up_one_symbol (name, &addr) == 0)
     return PS_NOSYM;
 
   *sym_addr = (psaddr_t) (unsigned long) addr;
@@ -100,7 +101,6 @@ ps_lgetregs (gdb_ps_prochandle_t ph, lwpid_t lwpid, prgregset_t gregset)
 #ifdef HAVE_REGSETS
   struct lwp_info *lwp;
   struct thread_info *reg_inferior, *save_inferior;
-  struct regcache *regcache;
 
   lwp = find_lwp_pid (pid_to_ptid (lwpid));
   if (lwp == NULL)
@@ -109,8 +109,9 @@ ps_lgetregs (gdb_ps_prochandle_t ph, lwpid_t lwpid, prgregset_t gregset)
   reg_inferior = get_lwp_thread (lwp);
   save_inferior = current_inferior;
   current_inferior = reg_inferior;
-  regcache = get_thread_regcache (current_inferior, 1);
-  gregset_info ()->fill_function (regcache, gregset);
+
+  the_target->fetch_registers (0);
+  gregset_info()->fill_function (gregset);
 
   current_inferior = save_inferior;
   return PS_OK;
@@ -155,5 +156,7 @@ ps_lsetfpregs (gdb_ps_prochandle_t ph, lwpid_t lwpid, void *fpregset)
 pid_t
 ps_getpid (gdb_ps_prochandle_t ph)
 {
-  return pid_of (get_thread_lwp (current_inferior));
+  return ph->pid;
 }
+
+
