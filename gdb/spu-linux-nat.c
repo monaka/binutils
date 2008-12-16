@@ -1,5 +1,5 @@
 /* SPU native-dependent code for GDB, the GNU debugger.
-   Copyright (C) 2006-2012 Free Software Foundation, Inc.
+   Copyright (C) 2006, 2007, 2008 Free Software Foundation, Inc.
 
    Contributed by Ulrich Weigand <uweigand@de.ibm.com>.
 
@@ -204,7 +204,6 @@ store_ppc_memory (ULONGEST memaddr, const gdb_byte *myaddr, int len)
 static int 
 parse_spufs_run (int *fd, ULONGEST *addr)
 {
-  enum bfd_endian byte_order = gdbarch_byte_order (target_gdbarch);
   gdb_byte buf[4];
   ULONGEST pc = fetch_ppc_register (32);  /* nip */
 
@@ -212,7 +211,7 @@ parse_spufs_run (int *fd, ULONGEST *addr)
   if (fetch_ppc_memory (pc-4, buf, 4) != 0)
     return 0;
   /* It should be a "sc" instruction.  */
-  if (extract_unsigned_integer (buf, 4, byte_order) != INSTR_SC)
+  if (extract_unsigned_integer (buf, 4) != INSTR_SC)
     return 0;
   /* System call number should be NR_spu_run.  */
   if (fetch_ppc_register (0) != NR_spu_run)
@@ -309,7 +308,6 @@ static bfd *
 spu_bfd_open (ULONGEST addr)
 {
   struct bfd *nbfd;
-  asection *spu_name;
 
   ULONGEST *open_closure = xmalloc (sizeof (ULONGEST));
   *open_closure = addr;
@@ -325,22 +323,6 @@ spu_bfd_open (ULONGEST addr)
     {
       bfd_close (nbfd);
       return NULL;
-    }
-
-  /* Retrieve SPU name note and update BFD name.  */
-  spu_name = bfd_get_section_by_name (nbfd, ".note.spu_name");
-  if (spu_name)
-    {
-      int sect_size = bfd_section_size (nbfd, spu_name);
-      if (sect_size > 20)
-	{
-	  char *buf = alloca (sect_size - 20 + 1);
-	  bfd_get_section_contents (nbfd, spu_name, buf, 20, sect_size - 20);
-	  buf[sect_size - 20] = '\0';
-
-	  xfree ((char *)nbfd->filename);
-	  nbfd->filename = xstrdup (buf);
-	}
     }
 
   return nbfd;
@@ -373,8 +355,7 @@ spu_symbol_file_add_from_memory (int inferior_fd)
   /* Open BFD representing SPE executable and read its symbols.  */
   nbfd = spu_bfd_open (addr);
   if (nbfd)
-    symbol_file_add_from_bfd (nbfd, SYMFILE_VERBOSE | SYMFILE_MAINLINE,
-                              NULL, 0, NULL);
+    symbol_file_add_from_bfd (nbfd, 0, NULL, 1, 0);
 }
 
 
@@ -423,8 +404,7 @@ spu_child_post_attach (int pid)
 /* Wait for child PTID to do something.  Return id of the child,
    minus_one_ptid in case of error; store status into *OURSTATUS.  */
 static ptid_t
-spu_child_wait (struct target_ops *ops,
-		ptid_t ptid, struct target_waitstatus *ourstatus, int options)
+spu_child_wait (ptid_t ptid, struct target_waitstatus *ourstatus)
 {
   int save_errno;
   int status;
@@ -434,6 +414,7 @@ spu_child_wait (struct target_ops *ops,
     {
       set_sigint_trap ();	/* Causes SIGINT to be passed on to the
 				   attached process.  */
+      set_sigio_trap ();
 
       pid = waitpid (PIDGET (ptid), &status, 0);
       if (pid == -1 && errno == ECHILD)
@@ -450,6 +431,7 @@ spu_child_wait (struct target_ops *ops,
 	  save_errno = EINTR;
 	}
 
+      clear_sigio_trap ();
       clear_sigint_trap ();
     }
   while (pid == -1 && save_errno == EINTR);
@@ -471,8 +453,7 @@ spu_child_wait (struct target_ops *ops,
 
 /* Override the fetch_inferior_register routine.  */
 static void
-spu_fetch_inferior_registers (struct target_ops *ops,
-			      struct regcache *regcache, int regno)
+spu_fetch_inferior_registers (struct regcache *regcache, int regno)
 {
   int fd;
   ULONGEST addr;
@@ -484,10 +465,8 @@ spu_fetch_inferior_registers (struct target_ops *ops,
   /* The ID register holds the spufs file handle.  */
   if (regno == -1 || regno == SPU_ID_REGNUM)
     {
-      struct gdbarch *gdbarch = get_regcache_arch (regcache);
-      enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
       char buf[4];
-      store_unsigned_integer (buf, 4, byte_order, fd);
+      store_unsigned_integer (buf, 4, fd);
       regcache_raw_supply (regcache, SPU_ID_REGNUM, buf);
     }
 
@@ -515,8 +494,7 @@ spu_fetch_inferior_registers (struct target_ops *ops,
 
 /* Override the store_inferior_register routine.  */
 static void
-spu_store_inferior_registers (struct target_ops *ops,
-			      struct regcache *regcache, int regno)
+spu_store_inferior_registers (struct regcache *regcache, int regno)
 {
   int fd;
   ULONGEST addr;
@@ -562,10 +540,7 @@ spu_xfer_partial (struct target_ops *ops,
     {
       int fd;
       ULONGEST addr;
-      char mem_annex[32], lslr_annex[32];
-      gdb_byte buf[32];
-      ULONGEST lslr;
-      LONGEST ret;
+      char mem_annex[32];
 
       /* We must be stopped on a spu_run system call.  */
       if (!parse_spufs_run (&fd, &addr))
@@ -573,22 +548,7 @@ spu_xfer_partial (struct target_ops *ops,
 
       /* Use the "mem" spufs file to access SPU local store.  */
       xsnprintf (mem_annex, sizeof mem_annex, "%d/mem", fd);
-      ret = spu_proc_xfer_spu (mem_annex, readbuf, writebuf, offset, len);
-      if (ret > 0)
-	return ret;
-
-      /* SPU local store access wraps the address around at the
-	 local store limit.  We emulate this here.  To avoid needing
-	 an extra access to retrieve the LSLR, we only do that after
-	 trying the original address first, and getting end-of-file.  */
-      xsnprintf (lslr_annex, sizeof lslr_annex, "%d/lslr", fd);
-      memset (buf, 0, sizeof buf);
-      if (spu_proc_xfer_spu (lslr_annex, buf, NULL, 0, sizeof buf) <= 0)
-	return ret;
-
-      lslr = strtoulst (buf, NULL, 16);
-      return spu_proc_xfer_spu (mem_annex, readbuf, writebuf,
-				offset & lslr, len);
+      return spu_proc_xfer_spu (mem_annex, readbuf, writebuf, offset, len);
     }
 
   return -1;
@@ -622,3 +582,4 @@ _initialize_spu_nat (void)
   /* Register SPU target.  */
   add_target (t);
 }
+
