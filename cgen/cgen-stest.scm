@@ -76,5 +76,3 @@
 )
 
 (cgen-stest (program-arguments))
-
-;; FIXME: cgen-all will generate the opcodes files, not what we want

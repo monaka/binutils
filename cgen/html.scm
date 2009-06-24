@@ -456,7 +456,7 @@ See the input .cpu file(s) for copyright information.
    "machines: "
    (string-map (lambda (mach)
 		 (string-append " " (symbol->string mach)))
-	       (obj-attr-value reg 'MACH))
+	       (bitset-attr->list (obj-attr-value reg 'MACH)))
    "\n"
    "</li>\n"
    "<li>\n"
@@ -575,7 +575,7 @@ See the input .cpu file(s) for copyright information.
    "machines: "
    (string-map (lambda (mach)
 		 (string-append " " (symbol->string mach)))
-	       (obj-attr-value insn 'MACH))
+	       (bitset-attr->list (obj-attr-value insn 'MACH)))
    "\n"
    "</li>\n"
    "<br>\n"
@@ -679,10 +679,11 @@ See the input .cpu file(s) for copyright information.
 ; The possibilities are: MEM, FPU.
 
 (define (get-insn-properties insn)
-  (logit 2 "Collecting properties of insn " (obj:name insn) " ...\n")
-
   (let*
       ((context #f) ; ??? do we need a better context?
+
+       ; String for error messages.
+       (errtxt "semantic attribute computation for html")
 
        ; List of attributes computed from SEM-CODE-LIST.
        ; The first element is just a dummy so that append! always works.
@@ -690,14 +691,13 @@ See the input .cpu file(s) for copyright information.
 
        ; Called for expressions encountered in SEM-CODE-LIST.
        (process-expr!
-	(lambda (rtx-obj expr parent-expr op-pos tstate appstuff)
+	(lambda (rtx-obj expr mode parent-expr op-pos tstate appstuff)
 	  (case (car expr)
 
-	    ((operand) (if (memory? (op:type (current-op-lookup (rtx-arg1 expr)
-								(obj-isa-list insn))))
+	    ((operand) (if (memory? (op:type (rtx-operand-obj expr)))
 			   ; Don't change to '(MEM), since we use append!.
 			   (append! sem-attrs (list 'MEM)))
-		       (if (mode-float? (mode:lookup (rtx-mode expr)))
+		       (if (mode-float? (op:mode (rtx-operand-obj expr)))
 			   ; Don't change to '(FPU), since we use append!.
 			   (append! sem-attrs (list 'FPU)))
 		       )
@@ -831,8 +831,9 @@ See the input .cpu file(s) for copyright information.
   ; First simplify the semantics, e.g. do constant folding.
   ; For insns built up from macros, often this will remove a lot of clutter.
   (for-each (lambda (insn)
-	      (logit 2 "Simplifying the rtl for insn " (obj:name insn) " ...\n")
-	      (insn-set-tmp! insn (rtx-simplify-insn #f insn)))
+	      (insn-set-tmp! insn (rtx-simplify #f insn
+						(insn-semantics insn)
+						(insn-build-known-values insn))))
 	    (current-insn-list))
 
   (let ((machs (current-mach-list))

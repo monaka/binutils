@@ -359,7 +359,7 @@
           (else "r"))))))))
 
 ;; The first hard register available to the intrinsics generator.
-(define target:first-unused-register 113)
+(define target:first-unused-register 97)
 
 ;; The instructions mapped to a particular intrinsic can be subdivided
 ;; into groups, each representing a particular form of code generation.
@@ -367,15 +367,10 @@
 ;; for normal functions.
 (define target:groups '(normal vliw))
 
-;; True if INSN belongs to GROUP, where GROUP is a member of TARGET:GROUPS.
+;; True if INSN belongs to GROUP, where GROUP is a membmer of TARGET:GROUPS.
 (define (target:belongs-to-group? insn group)
   (case (obj-attr-value (md-insn:cgen-insn insn) 'SLOT)
-    ((NONE)
-     (let ((slots (obj-attr-value (md-insn:cgen-insn insn) 'SLOTS)))
-       (cond ((not slots) (equal? group 'normal))
-	     ((memq 'CORE slots) #t)
-	     ((memq 'C3 slots) (equal? group 'normal))
-	     (else (equal? group 'vliw)))))
+    ((NONE) #t)
     ((C3) (equal? group 'normal))
     ((V1 V3) (equal? group 'vliw))))
 
@@ -385,46 +380,39 @@
 
 ;; Helper functions for getting the values of certain mep-specific gcc
 ;; attributes.  In each case INSN is a cgen instruction (not an md-insn).
-(define (/may-trap-attribute insn)
+(define (-may-trap-attribute insn)
   (if (obj-has-attr? insn 'MAY_TRAP) "yes" "no"))
 
-(define (/slot-attribute insn)
+(define (-slot-attribute insn)
   (if (exists? (lambda (isa)
 		 (or (equal? isa 'mep)
 		     (equal? (string-take 8 (st isa)) "ext_core")))
-	       (obj-attr-value insn 'ISA))
+	       (bitset-attr->list (obj-attr-value insn 'ISA)))
       "core"
       "cop"))
 
-(define (/latency-attribute insn)
+(define (-latency-attribute insn)
   (if (obj-attr-value insn 'LATENCY)
       (st (obj-attr-value insn 'LATENCY))
       "0"))
 
-(define (/length-attribute insn)
+(define (-length-attribute insn)
   (st (/ (insn-length insn) 8)))
 
-(define (/stall-attribute insn)
+(define (-stall-attribute insn)
   (string-downcase (st (obj-attr-value insn 'STALL))))
-
-(define (/slots-attribute insn)
-  (let ((slots (obj-attr-value insn 'SLOTS)))
-    (if slots
-	(string-downcase (gen-c-symbol (st slots)))
-	"core")))
 
 ;; Return the define_insn attributes for INSN as a list of (NAME . VALUE)
 ;; pairs.
 (define (target:attributes insn)
   (let ((cgen-insn (md-insn:cgen-insn insn)))
-    (list (cons 'may_trap (/may-trap-attribute cgen-insn))
-	  (cons 'latency (/latency-attribute cgen-insn))
-	  (cons 'length (/length-attribute cgen-insn))
-	  (cons 'slot (/slot-attribute cgen-insn))
-	  (cons 'slots (/slots-attribute cgen-insn))
+    (list (cons 'may_trap (-may-trap-attribute cgen-insn))
+	  (cons 'latency (-latency-attribute cgen-insn))
+	  (cons 'length (-length-attribute cgen-insn))
+	  (cons 'slot (-slot-attribute cgen-insn))
 	  (if (eq? (obj-attr-value cgen-insn 'STALL) 'SHIFTI)
 	      (cons 'shiftop "operand2")
-	      (cons 'stall (/stall-attribute cgen-insn))))))
+	      (cons 'stall (-stall-attribute cgen-insn))))))
 
 ;; Define target-specific fields of cgen_insn.  In the MeP case, we want
 ;; to record how long the intruction is.
@@ -436,7 +424,7 @@
 ;; Initialize the fields described above.
 (define (target:initialize-fields insn)
   (comma-line-break)
-  (string-write (/length-attribute (md-insn:cgen-insn insn))))
+  (string-write (-length-attribute (md-insn:cgen-insn insn))))
 
 ;; Use WELL-KNOWN-INTRINSIC to define the names of builtins that
 ;; gcc might treat specially.
@@ -458,7 +446,6 @@
 
   (apply-list well-known-intrinsic
 	      `(("cmov")
-		("cpmov")
 		("cmovi" set)
 		("cmov1")
 		("cmov2")
@@ -560,8 +547,9 @@
 (define (md-operand:fixed-register op)
   (and (not (md-operand:pc? op))
        (md-operand:register? op)
-       (let ((constant (if (hw-index-constant? (md-operand:index op))
-			   (hw-index-constant-value (md-operand:index op))
+       (let ((constant (if (equal? 'constant
+				   (hw-index:type (md-operand:index op)))
+			   (hw-index:value (md-operand:index op))
 			   (md-operand:ifield-value op))))
 	 (and constant
 	      (+ constant (target:base-reg (md-operand:hw op)))))))
@@ -695,13 +683,8 @@
 ;;    will have a valid WRITE-INDEX.
 ;;
 ;;    OPERANDS is a concatenation of OUTPUTS and INPUTS.
-;;
-;;    CPTYPE is the type to use for coprocessor operands (like V4HI)
-;;
-;;    CRET? is set if the first argument is returned rather than passed.
-
 (make-struct md-insn (md-name index intrinsic cgen-insn syntax arguments
-		      inputs outputs operands cptype cret?))
+		      inputs outputs operands))
 
 ;; Return the name of the underlying cgen insn, mostly used for
 ;; error reporting.
@@ -723,7 +706,8 @@
 (define (md-insn:isas insn)
   (map convert-isa
        (find (lambda (isa) (member isa intrinsics-isas))
-	     (obj-attr-value (md-insn:cgen-insn insn) 'ISA))))
+	     (bitset-attr->list
+	      (obj-attr-value (md-insn:cgen-insn insn) 'ISA)))))
 
 ;; The full list of instruction groups.  As well target-specific groups,
 ;; this includes "known-code", meaning that the instruction uses a specific
@@ -955,8 +939,7 @@
 	 ;; each cgen operand is replaced by an md-operand.
 	 (syntax (map (lambda (x)
 			(if (operand? x) (make-operand x) x))
-		      (syntax-break-out (insn-syntax insn)
-					(obj-isa-list insn))))
+		      (syntax-break-out (insn-syntax insn))))
 
 	 ;; All relevant outputs.
 	 (outputs (find (lambda (op)
@@ -986,14 +969,7 @@
 	 (quiet-inputs (find (lambda (op)
 			       (and (not (memq op inputs))
 				    (not (memq op outputs))))
-			     arguments))
-
-	 ;; Allow an intrinsic to specify a type for coprocessor
-	 ;; operands, as they tend to be insn-specific vector types.
-	 (cptype (obj-attr-value insn 'CPTYPE))
-
-	 (cret? (equal? (obj-attr-value insn 'CRET) 'FIRST))
-	 )
+			     arguments)))
 
     ;; Number each argument operand according to its position in the list.
     (number-list md-operand:set-arg-index! arguments 0)
@@ -1024,7 +1000,7 @@
 	  (cons (md-insn:make (sa md-prefix (gen-c-symbol (obj:name insn)))
 			      #f intrinsic insn syntax
 			      arguments inputs outputs
-			      (append outputs inputs) cptype cret?)
+			      (append outputs inputs))
 		md-insns))))
 
 ;; Make INSN available when generating code for ISA, updating INSN's
@@ -1044,24 +1020,19 @@
 	;; implementation.  If it isn't, report an error, otherwise
 	;; use INSN as the new bellwether.
 	(let ((bellwether (cdr entry)))
+	  (if (not (md-insn:syntax<=? bellwether insn))
+	      (error (sa "instructions \"" (md-insn:cgen-name insn)
+			 "\" and \"" (md-insn:cgen-name bellwether)
+			 "\" are both mapped to intrinsic \""
+			 (intrinsic:name intrinsic)
+			 "\" but do not have a compatible syntax")))
 
-;; This is temporarily disabled as some IVC2 intrinsics *do* have the
-;; same actual signature and operands, but different bit encodings
-;; depending on the slot.  This different syntax makes them not match.
-
-;;	  (if (not (md-insn:syntax<=? bellwether insn))
-;;	      (error (sa "instructions \"" (md-insn:cgen-name insn)
-;;			 "\" and \"" (md-insn:cgen-name bellwether)
-;;			 "\" are both mapped to intrinsic \""
-;;			 (intrinsic:name intrinsic)
-;;			 "\" but do not have a compatible syntax")))
-
-;;	  (if (not (md-insn:operands<=? bellwether insn))
-;;	      (error (sa "instructions \"" (md-insn:cgen-name insn)
-;;			 "\" and \"" (md-insn:cgen-name bellwether)
-;;			 "\" are both mapped to intrinsic \""
-;;			 (intrinsic:name intrinsic)
-;;			 "\" but do not have compatible semantics")))
+	  (if (not (md-insn:operands<=? bellwether insn))
+	      (error (sa "instructions \"" (md-insn:cgen-name insn)
+			 "\" and \"" (md-insn:cgen-name bellwether)
+			 "\" are both mapped to intrinsic \""
+			 (intrinsic:name intrinsic)
+			 "\" but do not have compatible semantics")))
 
 	  (set-cdr! entry insn)))))
 
@@ -1314,21 +1285,10 @@
 	(if (not (get-immediate-predicate name))
 	    (set-immediate-predicate! name op)))))
 
-(define (enum-type op cptype)
+(define (enum-type op)
   (cond
-   ((is-h-cr64? (md-operand:hw op))
-    (case cptype
-      ((V8QI) "cgen_regnum_operand_type_V8QI")
-      ((V4HI) "cgen_regnum_operand_type_V4HI")
-      ((V2SI) "cgen_regnum_operand_type_V2SI")
-      ((V8UQI) "cgen_regnum_operand_type_V8UQI")
-      ((V4UHI) "cgen_regnum_operand_type_V4UHI")
-      ((V2USI) "cgen_regnum_operand_type_V2USI")
-      ((VECT) "cgen_regnum_operand_type_VECTOR")
-      ((CP_DATA_BUS_INT) "cgen_regnum_operand_type_CP_DATA_BUS_INT")
-      (else "cgen_regnum_operand_type_DI")))
-   ((is-h-cr?   (md-operand:hw op))
-    "cgen_regnum_operand_type_SI")
+   ((is-h-cr64? (md-operand:hw op)) "cgen_regnum_operand_type_DI")
+   ((is-h-cr?   (md-operand:hw op)) "cgen_regnum_operand_type_SI")
    (else
     (case (md-operand:cdata op)
       ((POINTER)         "cgen_regnum_operand_type_POINTER") 
@@ -1359,9 +1319,6 @@
     (string-write (st (length (md-insn:arguments insn))))
 
     (comma-line-break)
-    (string-write (if (md-insn:cret? insn) "1" "0"))
-
-    (comma-line-break)
     (write-construct "{ " " }"
       (write-nonempty-list
 	comma-break
@@ -1380,7 +1337,7 @@
 	       "{ " (st (md-operand:upper-bound op))
 	       ", " (st (target:base-reg (md-operand:hw op))))
 	      (string-write "{ 0, 0"))
-	  (string-write ", " (enum-type op (md-insn:cptype insn))
+	  (string-write ", " (enum-type op)
 			", " (if (and (not (equal? (md-operand:cdata op) 'REGNUM))
 				      (md-operand:write-index op))
 				 "1" "0")
@@ -1453,13 +1410,6 @@
    "  cgen_regnum_operand_type_SI,           /* __cop long      */\n"
    "  cgen_regnum_operand_type_DI,           /* __cop long long */\n"
    "  cgen_regnum_operand_type_CP_DATA_BUS_INT, /* cp_data_bus_int */\n"
-   "  cgen_regnum_operand_type_VECTOR,		/* opaque vector type */\n"
-   "  cgen_regnum_operand_type_V8QI,		/* V8QI vector type */\n"
-   "  cgen_regnum_operand_type_V4HI,		/* V4HI vector type */\n"
-   "  cgen_regnum_operand_type_V2SI,		/* V2SI vector type */\n"
-   "  cgen_regnum_operand_type_V8UQI,		/* V8UQI vector type */\n"
-   "  cgen_regnum_operand_type_V4UHI,		/* V4UHI vector type */\n"
-   "  cgen_regnum_operand_type_V2USI,		/* V2USI vector type */\n"
    "  cgen_regnum_operand_type_DEFAULT = cgen_regnum_operand_type_LONG\n"
    "};\n"
    "\n"
@@ -1492,9 +1442,6 @@
    "\n"
    "  /* The number of arguments to the intrinsic function.  */\n"
    "  unsigned int num_args;\n"
-   "\n"
-   "  /* If true, the first argument is the return value.  */\n"
-   "  unsigned int cret_p;\n"
    "\n"
    "  /* Maps operand numbers to argument numbers.  */\n"
    "  unsigned int op_mapping[10];\n"
@@ -1565,7 +1512,7 @@
 ;; PROTOTYPE GENERATOR
 ;; -------------------
 
-(define (runtime-type op cptype retval)
+(define (runtime-type op)
   (sa (case (md-operand:cdata op)
 	((POINTER) "long *")
 	((LABEL) "void *")
@@ -1575,21 +1522,10 @@
 	((USHORT) "unsigned short")
 	((CHAR) "char")
 	((UCHAR) "unsigned char")
-	((CP_DATA_BUS_INT)
-	 ;;(logit 0 "op " (md-operand:cdata op) " cptype " cptype "\n")
-	 (case cptype
-	   ((V2SI) "cp_v2si")
-	   ((V4HI) "cp_v4hi")
-	   ((V8QI) "cp_v8qi")
-	   ((V2USI) "cp_v2usi")
-	   ((V4UHI) "cp_v4uhi")
-	   ((V8UQI) "cp_v8uqi")
-	   ((VECT) "cp_vector")
-	    (else "cp_data_bus_int")))
+	((CP_DATA_BUS_INT) "cp_data_bus_int")
 	(else "long"))
       (if (and (not (equal? (md-operand:cdata op) 'REGNUM))
-	       (md-operand:write-index op)
-	       (not retval))
+	       (md-operand:write-index op))
 	  "*" "")))
 
 (define (intrinsic-protos.h) ; i.e., intrinsics.h
@@ -1598,19 +1534,11 @@
    "/* DO NOT EDIT: This file is automatically generated by CGEN.\n"
    "   Any changes you make will be discarded when it is next regenerated.\n"
    "*/\n\n"
-   "/* GCC defines these internally, as follows... \n";
    "#if __MEP_CONFIG_CP_DATA_BUS_WIDTH == 64\n"
    "  typedef long long cp_data_bus_int;\n"
    "#else\n"
    "  typedef long cp_data_bus_int;\n"
-   "#endif\n"
-   "typedef          char  cp_v8qi  __attribute__((vector_size(8)));\n"
-   "typedef unsigned char  cp_v8uqi __attribute__((vector_size(8)));\n"
-   "typedef          short cp_v4hi  __attribute__((vector_size(8)));\n"
-   "typedef unsigned short cp_v4uhi __attribute__((vector_size(8)));\n"
-   "typedef          int   cp_v2si  __attribute__((vector_size(8)));\n"
-   "typedef unsigned int   cp_v2usi __attribute__((vector_size(8)));\n"
-   "*/\n\n")
+   "#endif\n")
   (analyze-intrinsics!)
   (message "Generating prototype file...\n")
   (target:for-each-isa!
@@ -1621,18 +1549,9 @@
 	(let ((entry (assoc isa (intrinsic:isas intrinsic))))
 	  (if entry
 	      (let* ((insn (cdr entry))
-		     (arguments (md-insn:arguments insn))
-		     (retval (if (md-insn:cret? insn)
-				 (runtime-type (car arguments) (md-insn:cptype insn) #t)
-				 "void"))
-		     (proto (sa retval " " (intrinsic:name intrinsic)
-				" (" (stringize (map (lambda (arg)
-						       (runtime-type arg
-								     (md-insn:cptype insn) #f))
-						       (if (md-insn:cret? insn)
-							   (cdr arguments)
-							   arguments)
-						       )
+		     (proto (sa "void " (intrinsic:name intrinsic)
+				" (" (stringize (map runtime-type
+						     (md-insn:arguments insn))
 						", ")
 				");"))
 		     (proto-len (string-length proto))
