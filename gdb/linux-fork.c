@@ -1,6 +1,6 @@
 /* GNU/Linux native-dependent code for debugging multiple forks.
 
-   Copyright (C) 2005-2012 Free Software Foundation, Inc.
+   Copyright (C) 2005, 2006, 2007, 2008, 2009 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -28,7 +28,7 @@
 #include "gdb_string.h"
 #include "linux-fork.h"
 #include "linux-nat.h"
-#include "gdbthread.h"
+#include "checkpoint.h"
 
 #include <sys/ptrace.h>
 #include "gdb_wait.h"
@@ -42,13 +42,15 @@ static int highest_fork_num;
 /* Prevent warning from -Wmissing-prototypes.  */
 extern void _initialize_linux_fork (void);
 
+int detach_fork = 1;		/* Default behavior is to detach
+				   newly forked processes (legacy).  */
+
 /* Fork list data structure:  */
 struct fork_info
 {
   struct fork_info *next;
   ptid_t ptid;
-  ptid_t parent_ptid;
-  int num;			/* Convenient handle (GDB fork id).  */
+  int num;			/* Convenient handle (GDB fork id) */
   struct regcache *savedregs;	/* Convenient for info fork, saves
 				   having to actually switch contexts.  */
   int clobber_regs;		/* True if we should restore saved regs.  */
@@ -333,8 +335,10 @@ linux_fork_killall (void)
     {
       pid = PIDGET (fp->ptid);
       do {
-	/* Use SIGKILL instead of PTRACE_KILL because the former works even
-	   if the thread is running, while the later doesn't.  */
+	/* Use SIGKILL instead of PTRACE_KILL because the former works
+	   even if the thread is running, while the later doesn't.  */
+	if (info_verbose)
+	  printf_filtered (_("Killing checkpoint/fork %d.\n"), pid);
 	kill (pid, SIGKILL);
 	ret = waitpid (pid, &status, 0);
 	/* We might get a SIGCHLD instead of an exit status.  This is
@@ -411,78 +415,15 @@ linux_fork_detach (char *args, int from_tty)
     delete_fork (inferior_ptid);
 }
 
-static void
-inferior_call_waitpid_cleanup (void *fp)
-{
-  struct fork_info *oldfp = fp;
-
-  if (oldfp)
-    {
-      /* Switch back to inferior_ptid.  */
-      remove_breakpoints ();
-      fork_load_infrun_state (oldfp);
-      insert_breakpoints ();
-    }
-}
-
-static int
-inferior_call_waitpid (ptid_t pptid, int pid)
-{
-  struct objfile *waitpid_objf;
-  struct value *waitpid_fn = NULL;
-  struct value *argv[4], *retv;
-  struct gdbarch *gdbarch = get_current_arch ();
-  struct fork_info *oldfp = NULL, *newfp = NULL;
-  struct cleanup *old_cleanup;
-  int ret = -1;
-
-  if (!ptid_equal (pptid, inferior_ptid))
-    {
-      /* Switch to pptid.  */
-      oldfp = find_fork_ptid (inferior_ptid);
-      gdb_assert (oldfp != NULL);
-      newfp = find_fork_ptid (pptid);
-      gdb_assert (newfp != NULL);
-      fork_save_infrun_state (oldfp, 1);
-      remove_breakpoints ();
-      fork_load_infrun_state (newfp);
-      insert_breakpoints ();
-    }
-
-  old_cleanup = make_cleanup (inferior_call_waitpid_cleanup, oldfp);
-
-  /* Get the waitpid_fn.  */
-  if (lookup_minimal_symbol ("waitpid", NULL, NULL) != NULL)
-    waitpid_fn = find_function_in_inferior ("waitpid", &waitpid_objf);
-  if (!waitpid_fn && lookup_minimal_symbol ("_waitpid", NULL, NULL) != NULL)
-    waitpid_fn = find_function_in_inferior ("_waitpid", &waitpid_objf);
-  if (!waitpid_fn)
-    goto out;
-
-  /* Get the argv.  */
-  argv[0] = value_from_longest (builtin_type (gdbarch)->builtin_int, pid);
-  argv[1] = value_from_pointer (builtin_type (gdbarch)->builtin_data_ptr, 0);
-  argv[2] = value_from_longest (builtin_type (gdbarch)->builtin_int, 0);
-  argv[3] = 0;
-
-  retv = call_function_by_hand (waitpid_fn, 3, argv);
-  if (value_as_long (retv) < 0)
-    goto out;
-
-  ret = 0;
-
-out:
-  do_cleanups (old_cleanup);
-  return ret;
-}
-
 /* Fork list <-> user interface.  */
+
+/* Delete checkpoint command: kill the process and remove it from
+   the fork list.  */
 
 static void
 delete_checkpoint_command (char *args, int from_tty)
 {
-  ptid_t ptid, pptid;
-  struct fork_info *fi;
+  ptid_t ptid;
 
   if (!args || !*args)
     error (_("Requires argument (checkpoint id to delete)"));
@@ -498,25 +439,10 @@ Please switch to another checkpoint before deleting the current one"));
   if (ptrace (PTRACE_KILL, PIDGET (ptid), 0, 0))
     error (_("Unable to kill pid %s"), target_pid_to_str (ptid));
 
-  fi = find_fork_ptid (ptid);
-  gdb_assert (fi);
-  pptid = fi->parent_ptid;
-
   if (from_tty)
     printf_filtered (_("Killed %s\n"), target_pid_to_str (ptid));
 
   delete_fork (ptid);
-
-  /* If fi->parent_ptid is not a part of lwp but it's a part of checkpoint
-     list, waitpid the ptid.
-     If fi->parent_ptid is a part of lwp and it is stoped, waitpid the
-     ptid.  */
-  if ((!find_thread_ptid (pptid) && find_fork_ptid (pptid))
-      || (find_thread_ptid (pptid) && is_stopped (pptid)))
-    {
-      if (inferior_call_waitpid (pptid, PIDGET (ptid)))
-        warning (_("Unable to wait pid %s"), target_pid_to_str (ptid));
-    }
 }
 
 static void
@@ -544,14 +470,18 @@ Please switch to another checkpoint before detaching the current one"));
   delete_fork (ptid);
 }
 
-/* Print information about currently known checkpoints.  */
+/* Info checkpoints command: list all forks/checkpoints
+   currently under gdb's control.  */
 
 static void
 info_checkpoints_command (char *arg, int from_tty)
 {
   struct gdbarch *gdbarch = get_current_arch ();
+  struct frame_info *cur_frame;
   struct symtab_and_line sal;
+  struct symtab *cur_symtab;
   struct fork_info *fp;
+  int cur_line;
   ULONGEST pc;
   int requested = -1;
   struct fork_info *printed = NULL;
@@ -583,7 +513,14 @@ info_checkpoints_command (char *arg, int from_tty)
 
       sal = find_pc_line (pc, 0);
       if (sal.symtab)
-	printf_filtered (_(", file %s"), lbasename (sal.symtab->filename));
+	{
+	  char *tmp = strrchr (sal.symtab->filename, '/');
+
+	  if (tmp)
+	    printf_filtered (_(", file %s"), tmp + 1);
+	  else
+	    printf_filtered (_(", file %s"), sal.symtab->filename);
+	}
       if (sal.line)
 	printf_filtered (_(", line %d"), sal.line);
       if (!sal.symtab && !sal.line)
@@ -615,32 +552,8 @@ linux_fork_checkpointing_p (int pid)
   return (checkpointing_pid == pid);
 }
 
-/* Callback for iterate over threads.  Used to check whether
-   the current inferior is multi-threaded.  Returns true as soon
-   as it sees the second thread of the current inferior.  */
-
-static int
-inf_has_multiple_thread_cb (struct thread_info *tp, void *data)
-{
-  int *count_p = (int *) data;
-  
-  if (current_inferior ()->pid == ptid_get_pid (tp->ptid))
-    (*count_p)++;
-  
-  /* Stop the iteration if multiple threads have been detected.  */
-  return *count_p > 1;
-}
-
-/* Return true if the current inferior is multi-threaded.  */
-
-static int
-inf_has_multiple_threads (void)
-{
-  int count = 0;
-
-  iterate_over_threads (inf_has_multiple_thread_cb, &count);
-  return (count > 1);
-}
+/* checkpoint_command: create a fork of the inferior process
+   and set it aside for later debugging.  */
 
 static void
 checkpoint_command (char *args, int from_tty)
@@ -653,15 +566,8 @@ checkpoint_command (char *args, int from_tty)
   struct fork_info *fp;
   pid_t retpid;
   struct cleanup *old_chain;
+  long i;
 
-  if (!target_has_execution) 
-    error (_("The program is not being run."));
-
-  /* Ensure that the inferior is not multithreaded.  */
-  update_thread_list ();
-  if (inf_has_multiple_threads ())
-    error (_("checkpoint: can't checkpoint multiple threads."));
-  
   /* Make the inferior fork, record its (and gdb's) state.  */
 
   if (lookup_minimal_symbol ("fork", NULL, NULL) != NULL)
@@ -706,7 +612,6 @@ checkpoint_command (char *args, int from_tty)
   if (!fp)
     error (_("Failed to find new fork"));
   fork_save_infrun_state (fp, 1);
-  fp->parent_ptid = last_target_ptid;
 }
 
 static void
@@ -714,6 +619,8 @@ linux_fork_context (struct fork_info *newfp, int from_tty)
 {
   /* Now we attempt to switch processes.  */
   struct fork_info *oldfp;
+  ptid_t ptid;
+  int id, i;
 
   gdb_assert (newfp != NULL);
 
@@ -732,6 +639,7 @@ linux_fork_context (struct fork_info *newfp, int from_tty)
 }
 
 /* Switch inferior process (checkpoint) context, by checkpoint id.  */
+
 static void
 restart_command (char *args, int from_tty)
 {
@@ -749,27 +657,17 @@ restart_command (char *args, int from_tty)
 void
 _initialize_linux_fork (void)
 {
+  struct target_ops *t;
+
   init_fork_list ();
 
-  /* Checkpoint command: create a fork of the inferior process
-     and set it aside for later debugging.  */
+  /* Set/show detach-on-fork: user-settable mode.  */
 
-  add_com ("checkpoint", class_obscure, checkpoint_command, _("\
-Fork a duplicate process (experimental)."));
-
-  /* Restart command: restore the context of a specified checkpoint
-     process.  */
-
-  add_com ("restart", class_obscure, restart_command, _("\
-restart <n>: restore program context from a checkpoint.\n\
-Argument 'n' is checkpoint ID, as displayed by 'info checkpoints'."));
-
-  /* Delete checkpoint command: kill the process and remove it from
-     the fork list.  */
-
-  add_cmd ("checkpoint", class_obscure, delete_checkpoint_command, _("\
-Delete a checkpoint (experimental)."),
-	   &deletelist);
+  add_setshow_boolean_cmd ("detach-on-fork", class_obscure, &detach_fork, _("\
+Set whether gdb will detach the child of a fork."), _("\
+Show whether gdb will detach the child of a fork."), _("\
+Tells gdb whether to detach the child of a fork."),
+			   NULL, NULL, &setlist, &showlist);
 
   /* Detach checkpoint command: release the process to run independently,
      and remove it from the fork list.  */
@@ -778,9 +676,28 @@ Delete a checkpoint (experimental)."),
 Detach from a checkpoint (experimental)."),
 	   &detachlist);
 
-  /* Info checkpoints command: list all forks/checkpoints
-     currently under gdb's control.  */
+  /* Get the linux target vector.  */
+  t = linux_target ();
+  /* Add checkpoint target methods.  */
+  t->to_set_checkpoint = checkpoint_command;
+  t->to_unset_checkpoint = delete_checkpoint_command;
+  t->to_restore_checkpoint = restart_command;
+  t->to_info_checkpoints = info_checkpoints_command;
 
-  add_info ("checkpoints", info_checkpoints_command,
-	    _("IDs of currently known checkpoints."));
+  /* Activate the checkpoint module.  */
+  checkpoint_init ();
+
+  /* XXX mvs call linux_target and add checkpoint methods.  
+         to_set_checkpoint
+         to_unset_checkpoint
+	 to_info_checkpoints (maybe this could be common?  Maybe not?
+	 to_detach_checkpoint (esoteric?)
+	 to_restore_checkpoint.
+
+     Make a new module called checkpoint.c, include it always, but
+     don't make it auto-initialize like most modules.  Instead, 
+     give it a global entry point checkpoint_init, which has to be
+     called explicitly by targets that want to activate the 
+     checkpoint commands.
+  */
 }
