@@ -1,5 +1,5 @@
 /* MeP opcode support.  -*- C -*-
-   Copyright (C) 2001, 2002, 2003, 2004, 2005, 2010 Red Hat, Inc.
+   Copyright (C) 2001, 2002, 2003, 2004, 2005 Red Hat, Inc.
    This file is part of CGEN.
    This file is copyrighted with the GNU General Public License.
    See file COPYING for details.  */
@@ -90,9 +90,9 @@ extern int mep_cgen_insn_supported_asm (CGEN_CPU_DESC, const CGEN_INSN *);
        const char * parse_mep_align  (CGEN_CPU_DESC, const char **, enum cgen_operand_type, long *);
        const char * parse_mep_alignu (CGEN_CPU_DESC, const char **, enum cgen_operand_type, unsigned long *);
 static const char * parse_signed16   (CGEN_CPU_DESC, const char **, int, long *);
-static const char * parse_signed16_range   (CGEN_CPU_DESC, const char **, int, long *) ATTRIBUTE_UNUSED;
+static const char * parse_signed16_range   (CGEN_CPU_DESC, const char **, int, long *);
 static const char * parse_unsigned16 (CGEN_CPU_DESC, const char **, int, unsigned long *);
-static const char * parse_unsigned16_range (CGEN_CPU_DESC, const char **, int, unsigned long *) ATTRIBUTE_UNUSED;
+static const char * parse_unsigned16_range (CGEN_CPU_DESC, const char **, int, unsigned long *);
 static const char * parse_lo16       (CGEN_CPU_DESC, const char **, int, long *, long);
 static const char * parse_unsigned7  (CGEN_CPU_DESC, const char **, enum cgen_operand_type, unsigned long *);
 static const char * parse_zero       (CGEN_CPU_DESC, const char **, int, long *);
@@ -661,7 +661,7 @@ expand_macro (arg *args, int narg, macro *mac)
   char *result = 0, *rescanned_result = 0;
   char *e = mac->expansion;
   char *mark = e;
-  int mac_arg = 0;
+  int arg = 0;
 
   /*  printf("expanding macro %s with %d args\n", mac->name, narg + 1); */
   while (*e)
@@ -672,9 +672,9 @@ expand_macro (arg *args, int narg, macro *mac)
 	  ((*(e + 1) - '1') <= narg))
 	{
 	  result = str_append (result, mark, e - mark);
-	  mac_arg = (*(e + 1) - '1');
-	  /* printf("replacing `%d with %s\n", mac_arg+1, args[mac_arg].start); */
-	  result = str_append (result, args[mac_arg].start, args[mac_arg].len);
+	  arg = (*(e + 1) - '1');
+	  /* printf("replacing `%d with %s\n", arg+1, args[arg].start); */
+	  result = str_append (result, args[arg].start, args[arg].len);
 	  ++e;
 	  mark = e+1;
 	}
@@ -706,7 +706,8 @@ expand_string (const char *in, int first_only)
   arg args[MAXARGS];
   int state = IN_TEXT;
   const char *mark = in;
-  macro *pmacro = NULL;
+  macro *macro = 0;
+
   char *expansion = 0;
   char *result = 0;
 
@@ -717,18 +718,18 @@ expand_string (const char *in, int first_only)
 	case IN_TEXT:
 	  if (*in == '%' && *(in + 1) && (!first_only || num_expansions == 0)) 
 	    {	      
-	      pmacro = lookup_macro (in + 1);
-	      if (pmacro)
+	      macro = lookup_macro (in + 1);
+	      if (macro)
 		{
 		  /* printf("entering state %d at '%s'...\n", state, in); */
 		  result = str_append (result, mark, in - mark);
 		  mark = in;
-		  in += 1 + strlen (pmacro->name);
+		  in += 1 + strlen (macro->name);
 		  while (*in == ' ') ++in;
 		  if (*in != '(')
 		    {
 		      state = IN_TEXT;		      
-		      pmacro = NULL;
+		      macro = 0;
 		    }
 		  else
 		    {
@@ -754,10 +755,10 @@ expand_string (const char *in, int first_only)
 		case ')':
 		  state = IN_TEXT;
 		  /* printf("entering state %d at '%s'...\n", state, in); */
-		  if (pmacro)
+		  if (macro)
 		    {
 		      expansion = 0;
-		      expansion = expand_macro (args, narg, pmacro);
+		      expansion = expand_macro (args, narg, macro);
 		      num_expansions++;
 		      if (expansion)
 			{
@@ -769,7 +770,7 @@ expand_string (const char *in, int first_only)
 		    {
 		      result = str_append (result, mark, in - mark);
 		    }
-		  pmacro = NULL;
+		  macro = 0;
 		  mark = in + 1;
 		  break;
 		case '(':
@@ -1322,9 +1323,14 @@ mep_examine_ivc2_insns (CGEN_CPU_DESC cd ATTRIBUTE_UNUSED, bfd_vma pc ATTRIBUTE_
 {
   int status;
   int buflength;
+  int cop2buflength;
   bfd_byte buf[8];
   bfd_byte insn[8];
   int e;
+
+  /* At this time we're not supporting internally parallel
+     coprocessors, so cop2buflength will always be 0.  */
+  cop2buflength = 0;
 
   /* Read in 64 bits.  */
   buflength = 8; /* VLIW insn spans 8 bytes.  */
@@ -1622,7 +1628,7 @@ mep_cgen_insn_supported (CGEN_CPU_DESC cd, const CGEN_INSN *insn)
 
   /* If the insn has an option bit set that we don't want,
      reject it.  */
-  if (CGEN_INSN_ATTRS (insn)->bool_ & OPTION_MASK & ~MEP_OMASK)
+  if (CGEN_INSN_ATTRS (insn)->bool & OPTION_MASK & ~MEP_OMASK)
     return 0;
 
   /* If attributes are absent, assume no restriction. */
@@ -1641,13 +1647,11 @@ mep_cgen_insn_supported (CGEN_CPU_DESC cd, const CGEN_INSN *insn)
 int
 mep_cgen_insn_supported_asm (CGEN_CPU_DESC cd, const CGEN_INSN *insn)
 {
-#ifdef MEP_IVC2_SUPPORTED
   /* If we're assembling VLIW packets, ignore the 12-bit BSR as we
      can't relax that.  The 24-bit BSR is matched instead.  */
   if (insn->base->num == MEP_INSN_BSR12
       && cgen_bitset_contains (cd->isas, ISA_EXT_COP1_64))
     return 0;
-#endif
 
   return mep_cgen_insn_supported (cd, insn);
 }
