@@ -1,12 +1,13 @@
 /* ieee.c -- Read and write IEEE-695 debugging information.
-   Copyright (C) 1996, 1998 Free Software Foundation, Inc.
+   Copyright 1996, 1998, 1999, 2000, 2001, 2002, 2003, 2005, 2006, 2007,
+   2008, 2009  Free Software Foundation, Inc.
    Written by Ian Lance Taylor <ian@cygnus.com>.
 
    This file is part of GNU Binutils.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 2 of the License, or
+   the Free Software Foundation; either version 3 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -16,20 +17,19 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
-   02111-1307, USA.  */
+   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston, MA
+   02110-1301, USA.  */
 
 /* This file reads and writes IEEE-695 debugging information.  */
 
-#include <stdio.h>
+#include "sysdep.h"
 #include <assert.h>
-
 #include "bfd.h"
 #include "ieee.h"
-#include "bucomm.h"
 #include "libiberty.h"
 #include "debug.h"
 #include "budbg.h"
+#include "filenames.h"
 
 /* This structure holds an entry on the block stack.  */
 
@@ -41,8 +41,8 @@ struct ieee_block
   const char *filename;
   /* The index of the function type, for a BB4 or BB6 block.  */
   unsigned int fnindx;
-  /* True if this function is being skipped.  */
-  boolean skip;
+  /* TRUE if this function is being skipped.  */
+  bfd_boolean skip;
 };
 
 /* This structure is the block stack.  */
@@ -145,7 +145,7 @@ struct ieee_tag
 struct ieee_info
 {
   /* The debugging handle.  */
-  PTR dhandle;
+  void *dhandle;
   /* The BFD.  */
   bfd *abfd;
   /* The start of the bytes to be parsed.  */
@@ -155,7 +155,7 @@ struct ieee_info
   /* The block stack.  */
   struct ieee_blockstack blockstack;
   /* Whether we have seen a BB1 or BB2.  */
-  boolean saw_filename;
+  bfd_boolean saw_filename;
   /* The variables.  */
   struct ieee_vars vars;
   /* The global variables, after a global typedef block.  */
@@ -248,56 +248,50 @@ enum builtin_types
 
 /* Local functions.  */
 
-static void ieee_error
-  PARAMS ((struct ieee_info *, const bfd_byte *, const char *));
-static void ieee_eof PARAMS ((struct ieee_info *));
-static char *savestring PARAMS ((const char *, unsigned long));
-static boolean ieee_read_number
-  PARAMS ((struct ieee_info *, const bfd_byte **, bfd_vma *));
-static boolean ieee_read_optional_number
-  PARAMS ((struct ieee_info *, const bfd_byte **, bfd_vma *, boolean *));
-static boolean ieee_read_id
-  PARAMS ((struct ieee_info *, const bfd_byte **, const char **,
-	   unsigned long *));
-static boolean ieee_read_optional_id
-  PARAMS ((struct ieee_info *, const bfd_byte **, const char **,
-	   unsigned long *, boolean *));
-static boolean ieee_read_expression
-  PARAMS ((struct ieee_info *, const bfd_byte **, bfd_vma *));
+static void ieee_error (struct ieee_info *, const bfd_byte *, const char *);
+static void ieee_eof (struct ieee_info *);
+static char *savestring (const char *, unsigned long);
+static bfd_boolean ieee_read_number
+  (struct ieee_info *, const bfd_byte **, bfd_vma *);
+static bfd_boolean ieee_read_optional_number
+  (struct ieee_info *, const bfd_byte **, bfd_vma *, bfd_boolean *);
+static bfd_boolean ieee_read_id
+  (struct ieee_info *, const bfd_byte **, const char **, unsigned long *);
+static bfd_boolean ieee_read_optional_id
+  (struct ieee_info *, const bfd_byte **, const char **, unsigned long *,
+   bfd_boolean *);
+static bfd_boolean ieee_read_expression
+  (struct ieee_info *, const bfd_byte **, bfd_vma *);
 static debug_type ieee_builtin_type
-  PARAMS ((struct ieee_info *, const bfd_byte *, unsigned int));
-static boolean ieee_alloc_type
-  PARAMS ((struct ieee_info *, unsigned int, boolean));
-static boolean ieee_read_type_index
-  PARAMS ((struct ieee_info *, const bfd_byte **, debug_type *));
-static int ieee_regno_to_genreg PARAMS ((bfd *, int));
-static int ieee_genreg_to_regno PARAMS ((bfd *, int));
-static boolean parse_ieee_bb PARAMS ((struct ieee_info *, const bfd_byte **));
-static boolean parse_ieee_be PARAMS ((struct ieee_info *, const bfd_byte **));
-static boolean parse_ieee_nn PARAMS ((struct ieee_info *, const bfd_byte **));
-static boolean parse_ieee_ty PARAMS ((struct ieee_info *, const bfd_byte **));
-static boolean parse_ieee_atn PARAMS ((struct ieee_info *, const bfd_byte **));
-static boolean ieee_read_cxx_misc
-  PARAMS ((struct ieee_info *, const bfd_byte **, unsigned long));
-static boolean ieee_read_cxx_class
-  PARAMS ((struct ieee_info *, const bfd_byte **, unsigned long));
-static boolean ieee_read_cxx_defaults
-  PARAMS ((struct ieee_info *, const bfd_byte **, unsigned long));
-static boolean ieee_read_reference
-  PARAMS ((struct ieee_info *, const bfd_byte **));
-static boolean ieee_require_asn
-  PARAMS ((struct ieee_info *, const bfd_byte **, bfd_vma *));
-static boolean ieee_require_atn65
-  PARAMS ((struct ieee_info *, const bfd_byte **, const char **,
-	   unsigned long *));
+  (struct ieee_info *, const bfd_byte *, unsigned int);
+static bfd_boolean ieee_alloc_type
+  (struct ieee_info *, unsigned int, bfd_boolean);
+static bfd_boolean ieee_read_type_index
+  (struct ieee_info *, const bfd_byte **, debug_type *);
+static int ieee_regno_to_genreg (bfd *, int);
+static int ieee_genreg_to_regno (bfd *, int);
+static bfd_boolean parse_ieee_bb (struct ieee_info *, const bfd_byte **);
+static bfd_boolean parse_ieee_be (struct ieee_info *, const bfd_byte **);
+static bfd_boolean parse_ieee_nn (struct ieee_info *, const bfd_byte **);
+static bfd_boolean parse_ieee_ty (struct ieee_info *, const bfd_byte **);
+static bfd_boolean parse_ieee_atn (struct ieee_info *, const bfd_byte **);
+static bfd_boolean ieee_read_cxx_misc
+  (struct ieee_info *, const bfd_byte **, unsigned long);
+static bfd_boolean ieee_read_cxx_class
+  (struct ieee_info *, const bfd_byte **, unsigned long);
+static bfd_boolean ieee_read_cxx_defaults
+  (struct ieee_info *, const bfd_byte **, unsigned long);
+static bfd_boolean ieee_read_reference
+  (struct ieee_info *, const bfd_byte **);
+static bfd_boolean ieee_require_asn
+  (struct ieee_info *, const bfd_byte **, bfd_vma *);
+static bfd_boolean ieee_require_atn65
+  (struct ieee_info *, const bfd_byte **, const char **, unsigned long *);
 
 /* Report an error in the IEEE debugging information.  */
 
 static void
-ieee_error (info, p, s)
-     struct ieee_info *info;
-     const bfd_byte *p;
-     const char *s;
+ieee_error (struct ieee_info *info, const bfd_byte *p, const char *s)
 {
   if (p != NULL)
     fprintf (stderr, "%s: 0x%lx: %s (0x%x)\n", bfd_get_filename (info->abfd),
@@ -309,8 +303,7 @@ ieee_error (info, p, s)
 /* Report an unexpected EOF in the IEEE debugging information.  */
 
 static void
-ieee_eof (info)
-     struct ieee_info *info;
+ieee_eof (struct ieee_info *info)
 {
   ieee_error (info, (const bfd_byte *) NULL,
 	      _("unexpected end of debugging information"));
@@ -319,9 +312,7 @@ ieee_eof (info)
 /* Save a string in memory.  */
 
 static char *
-savestring (start, len)
-     const char *start;
-     unsigned long len;
+savestring (const char *start, unsigned long len)
 {
   char *ret;
 
@@ -333,24 +324,18 @@ savestring (start, len)
 
 /* Read a number which must be present in an IEEE file.  */
 
-static boolean
-ieee_read_number (info, pp, pv)
-     struct ieee_info *info;
-     const bfd_byte **pp;
-     bfd_vma *pv;
+static bfd_boolean
+ieee_read_number (struct ieee_info *info, const bfd_byte **pp, bfd_vma *pv)
 {
-  return ieee_read_optional_number (info, pp, pv, (boolean *) NULL);
+  return ieee_read_optional_number (info, pp, pv, (bfd_boolean *) NULL);
 }
 
 /* Read a number in an IEEE file.  If ppresent is not NULL, the number
-   need not be there. */
+   need not be there.  */
 
-static boolean
-ieee_read_optional_number (info, pp, pv, ppresent)
-     struct ieee_info *info;
-     const bfd_byte **pp;
-     bfd_vma *pv;
-     boolean *ppresent;
+static bfd_boolean
+ieee_read_optional_number (struct ieee_info *info, const bfd_byte **pp,
+			   bfd_vma *pv, bfd_boolean *ppresent)
 {
   ieee_record_enum_type b;
 
@@ -358,11 +343,11 @@ ieee_read_optional_number (info, pp, pv, ppresent)
     {
       if (ppresent != NULL)
 	{
-	  *ppresent = false;
-	  return true;
+	  *ppresent = FALSE;
+	  return TRUE;
 	}
       ieee_eof (info);
-      return false;
+      return FALSE;
     }
 
   b = (ieee_record_enum_type) **pp;
@@ -372,8 +357,8 @@ ieee_read_optional_number (info, pp, pv, ppresent)
     {
       *pv = (bfd_vma) b;
       if (ppresent != NULL)
-	*ppresent = true;
-      return true;
+	*ppresent = TRUE;
+      return TRUE;
     }
 
   if (b >= ieee_number_repeat_start_enum && b <= ieee_number_repeat_end_enum)
@@ -384,7 +369,7 @@ ieee_read_optional_number (info, pp, pv, ppresent)
       if (*pp + i - 1 >= info->pend)
 	{
 	  ieee_eof (info);
-	  return false;
+	  return FALSE;
 	}
 
       *pv = 0;
@@ -396,44 +381,38 @@ ieee_read_optional_number (info, pp, pv, ppresent)
 	}
 
       if (ppresent != NULL)
-	*ppresent = true;
+	*ppresent = TRUE;
 
-      return true;
+      return TRUE;
     }
 
   if (ppresent != NULL)
     {
       --*pp;
-      *ppresent = false;
-      return true;
+      *ppresent = FALSE;
+      return TRUE;
     }
 
   ieee_error (info, *pp - 1, _("invalid number"));
-  return false;  
+  return FALSE;
 }
 
 /* Read a required string from an IEEE file.  */
 
-static boolean
-ieee_read_id (info, pp, pname, pnamlen)
-     struct ieee_info *info;
-     const bfd_byte **pp;
-     const char **pname;
-     unsigned long *pnamlen;
+static bfd_boolean
+ieee_read_id (struct ieee_info *info, const bfd_byte **pp,
+	      const char **pname, unsigned long *pnamlen)
 {
-  return ieee_read_optional_id (info, pp, pname, pnamlen, (boolean *) NULL);
+  return ieee_read_optional_id (info, pp, pname, pnamlen, (bfd_boolean *) NULL);
 }
 
 /* Read a string from an IEEE file.  If ppresent is not NULL, the
    string is optional.  */
 
-static boolean
-ieee_read_optional_id (info, pp, pname, pnamlen, ppresent)
-     struct ieee_info *info;
-     const bfd_byte **pp;
-     const char **pname;
-     unsigned long *pnamlen;
-     boolean *ppresent;
+static bfd_boolean
+ieee_read_optional_id (struct ieee_info *info, const bfd_byte **pp,
+		       const char **pname, unsigned long *pnamlen,
+		       bfd_boolean *ppresent)
 {
   bfd_byte b;
   unsigned long len;
@@ -441,7 +420,7 @@ ieee_read_optional_id (info, pp, pname, pnamlen, ppresent)
   if (*pp >= info->pend)
     {
       ieee_eof (info);
-      return false;
+      return FALSE;
     }
 
   b = **pp;
@@ -464,17 +443,17 @@ ieee_read_optional_id (info, pp, pname, pnamlen, ppresent)
       if (ppresent != NULL)
 	{
 	  --*pp;
-	  *ppresent = false;
-	  return true;
+	  *ppresent = FALSE;
+	  return TRUE;
 	}
       ieee_error (info, *pp - 1, _("invalid string length"));
-      return false;
+      return FALSE;
     }
 
   if ((unsigned long) (info->pend - *pp) < len)
     {
       ieee_eof (info);
-      return false;
+      return FALSE;
     }
 
   *pname = (const char *) *pp;
@@ -482,9 +461,9 @@ ieee_read_optional_id (info, pp, pname, pnamlen, ppresent)
   *pp += len;
 
   if (ppresent != NULL)
-    *ppresent = true;
+    *ppresent = TRUE;
 
-  return true;
+  return TRUE;
 }
 
 /* Read an expression from an IEEE file.  Since this code is only used
@@ -493,11 +472,9 @@ ieee_read_optional_id (info, pp, pname, pnamlen, ppresent)
    seen in debugging information.  This can be easily extended if
    necessary.  */
 
-static boolean
-ieee_read_expression (info, pp, pv)
-     struct ieee_info *info;
-     const bfd_byte **pp;
-     bfd_vma *pv;
+static bfd_boolean
+ieee_read_expression (struct ieee_info *info, const bfd_byte **pp,
+		      bfd_vma *pv)
 {
   const bfd_byte *expr_start;
 #define EXPR_STACK_SIZE (10)
@@ -512,20 +489,20 @@ ieee_read_expression (info, pp, pv)
     {
       const bfd_byte *start;
       bfd_vma val;
-      boolean present;
+      bfd_boolean present;
       ieee_record_enum_type c;
 
       start = *pp;
 
       if (! ieee_read_optional_number (info, pp, &val, &present))
-	return false;
+	return FALSE;
 
       if (present)
 	{
 	  if (esp - expr_stack >= EXPR_STACK_SIZE)
 	    {
 	      ieee_error (info, start, _("expression stack overflow"));
-	      return false;
+	      return FALSE;
 	    }
 	  *esp++ = val;
 	  continue;
@@ -553,20 +530,20 @@ ieee_read_expression (info, pp, pv)
 	    asection *s;
 
 	    if (! ieee_read_number (info, pp, &indx))
-	      return false;
+	      return FALSE;
 	    for (s = info->abfd->sections; s != NULL; s = s->next)
 	      if ((bfd_vma) s->target_index == indx)
 		break;
 	    if (s == NULL)
 	      {
 		ieee_error (info, start, _("unknown section"));
-		return false;
+		return FALSE;
 	      }
-	    
+
 	    if (esp - expr_stack >= EXPR_STACK_SIZE)
 	      {
 		ieee_error (info, start, _("expression stack overflow"));
-		return false;
+		return FALSE;
 	      }
 
 	    *esp++ = bfd_get_section_vma (info->abfd, s);
@@ -581,7 +558,7 @@ ieee_read_expression (info, pp, pv)
 	    if (esp - expr_stack < 2)
 	      {
 		ieee_error (info, start, _("expression stack underflow"));
-		return false;
+		return FALSE;
 	      }
 
 	    v1 = *--esp;
@@ -595,23 +572,21 @@ ieee_read_expression (info, pp, pv)
   if (esp - 1 != expr_stack)
     {
       ieee_error (info, expr_start, _("expression stack mismatch"));
-      return false;
+      return FALSE;
     }
 
   *pv = *--esp;
 
-  return true;
+  return TRUE;
 }
 
 /* Return an IEEE builtin type.  */
 
 static debug_type
-ieee_builtin_type (info, p, indx)
-     struct ieee_info *info;
-     const bfd_byte *p;
-     unsigned int indx;
+ieee_builtin_type (struct ieee_info *info, const bfd_byte *p,
+		   unsigned int indx)
 {
-  PTR dhandle;
+  void *dhandle;
   debug_type type;
   const char *name;
 
@@ -647,42 +622,42 @@ ieee_builtin_type (info, p, indx)
       break;
 
     case builtin_signed_char:
-      type = debug_make_int_type (dhandle, 1, false);
+      type = debug_make_int_type (dhandle, 1, FALSE);
       name = "signed char";
       break;
 
     case builtin_unsigned_char:
-      type = debug_make_int_type (dhandle, 1, true);
+      type = debug_make_int_type (dhandle, 1, TRUE);
       name = "unsigned char";
       break;
 
     case builtin_signed_short_int:
-      type = debug_make_int_type (dhandle, 2, false);
+      type = debug_make_int_type (dhandle, 2, FALSE);
       name = "signed short int";
       break;
 
     case builtin_unsigned_short_int:
-      type = debug_make_int_type (dhandle, 2, true);
+      type = debug_make_int_type (dhandle, 2, TRUE);
       name = "unsigned short int";
       break;
 
     case builtin_signed_long:
-      type = debug_make_int_type (dhandle, 4, false);
+      type = debug_make_int_type (dhandle, 4, FALSE);
       name = "signed long";
       break;
 
     case builtin_unsigned_long:
-      type = debug_make_int_type (dhandle, 4, true);
+      type = debug_make_int_type (dhandle, 4, TRUE);
       name = "unsigned long";
       break;
 
     case builtin_signed_long_long:
-      type = debug_make_int_type (dhandle, 8, false);
+      type = debug_make_int_type (dhandle, 8, FALSE);
       name = "signed long long";
       break;
 
     case builtin_unsigned_long_long:
-      type = debug_make_int_type (dhandle, 8, true);
+      type = debug_make_int_type (dhandle, 8, TRUE);
       name = "unsigned long long";
       break;
 
@@ -716,70 +691,70 @@ ieee_builtin_type (info, p, indx)
 				    ieee_builtin_type (info, p,
 						       ((unsigned int)
 							builtin_int)),
-				    0, -1, true);
+				    0, -1, TRUE);
       name = "QUOTED STRING";
       break;
 
     case builtin_instruction_address:
       /* FIXME: This should be a code address.  */
-      type = debug_make_int_type (dhandle, 4, true);
+      type = debug_make_int_type (dhandle, 4, TRUE);
       name = "instruction address";
       break;
 
     case builtin_int:
       /* FIXME: The size for this type should depend upon the
          processor.  */
-      type = debug_make_int_type (dhandle, 4, false);
+      type = debug_make_int_type (dhandle, 4, FALSE);
       name = "int";
       break;
 
     case builtin_unsigned:
       /* FIXME: The size for this type should depend upon the
          processor.  */
-      type = debug_make_int_type (dhandle, 4, true);
+      type = debug_make_int_type (dhandle, 4, TRUE);
       name = "unsigned";
       break;
 
     case builtin_unsigned_int:
       /* FIXME: The size for this type should depend upon the
          processor.  */
-      type = debug_make_int_type (dhandle, 4, true);
+      type = debug_make_int_type (dhandle, 4, TRUE);
       name = "unsigned int";
       break;
 
     case builtin_char:
-      type = debug_make_int_type (dhandle, 1, false);
+      type = debug_make_int_type (dhandle, 1, FALSE);
       name = "char";
       break;
 
     case builtin_long:
-      type = debug_make_int_type (dhandle, 4, false);
+      type = debug_make_int_type (dhandle, 4, FALSE);
       name = "long";
       break;
 
     case builtin_short:
-      type = debug_make_int_type (dhandle, 2, false);
+      type = debug_make_int_type (dhandle, 2, FALSE);
       name = "short";
       break;
 
     case builtin_unsigned_short:
-      type = debug_make_int_type (dhandle, 2, true);
+      type = debug_make_int_type (dhandle, 2, TRUE);
       name = "unsigned short";
       break;
 
     case builtin_short_int:
-      type = debug_make_int_type (dhandle, 2, false);
+      type = debug_make_int_type (dhandle, 2, FALSE);
       name = "short int";
       break;
 
     case builtin_signed_short:
-      type = debug_make_int_type (dhandle, 2, false);
+      type = debug_make_int_type (dhandle, 2, FALSE);
       name = "signed short";
       break;
 
     case builtin_bcd_float:
       ieee_error (info, p, _("BCD float type not supported"));
-      return false;
+      return DEBUG_TYPE_NULL;
     }
 
   if (name != NULL)
@@ -792,15 +767,12 @@ ieee_builtin_type (info, p, indx)
   return type;
 }
 
-/* Allocate more space in the type table.  If ref is true, this is a
+/* Allocate more space in the type table.  If ref is TRUE, this is a
    reference to the type; if it is not already defined, we should set
    up an indirect type.  */
 
-static boolean
-ieee_alloc_type (info, indx, ref)
-     struct ieee_info *info;
-     unsigned int indx;
-     boolean ref;
+static bfd_boolean
+ieee_alloc_type (struct ieee_info *info, unsigned int indx, bfd_boolean ref)
 {
   unsigned int nalloc;
   register struct ieee_type *t;
@@ -838,20 +810,18 @@ ieee_alloc_type (info, indx, ref)
 	  t->type = debug_make_indirect_type (info->dhandle, t->pslot,
 					      (const char *) NULL);
 	  if (t->type == NULL)
-	    return false;
+	    return FALSE;
 	}
     }
 
-  return true;
+  return TRUE;
 }
 
 /* Read a type index and return the corresponding type.  */
 
-static boolean
-ieee_read_type_index (info, pp, ptype)
-     struct ieee_info *info;
-     const bfd_byte **pp;
-     debug_type *ptype;
+static bfd_boolean
+ieee_read_type_index (struct ieee_info *info, const bfd_byte **pp,
+		      debug_type *ptype)
 {
   const bfd_byte *start;
   bfd_vma indx;
@@ -859,34 +829,30 @@ ieee_read_type_index (info, pp, ptype)
   start = *pp;
 
   if (! ieee_read_number (info, pp, &indx))
-    return false;
+    return FALSE;
 
   if (indx < 256)
     {
       *ptype = ieee_builtin_type (info, start, indx);
       if (*ptype == NULL)
-	return false;
-      return true;
+	return FALSE;
+      return TRUE;
     }
 
   indx -= 256;
-  if (! ieee_alloc_type (info, indx, true))
-    return false;
+  if (! ieee_alloc_type (info, indx, TRUE))
+    return FALSE;
 
   *ptype = info->types.types[indx].type;
 
-  return true;
+  return TRUE;
 }
 
 /* Parse IEEE debugging information for a file.  This is passed the
    bytes which compose the Debug Information Part of an IEEE file.  */
 
-boolean
-parse_ieee (dhandle, abfd, bytes, len)
-     PTR dhandle;
-     bfd *abfd;
-     const bfd_byte *bytes;
-     bfd_size_type len;
+bfd_boolean
+parse_ieee (void *dhandle, bfd *abfd, const bfd_byte *bytes, bfd_size_type len)
 {
   struct ieee_info info;
   unsigned int i;
@@ -897,7 +863,7 @@ parse_ieee (dhandle, abfd, bytes, len)
   info.bytes = bytes;
   info.pend = bytes + len;
   info.blockstack.bsp = info.blockstack.stack;
-  info.saw_filename = false;
+  info.saw_filename = FALSE;
   info.vars.alloc = 0;
   info.vars.vars = NULL;
   info.global_vars = NULL;
@@ -925,38 +891,38 @@ parse_ieee (dhandle, abfd, bytes, len)
       if (c <= ieee_number_repeat_end_enum)
 	{
 	  ieee_error (&info, record_start, _("unexpected number"));
-	  return false;
+	  return FALSE;
 	}
 
       switch (c)
 	{
 	default:
 	  ieee_error (&info, record_start, _("unexpected record type"));
-	  return false;
+	  return FALSE;
 
 	case ieee_bb_record_enum:
 	  if (! parse_ieee_bb (&info, &p))
-	    return false;
+	    return FALSE;
 	  break;
 
 	case ieee_be_record_enum:
 	  if (! parse_ieee_be (&info, &p))
-	    return false;
+	    return FALSE;
 	  break;
 
 	case ieee_nn_record:
 	  if (! parse_ieee_nn (&info, &p))
-	    return false;
+	    return FALSE;
 	  break;
 
 	case ieee_ty_record_enum:
 	  if (! parse_ieee_ty (&info, &p))
-	    return false;
+	    return FALSE;
 	  break;
 
 	case ieee_atn_record_enum:
 	  if (! parse_ieee_atn (&info, &p))
-	    return false;
+	    return FALSE;
 	  break;
 	}
     }
@@ -965,18 +931,16 @@ parse_ieee (dhandle, abfd, bytes, len)
     {
       ieee_error (&info, (const bfd_byte *) NULL,
 		  _("blocks left on stack at end"));
-      return false;
+      return FALSE;
     }
 
-  return true;
+  return TRUE;
 }
 
 /* Handle an IEEE BB record.  */
 
-static boolean
-parse_ieee_bb (info, pp)
-     struct ieee_info *info;
-     const bfd_byte **pp;
+static bfd_boolean
+parse_ieee_bb (struct ieee_info *info, const bfd_byte **pp)
 {
   const bfd_byte *block_start;
   bfd_byte b;
@@ -985,7 +949,7 @@ parse_ieee_bb (info, pp)
   unsigned long namlen;
   char *namcopy = NULL;
   unsigned int fnindx;
-  boolean skip;
+  bfd_boolean skip;
 
   block_start = *pp;
 
@@ -994,10 +958,10 @@ parse_ieee_bb (info, pp)
 
   if (! ieee_read_number (info, pp, &size)
       || ! ieee_read_id (info, pp, &name, &namlen))
-    return false;
+    return FALSE;
 
   fnindx = (unsigned int) -1;
-  skip = false;
+  skip = FALSE;
 
   switch (b)
     {
@@ -1005,10 +969,10 @@ parse_ieee_bb (info, pp)
       /* BB1: Type definitions local to a module.  */
       namcopy = savestring (name, namlen);
       if (namcopy == NULL)
-	return false;
+	return FALSE;
       if (! debug_set_filename (info->dhandle, namcopy))
-	return false;
-      info->saw_filename = true;
+	return FALSE;
+      info->saw_filename = TRUE;
 
       /* Discard any variables or types we may have seen before.  */
       if (info->vars.vars != NULL)
@@ -1035,10 +999,10 @@ parse_ieee_bb (info, pp)
 
     case 2:
       /* BB2: Global type definitions.  The name is supposed to be
-	 empty, but we don't check. */
+	 empty, but we don't check.  */
       if (! debug_set_filename (info->dhandle, "*global*"))
-	return false;
-      info->saw_filename = true;
+	return FALSE;
+      info->saw_filename = TRUE;
       break;
 
     case 3:
@@ -1056,7 +1020,7 @@ parse_ieee_bb (info, pp)
 	if (! ieee_read_number (info, pp, &stackspace)
 	    || ! ieee_read_number (info, pp, &typindx)
 	    || ! ieee_read_expression (info, pp, &offset))
-	  return false;
+	  return FALSE;
 
 	/* We have no way to record the stack space.  FIXME.  */
 
@@ -1064,13 +1028,13 @@ parse_ieee_bb (info, pp)
 	  {
 	    return_type = ieee_builtin_type (info, block_start, typindx);
 	    if (return_type == DEBUG_TYPE_NULL)
-	      return false;
+	      return FALSE;
 	  }
 	else
 	  {
 	    typindx -= 256;
-	    if (! ieee_alloc_type (info, typindx, true))
-	      return false;
+	    if (! ieee_alloc_type (info, typindx, TRUE))
+	      return FALSE;
 	    fnindx = typindx;
 	    return_type = info->types.types[typindx].type;
 	    if (debug_get_type_kind (info->dhandle, return_type)
@@ -1081,10 +1045,10 @@ parse_ieee_bb (info, pp)
 
 	namcopy = savestring (name, namlen);
 	if (namcopy == NULL)
-	  return false;
+	  return FALSE;
 	if (! debug_record_function (info->dhandle, namcopy, return_type,
-				     true, offset))
-	  return false;
+				     TRUE, offset))
+	  return FALSE;
       }
       break;
 
@@ -1097,19 +1061,29 @@ parse_ieee_bb (info, pp)
 	for (i = 0; i < 6; i++)
 	  {
 	    bfd_vma ignore;
-	    boolean present;
+	    bfd_boolean present;
 
 	    if (! ieee_read_optional_number (info, pp, &ignore, &present))
-	      return false;
+	      return FALSE;
 	    if (! present)
 	      break;
 	  }
 
+	if (! info->saw_filename)
+	  {
+	    namcopy = savestring (name, namlen);
+	    if (namcopy == NULL)
+	      return FALSE;
+	    if (! debug_set_filename (info->dhandle, namcopy))
+	      return FALSE;
+	    info->saw_filename = TRUE;
+	  }
+
 	namcopy = savestring (name, namlen);
 	if (namcopy == NULL)
-	  return false;
+	  return FALSE;
 	if (! debug_start_source (info->dhandle, namcopy))
-	  return false;
+	  return FALSE;
       }
       break;
 
@@ -1121,14 +1095,14 @@ parse_ieee_bb (info, pp)
 	if (! ieee_read_number (info, pp, &stackspace)
 	    || ! ieee_read_number (info, pp, &typindx)
 	    || ! ieee_read_expression (info, pp, &offset))
-	  return false;
+	  return FALSE;
 
 	/* We have no way to record the stack space.  FIXME.  */
 
 	if (namlen == 0)
 	  {
 	    if (! debug_start_block (info->dhandle, offset))
-	      return false;
+	      return FALSE;
 	    /* Change b to indicate that this is a block
 	       rather than a function.  */
 	    b = 0x86;
@@ -1141,7 +1115,7 @@ parse_ieee_bb (info, pp)
 	       converting from IEEE to other debug formats work
 	       better.  */
 	    if (strncmp (name, "__XRYCPP", namlen) == 0)
-	      skip = true;
+	      skip = TRUE;
 	    else
 	      {
 		debug_type return_type;
@@ -1151,13 +1125,13 @@ parse_ieee_bb (info, pp)
 		    return_type = ieee_builtin_type (info, block_start,
 						     typindx);
 		    if (return_type == NULL)
-		      return false;
+		      return FALSE;
 		  }
 		else
 		  {
 		    typindx -= 256;
-		    if (! ieee_alloc_type (info, typindx, true))
-		      return false;
+		    if (! ieee_alloc_type (info, typindx, TRUE))
+		      return FALSE;
 		    fnindx = typindx;
 		    return_type = info->types.types[typindx].type;
 		    if (debug_get_type_kind (info->dhandle, return_type)
@@ -1168,10 +1142,10 @@ parse_ieee_bb (info, pp)
 
 		namcopy = savestring (name, namlen);
 		if (namcopy == NULL)
-		  return false;
+		  return FALSE;
 		if (! debug_record_function (info->dhandle, namcopy,
-					     return_type, false, offset))
-		  return false;
+					     return_type, FALSE, offset))
+		  return FALSE;
 	      }
 	  }
       }
@@ -1184,29 +1158,29 @@ parse_ieee_bb (info, pp)
 	const char *inam, *vstr;
 	unsigned long inamlen, vstrlen;
 	bfd_vma tool_type;
-	boolean present;
+	bfd_boolean present;
 	unsigned int i;
 
 	if (! info->saw_filename)
 	  {
 	    namcopy = savestring (name, namlen);
 	    if (namcopy == NULL)
-	      return false;
+	      return FALSE;
 	    if (! debug_set_filename (info->dhandle, namcopy))
-	      return false;
-	    info->saw_filename = true;
+	      return FALSE;
+	    info->saw_filename = TRUE;
 	  }
 
 	if (! ieee_read_id (info, pp, &inam, &inamlen)
 	    || ! ieee_read_number (info, pp, &tool_type)
 	    || ! ieee_read_optional_id (info, pp, &vstr, &vstrlen, &present))
-	  return false;
+	  return FALSE;
 	for (i = 0; i < 6; i++)
 	  {
 	    bfd_vma ignore;
 
 	    if (! ieee_read_optional_number (info, pp, &ignore, &present))
-	      return false;
+	      return FALSE;
 	    if (! present)
 	      break;
 	  }
@@ -1218,19 +1192,19 @@ parse_ieee_bb (info, pp)
 	 information.  FIXME.  */
       {
 	bfd_vma sectype, secindx, offset, map;
-	boolean present;
+	bfd_boolean present;
 
 	if (! ieee_read_number (info, pp, &sectype)
 	    || ! ieee_read_number (info, pp, &secindx)
 	    || ! ieee_read_expression (info, pp, &offset)
 	    || ! ieee_read_optional_number (info, pp, &map, &present))
-	  return false;
+	  return FALSE;
       }
       break;
 
     default:
       ieee_error (info, block_start, _("unknown BB type"));
-      return false;
+      return FALSE;
     }
 
 
@@ -1239,7 +1213,7 @@ parse_ieee_bb (info, pp)
   if (info->blockstack.bsp >= info->blockstack.stack + BLOCKSTACK_SIZE)
     {
       ieee_error (info, (const bfd_byte *) NULL, _("stack overflow"));
-      return false;
+      return FALSE;
     }
 
   info->blockstack.bsp->kind = b;
@@ -1249,29 +1223,27 @@ parse_ieee_bb (info, pp)
   info->blockstack.bsp->skip = skip;
   ++info->blockstack.bsp;
 
-  return true;
+  return TRUE;
 }
 
 /* Handle an IEEE BE record.  */
 
-static boolean
-parse_ieee_be (info, pp)
-     struct ieee_info *info;
-     const bfd_byte **pp;
+static bfd_boolean
+parse_ieee_be (struct ieee_info *info, const bfd_byte **pp)
 {
   bfd_vma offset;
 
   if (info->blockstack.bsp <= info->blockstack.stack)
     {
       ieee_error (info, *pp, _("stack underflow"));
-      return false;
+      return FALSE;
     }
   --info->blockstack.bsp;
 
   switch (info->blockstack.bsp->kind)
     {
     case 2:
-      /* When we end the global typedefs block, we copy out the the
+      /* When we end the global typedefs block, we copy out the
          contents of info->vars.  This is because the variable indices
          may be reused in the local blocks.  However, we need to
          preserve them so that we can locate a function returning a
@@ -1304,11 +1276,11 @@ parse_ieee_be (info, pp)
     case 4:
     case 6:
       if (! ieee_read_expression (info, pp, &offset))
-	return false;
+	return FALSE;
       if (! info->blockstack.bsp->skip)
 	{
 	  if (! debug_end_function (info->dhandle, offset + 1))
-	    return false;
+	    return FALSE;
 	}
       break;
 
@@ -1316,9 +1288,9 @@ parse_ieee_be (info, pp)
       /* This is BE6 when BB6 started a block rather than a local
 	 function.  */
       if (! ieee_read_expression (info, pp, &offset))
-	return false;
+	return FALSE;
       if (! debug_end_block (info->dhandle, offset + 1))
-	return false;
+	return FALSE;
       break;
 
     case 5:
@@ -1335,7 +1307,7 @@ parse_ieee_be (info, pp)
 	      if (bl->kind == 5)
 		{
 		  if (! debug_start_source (info->dhandle, bl->filename))
-		    return false;
+		    return FALSE;
 		  break;
 		}
 	    }
@@ -1345,7 +1317,7 @@ parse_ieee_be (info, pp)
 
     case 11:
       if (! ieee_read_expression (info, pp, &offset))
-	return false;
+	return FALSE;
       /* We just ignore the module size.  FIXME.  */
       break;
 
@@ -1354,15 +1326,13 @@ parse_ieee_be (info, pp)
       break;
     }
 
-  return true;
+  return TRUE;
 }
 
 /* Parse an NN record.  */
 
-static boolean
-parse_ieee_nn (info, pp)
-     struct ieee_info *info;
-     const bfd_byte **pp;
+static bfd_boolean
+parse_ieee_nn (struct ieee_info *info, const bfd_byte **pp)
 {
   const bfd_byte *nn_start;
   bfd_vma varindx;
@@ -1373,12 +1343,12 @@ parse_ieee_nn (info, pp)
 
   if (! ieee_read_number (info, pp, &varindx)
       || ! ieee_read_id (info, pp, &name, &namlen))
-    return false;
+    return FALSE;
 
   if (varindx < 32)
     {
       ieee_error (info, nn_start, _("illegal variable index"));
-      return false;
+      return FALSE;
     }
   varindx -= 32;
 
@@ -1402,20 +1372,18 @@ parse_ieee_nn (info, pp)
   info->vars.vars[varindx].name = name;
   info->vars.vars[varindx].namlen = namlen;
 
-  return true;
+  return TRUE;
 }
 
 /* Parse a TY record.  */
 
-static boolean
-parse_ieee_ty (info, pp)
-     struct ieee_info *info;
-     const bfd_byte **pp;
+static bfd_boolean
+parse_ieee_ty (struct ieee_info *info, const bfd_byte **pp)
 {
   const bfd_byte *ty_start, *ty_var_start, *ty_code_start;
   bfd_vma typeindx, varindx, tc;
-  PTR dhandle;
-  boolean tag, typdef;
+  void *dhandle;
+  bfd_boolean tag, typdef;
   debug_type *arg_slots;
   unsigned long type_bitsize;
   debug_type type;
@@ -1423,59 +1391,59 @@ parse_ieee_ty (info, pp)
   ty_start = *pp;
 
   if (! ieee_read_number (info, pp, &typeindx))
-    return false;
+    return FALSE;
 
   if (typeindx < 256)
     {
       ieee_error (info, ty_start, _("illegal type index"));
-      return false;
+      return FALSE;
     }
 
   typeindx -= 256;
-  if (! ieee_alloc_type (info, typeindx, false))
-    return false;
+  if (! ieee_alloc_type (info, typeindx, FALSE))
+    return FALSE;
 
   if (**pp != 0xce)
     {
       ieee_error (info, *pp, _("unknown TY code"));
-      return false;
+      return FALSE;
     }
   ++*pp;
 
   ty_var_start = *pp;
 
   if (! ieee_read_number (info, pp, &varindx))
-    return false;
+    return FALSE;
 
   if (varindx < 32)
     {
       ieee_error (info, ty_var_start, _("illegal variable index"));
-      return false;
+      return FALSE;
     }
   varindx -= 32;
 
   if (varindx >= info->vars.alloc || info->vars.vars[varindx].name == NULL)
     {
       ieee_error (info, ty_var_start, _("undefined variable in TY"));
-      return false;
+      return FALSE;
     }
 
   ty_code_start = *pp;
 
   if (! ieee_read_number (info, pp, &tc))
-    return false;
+    return FALSE;
 
   dhandle = info->dhandle;
 
-  tag = false;
-  typdef = false;
+  tag = FALSE;
+  typdef = FALSE;
   arg_slots = NULL;
   type_bitsize = 0;
   switch (tc)
     {
     default:
       ieee_error (info, ty_code_start, _("unknown TY code"));
-      return false;
+      return FALSE;
 
     case '!':
       /* Unknown type, with size.  We treat it as int.  FIXME.  */
@@ -1483,8 +1451,8 @@ parse_ieee_ty (info, pp)
 	bfd_vma size;
 
 	if (! ieee_read_number (info, pp, &size))
-	  return false;
-	type = debug_make_int_type (dhandle, size, false);
+	  return FALSE;
+	type = debug_make_int_type (dhandle, size, FALSE);
       }
       break;
 
@@ -1498,14 +1466,14 @@ parse_ieee_ty (info, pp)
 	if (! ieee_read_type_index (info, pp, &ele_type)
 	    || ! ieee_read_number (info, pp, &lower)
 	    || ! ieee_read_number (info, pp, &upper))
-	  return false;
+	  return FALSE;
 	type = debug_make_array_type (dhandle, ele_type,
 				      ieee_builtin_type (info, ty_code_start,
 							 ((unsigned int)
 							  builtin_int)),
 				      (bfd_signed_vma) lower,
 				      (bfd_signed_vma) upper,
-				      false);
+				      FALSE);
       }
       break;
 
@@ -1520,7 +1488,7 @@ parse_ieee_ty (info, pp)
 	unsigned int i;
 
 	if (! ieee_read_number (info, pp, &size))
-	  return false;
+	  return FALSE;
 	/* FIXME: we ignore the enumeration size.  */
 
 	alloc = 10;
@@ -1531,10 +1499,10 @@ parse_ieee_ty (info, pp)
 	  {
 	    const char *name;
 	    unsigned long namlen;
-	    boolean present;
+	    bfd_boolean present;
 
 	    if (! ieee_read_optional_id (info, pp, &name, &namlen, &present))
-	      return false;
+	      return FALSE;
 	    if (! present)
 	      break;
 
@@ -1547,7 +1515,7 @@ parse_ieee_ty (info, pp)
 
 	    names[c] = savestring (name, namlen);
 	    if (names[c] == NULL)
-	      return false;
+	      return FALSE;
 	    ++c;
 	  }
 
@@ -1558,7 +1526,7 @@ parse_ieee_ty (info, pp)
 	  vals[i] = i;
 
 	type = debug_make_enum_type (dhandle, names, vals);
-	tag = true;
+	tag = TRUE;
       }
       break;
 
@@ -1571,7 +1539,7 @@ parse_ieee_ty (info, pp)
 	unsigned int c;
 
 	if (! ieee_read_number (info, pp, &size))
-	  return false;
+	  return FALSE;
 
 	alloc = 10;
 	fields = (debug_field *) xmalloc (alloc * sizeof *fields);
@@ -1580,18 +1548,18 @@ parse_ieee_ty (info, pp)
 	  {
 	    const char *name;
 	    unsigned long namlen;
-	    boolean present;
+	    bfd_boolean present;
 	    debug_type ftype;
 	    bfd_vma bitpos, bitsize;
 
 	    if (! ieee_read_optional_id (info, pp, &name, &namlen, &present))
-	      return false;
+	      return FALSE;
 	    if (! present)
 	      break;
 	    if (! ieee_read_type_index (info, pp, &ftype)
 		|| ! ieee_read_number (info, pp, &bitpos)
 		|| ! ieee_read_number (info, pp, &bitsize))
-	      return false;
+	      return FALSE;
 
 	    if (c + 1 >= alloc)
 	      {
@@ -1604,14 +1572,14 @@ parse_ieee_ty (info, pp)
 					  ftype, bitpos, bitsize,
 					  DEBUG_VISIBILITY_PUBLIC);
 	    if (fields[c] == NULL)
-	      return false;
+	      return FALSE;
 	    ++c;
 	  }
 
 	fields[c] = NULL;
 
-	type = debug_make_struct_type (dhandle, true, size, fields);
-	tag = true;
+	type = debug_make_struct_type (dhandle, TRUE, size, fields);
+	tag = TRUE;
       }
       break;
 
@@ -1631,15 +1599,15 @@ parse_ieee_ty (info, pp)
 	  {
 	    const char *name;
 	    unsigned long namlen;
-	    boolean present;
+	    bfd_boolean present;
 	    bfd_vma val;
 
 	    if (! ieee_read_optional_id (info, pp, &name, &namlen, &present))
-	      return false;
+	      return FALSE;
 	    if (! present)
 	      break;
 	    if (! ieee_read_number (info, pp, &val))
-	      return false;
+	      return FALSE;
 
 	    /* If the length of the name is zero, then the value is
                actually the size of the enum.  We ignore this
@@ -1658,7 +1626,7 @@ parse_ieee_ty (info, pp)
 
 	    names[c] = savestring (name, namlen);
 	    if (names[c] == NULL)
-	      return false;
+	      return FALSE;
 	    vals[c] = (bfd_signed_vma) val;
 	    ++c;
 	  }
@@ -1666,7 +1634,7 @@ parse_ieee_ty (info, pp)
 	names[c] = NULL;
 
 	type = debug_make_enum_type (dhandle, names, vals);
-	tag = true;
+	tag = TRUE;
       }
       break;
 
@@ -1677,7 +1645,7 @@ parse_ieee_ty (info, pp)
 	debug_type t;
 
 	if (! ieee_read_type_index (info, pp, &t))
-	  return false;
+	  return FALSE;
 	type = debug_make_pointer_type (dhandle, t);
       }
       break;
@@ -1691,7 +1659,7 @@ parse_ieee_ty (info, pp)
 	    || ! ieee_read_number (info, pp, &high)
 	    || ! ieee_read_number (info, pp, &signedp)
 	    || ! ieee_read_number (info, pp, &size))
-	  return false;
+	  return FALSE;
 
 	type = debug_make_range_type (dhandle,
 				      debug_make_int_type (dhandle, size,
@@ -1710,7 +1678,7 @@ parse_ieee_ty (info, pp)
 	unsigned int c;
 
 	if (! ieee_read_number (info, pp, &size))
-	  return false;
+	  return FALSE;
 
 	alloc = 10;
 	fields = (debug_field *) xmalloc (alloc * sizeof *fields);
@@ -1719,19 +1687,19 @@ parse_ieee_ty (info, pp)
 	  {
 	    const char *name;
 	    unsigned long namlen;
-	    boolean present;
+	    bfd_boolean present;
 	    bfd_vma tindx;
 	    bfd_vma offset;
 	    debug_type ftype;
 	    bfd_vma bitsize;
 
 	    if (! ieee_read_optional_id (info, pp, &name, &namlen, &present))
-	      return false;
+	      return FALSE;
 	    if (! present)
 	      break;
 	    if (! ieee_read_number (info, pp, &tindx)
 		|| ! ieee_read_number (info, pp, &offset))
-	      return false;
+	      return FALSE;
 
 	    if (tindx < 256)
 	      {
@@ -1744,8 +1712,8 @@ parse_ieee_ty (info, pp)
 		struct ieee_type *t;
 
 		tindx -= 256;
-		if (! ieee_alloc_type (info, tindx, true))
-		  return false;
+		if (! ieee_alloc_type (info, tindx, TRUE))
+		  return FALSE;
 		t = info->types.types + tindx;
 		ftype = t->type;
 		bitsize = t->bitsize;
@@ -1764,22 +1732,22 @@ parse_ieee_ty (info, pp)
 					  ftype, offset, bitsize,
 					  DEBUG_VISIBILITY_PUBLIC);
 	    if (fields[c] == NULL)
-	      return false;
+	      return FALSE;
 	    ++c;
 	  }
 
 	fields[c] = NULL;
 
 	type = debug_make_struct_type (dhandle, tc == 'S', size, fields);
-	tag = true;
+	tag = TRUE;
       }
       break;
 
     case 'T':
       /* Typedef.  */
       if (! ieee_read_type_index (info, pp, &type))
-	return false;
-      typdef = true;
+	return FALSE;
+      typdef = TRUE;
       break;
 
     case 'X':
@@ -1789,7 +1757,7 @@ parse_ieee_ty (info, pp)
 	bfd_vma attr;
 	debug_type rtype;
 	bfd_vma nargs;
-	boolean present;
+	bfd_boolean present;
 	struct ieee_var *pv;
 
 	/* FIXME: We ignore the attribute and the argument names.  */
@@ -1797,14 +1765,14 @@ parse_ieee_ty (info, pp)
 	if (! ieee_read_number (info, pp, &attr)
 	    || ! ieee_read_type_index (info, pp, &rtype)
 	    || ! ieee_read_number (info, pp, &nargs))
-	  return false;
+	  return FALSE;
 	do
 	  {
 	    const char *name;
 	    unsigned long namlen;
 
 	    if (! ieee_read_optional_id (info, pp, &name, &namlen, &present))
-	      return false;
+	      return FALSE;
 	  }
 	while (present);
 
@@ -1823,11 +1791,12 @@ parse_ieee_ty (info, pp)
 	  }
 
 	type = debug_make_function_type (dhandle, rtype, (debug_type *) NULL,
-					 false);
+					 FALSE);
       }
       break;
 
     case 'V':
+    case 'v':
       /* Void.  This is not documented, but the MRI compiler emits it.  */
       type = debug_make_void_type (dhandle);
       break;
@@ -1840,13 +1809,13 @@ parse_ieee_ty (info, pp)
 
 	if (! ieee_read_type_index (info, pp, &etype)
 	    || ! ieee_read_number (info, pp, &high))
-	  return false;
+	  return FALSE;
 
 	type = debug_make_array_type (dhandle, etype,
 				      ieee_builtin_type (info, ty_code_start,
 							 ((unsigned int)
 							  builtin_int)),
-				      0, (bfd_signed_vma) high, false);
+				      0, (bfd_signed_vma) high, FALSE);
       }
       break;
 
@@ -1859,7 +1828,7 @@ parse_ieee_ty (info, pp)
 	/* FIXME: I don't know what the name means.  */
 
 	if (! ieee_read_id (info, pp, &name, &namlen))
-	  return false;
+	  return FALSE;
 
 	type = debug_make_complex_type (dhandle, tc == 'c' ? 4 : 8);
       }
@@ -1868,35 +1837,35 @@ parse_ieee_ty (info, pp)
     case 'f':
       /* Pascal file name.  FIXME.  */
       ieee_error (info, ty_code_start, _("Pascal file name not supported"));
-      return false;
+      return FALSE;
 
     case 'g':
       /* Bitfield type.  */
       {
 	bfd_vma signedp, bitsize, dummy;
 	const bfd_byte *hold;
-	boolean present;
+	bfd_boolean present;
 
 	if (! ieee_read_number (info, pp, &signedp)
 	    || ! ieee_read_number (info, pp, &bitsize))
-	  return false;
+	  return FALSE;
 
 	/* I think the documentation says that there is a type index,
            but some actual files do not have one.  */
 	hold = *pp;
 	if (! ieee_read_optional_number (info, pp, &dummy, &present))
-	  return false;
+	  return FALSE;
 	if (! present)
 	  {
 	    /* FIXME: This is just a guess.  */
 	    type = debug_make_int_type (dhandle, 4,
-					signedp ? false : true);
+					signedp ? FALSE : TRUE);
 	  }
 	else
 	  {
 	    *pp = hold;
 	    if (! ieee_read_type_index (info, pp, &type))
-	      return false;
+	      return FALSE;
 	  }
 	type_bitsize = bitsize;
       }
@@ -1910,13 +1879,13 @@ parse_ieee_ty (info, pp)
 
 	if (! ieee_read_number (info, pp, &kind)
 	    || ! ieee_read_type_index (info, pp, &t))
-	  return false;
+	  return FALSE;
 
 	switch (kind)
 	  {
 	  default:
-	    ieee_error (info, ty_start, _("unsupported qualifer"));
-	    return false;
+	    ieee_error (info, ty_start, _("unsupported qualifier"));
+	    return FALSE;
 
 	  case 1:
 	    type = debug_make_const_type (dhandle, t);
@@ -1937,11 +1906,11 @@ parse_ieee_ty (info, pp)
 
 	if (! ieee_read_number (info, pp, &size)
 	    || ! ieee_read_type_index (info, pp, &etype))
-	  return false;
+	  return FALSE;
 
 	/* FIXME: We ignore the size.  */
 
-	type = debug_make_set_type (dhandle, etype, false);
+	type = debug_make_set_type (dhandle, etype, FALSE);
       }
       break;
 
@@ -1952,8 +1921,8 @@ parse_ieee_ty (info, pp)
 	bfd_vma attr, frame_type, push_mask, nargs, level, father;
 	debug_type rtype;
 	debug_type *arg_types;
-	boolean varargs;
-	boolean present;
+	bfd_boolean varargs;
+	bfd_boolean present;
 
 	/* FIXME: We ignore some of this information.  */
 
@@ -1964,11 +1933,11 @@ parse_ieee_ty (info, pp)
 	    || ! ieee_read_number (info, pp, &push_mask)
 	    || ! ieee_read_type_index (info, pp, &rtype)
 	    || ! ieee_read_number (info, pp, &nargs))
-	  return false;
+	  return FALSE;
 	if (nargs == (bfd_vma) -1)
 	  {
 	    arg_types = NULL;
-	    varargs = false;
+	    varargs = FALSE;
 	  }
 	else
 	  {
@@ -1978,11 +1947,11 @@ parse_ieee_ty (info, pp)
 			 xmalloc ((nargs + 1) * sizeof *arg_types));
 	    for (i = 0; i < nargs; i++)
 	      if (! ieee_read_type_index (info, pp, arg_types + i))
-		return false;
+		return FALSE;
 
 	    /* If the last type is pointer to void, this is really a
                varargs function.  */
-	    varargs = false;
+	    varargs = FALSE;
 	    if (nargs > 0)
 	      {
 		debug_type last;
@@ -1995,7 +1964,7 @@ parse_ieee_ty (info, pp)
 			== DEBUG_KIND_VOID))
 		  {
 		    --nargs;
-		    varargs = true;
+		    varargs = TRUE;
 		  }
 	      }
 
@@ -2025,7 +1994,7 @@ parse_ieee_ty (info, pp)
 	  }
 	if (! ieee_read_number (info, pp, &level)
 	    || ! ieee_read_optional_number (info, pp, &father, &present))
-	  return false;
+	  return FALSE;
 
 	/* We can't distinguish between a global function and a static
            function.  */
@@ -2051,7 +2020,7 @@ parse_ieee_ty (info, pp)
   /* Record the type in the table.  */
 
   if (type == DEBUG_TYPE_NULL)
-    return false;
+    return FALSE;
 
   info->vars.vars[varindx].type = type;
 
@@ -2087,7 +2056,7 @@ parse_ieee_ty (info, pp)
 	  it->type = type;
 	}
       if (type == NULL)
-	return false;
+	return FALSE;
     }
 
   info->types.types[typeindx].type = type;
@@ -2101,39 +2070,37 @@ parse_ieee_ty (info, pp)
   if (info->types.types[typeindx].pslot != NULL)
     *info->types.types[typeindx].pslot = type;
 
-  return true;
+  return TRUE;
 }
 
 /* Parse an ATN record.  */
 
-static boolean
-parse_ieee_atn (info, pp)
-     struct ieee_info *info;
-     const bfd_byte **pp;
+static bfd_boolean
+parse_ieee_atn (struct ieee_info *info, const bfd_byte **pp)
 {
   const bfd_byte *atn_start, *atn_code_start;
   bfd_vma varindx;
   struct ieee_var *pvar;
   debug_type type;
   bfd_vma atn_code;
-  PTR dhandle;
+  void *dhandle;
   bfd_vma v, v2, v3, v4, v5;
   const char *name;
   unsigned long namlen;
   char *namcopy;
-  boolean present;
+  bfd_boolean present;
   int blocktype;
 
   atn_start = *pp;
 
   if (! ieee_read_number (info, pp, &varindx)
       || ! ieee_read_type_index (info, pp, &type))
-    return false;
+    return FALSE;
 
   atn_code_start = *pp;
 
   if (! ieee_read_number (info, pp, &atn_code))
-    return false;
+    return FALSE;
 
   if (varindx == 0)
     {
@@ -2149,7 +2116,7 @@ parse_ieee_atn (info, pp)
 	return ieee_read_number (info, pp, &v);
 
       ieee_error (info, atn_start, _("illegal variable index"));
-      return false;
+      return FALSE;
     }
   else
     {
@@ -2187,7 +2154,7 @@ parse_ieee_atn (info, pp)
 	  else
 	    {
 	      ieee_error (info, atn_start, _("undefined variable in ATN"));
-	      return false;
+	      return FALSE;
 	    }
 	}
 
@@ -2230,12 +2197,12 @@ parse_ieee_atn (info, pp)
     {
     default:
       ieee_error (info, atn_code_start, _("unknown ATN type"));
-      return false;
+      return FALSE;
 
     case 1:
       /* Automatic variable.  */
       if (! ieee_read_number (info, pp, &v))
-	return false;
+	return FALSE;
       namcopy = savestring (name, namlen);
       if (type == NULL)
 	type = debug_make_void_type (dhandle);
@@ -2246,7 +2213,7 @@ parse_ieee_atn (info, pp)
     case 2:
       /* Register variable.  */
       if (! ieee_read_number (info, pp, &v))
-	return false;
+	return FALSE;
       namcopy = savestring (name, namlen);
       if (type == NULL)
 	type = debug_make_void_type (dhandle);
@@ -2258,7 +2225,7 @@ parse_ieee_atn (info, pp)
     case 3:
       /* Static variable.  */
       if (! ieee_require_asn (info, pp, &v))
-	return false;
+	return FALSE;
       namcopy = savestring (name, namlen);
       if (type == NULL)
 	type = debug_make_void_type (dhandle);
@@ -2283,30 +2250,30 @@ parse_ieee_atn (info, pp)
       /* External function.  We don't currently record these.  FIXME.  */
       if (pvar != NULL)
 	pvar->kind = IEEE_EXTERNAL;
-      return true;
+      return TRUE;
 
     case 5:
       /* External variable.  We don't currently record these.  FIXME.  */
       if (pvar != NULL)
 	pvar->kind = IEEE_EXTERNAL;
-      return true;
+      return TRUE;
 
     case 7:
       if (! ieee_read_number (info, pp, &v)
 	  || ! ieee_read_number (info, pp, &v2)
 	  || ! ieee_read_optional_number (info, pp, &v3, &present))
-	return false;
+	return FALSE;
       if (present)
 	{
 	  if (! ieee_read_optional_number (info, pp, &v4, &present))
-	    return false;
+	    return FALSE;
 	}
 
       /* We just ignore the two optional fields in v3 and v4, since
          they are not defined.  */
 
       if (! ieee_require_asn (info, pp, &v3))
-	return false;
+	return FALSE;
 
       /* We have no way to record the column number.  FIXME.  */
 
@@ -2315,7 +2282,7 @@ parse_ieee_atn (info, pp)
     case 8:
       /* Global variable.  */
       if (! ieee_require_asn (info, pp, &v))
-	return false;
+	return FALSE;
       namcopy = savestring (name, namlen);
       if (type == NULL)
 	type = debug_make_void_type (dhandle);
@@ -2326,10 +2293,10 @@ parse_ieee_atn (info, pp)
     case 9:
       /* Variable lifetime information.  */
       if (! ieee_read_number (info, pp, &v))
-	return false;
+	return FALSE;
 
       /* We have no way to record this information.  FIXME.  */
-      return true;
+      return TRUE;
 
     case 10:
       /* Locked register.  The spec says that there are two required
@@ -2337,7 +2304,7 @@ parse_ieee_atn (info, pp)
          one.  */
       if (! ieee_read_number (info, pp, &v)
 	  || ! ieee_read_optional_number (info, pp, &v2, &present))
-	return false;
+	return FALSE;
 
       /* I think this means a variable that is both in a register and
          a frame slot.  We ignore the frame slot.  FIXME.  */
@@ -2353,8 +2320,8 @@ parse_ieee_atn (info, pp)
       /* Reserved for FORTRAN common.  */
       ieee_error (info, atn_code_start, _("unsupported ATN11"));
 
-      /* Return true to keep going.  */
-      return true;
+      /* Return TRUE to keep going.  */
+      return TRUE;
 
     case 12:
       /* Based variable.  */
@@ -2364,15 +2331,15 @@ parse_ieee_atn (info, pp)
       if (! ieee_read_number (info, pp, &v)
 	  || ! ieee_read_number (info, pp, &v2)
 	  || ! ieee_read_optional_number (info, pp, &v3, &present))
-	return false;
+	return FALSE;
       if (present)
 	{
 	  if (! ieee_read_optional_number (info, pp, &v4, &present))
-	    return false;
+	    return FALSE;
 	  if (present)
 	    {
 	      if (! ieee_read_optional_number (info, pp, &v5, &present))
-		return false;
+		return FALSE;
 	    }
 	}
 
@@ -2380,33 +2347,33 @@ parse_ieee_atn (info, pp)
 
       ieee_error (info, atn_code_start, _("unsupported ATN12"));
 
-      /* Return true to keep going.  */
-      return true;
+      /* Return TRUE to keep going.  */
+      return TRUE;
 
     case 16:
       /* Constant.  The description of this that I have is ambiguous,
          so I'm not going to try to implement it.  */
       if (! ieee_read_number (info, pp, &v)
 	  || ! ieee_read_optional_number (info, pp, &v2, &present))
-	return false;
+	return FALSE;
       if (present)
 	{
 	  if (! ieee_read_optional_number (info, pp, &v2, &present))
-	    return false;
+	    return FALSE;
 	  if (present)
 	    {
 	      if (! ieee_read_optional_id (info, pp, &name, &namlen, &present))
-		return false;
+		return FALSE;
 	    }
 	}
 
       if ((ieee_record_enum_type) **pp == ieee_e2_first_byte_enum)
 	{
 	  if (! ieee_require_asn (info, pp, &v3))
-	    return false;
+	    return FALSE;
 	}
 
-      return true;
+      return TRUE;
 
     case 19:
       /* Static variable from assembler.  */
@@ -2414,7 +2381,7 @@ parse_ieee_atn (info, pp)
       if (! ieee_read_number (info, pp, &v)
 	  || ! ieee_read_optional_number (info, pp, &v2, &present)
 	  || ! ieee_require_asn (info, pp, &v3))
-	return false;
+	return FALSE;
       namcopy = savestring (name, namlen);
       /* We don't really handle this correctly.  FIXME.  */
       return debug_record_variable (dhandle, namcopy,
@@ -2431,7 +2398,7 @@ parse_ieee_atn (info, pp)
       if (! ieee_read_number (info, pp, &v)
 	  || ! ieee_read_number (info, pp, &v2)
 	  || ! ieee_read_optional_id (info, pp, &name, &namlen, &present))
-	return false;
+	return FALSE;
 
       if (atn_code == 62 && v == 80)
 	{
@@ -2439,7 +2406,7 @@ parse_ieee_atn (info, pp)
 	    {
 	      ieee_error (info, atn_code_start,
 			  _("unexpected string in C++ misc"));
-	      return false;
+	      return FALSE;
 	    }
 	  return ieee_read_cxx_misc (info, pp, v2);
 	}
@@ -2452,21 +2419,21 @@ parse_ieee_atn (info, pp)
 	    {
 	    default:
 	      ieee_error (info, *pp, _("bad misc record"));
-	      return false;
+	      return FALSE;
 
 	    case ieee_at_record_enum:
 	      if (! ieee_require_atn65 (info, pp, &name, &namlen))
-		return false;
+		return FALSE;
 	      break;
 
 	    case ieee_e2_first_byte_enum:
 	      if (! ieee_require_asn (info, pp, &v3))
-		return false;
+		return FALSE;
 	      break;
 	    }
 	}
 
-      return true;
+      return TRUE;
     }
 
   /*NOTREACHED*/
@@ -2475,11 +2442,9 @@ parse_ieee_atn (info, pp)
 /* Handle C++ debugging miscellaneous records.  This is called for
    procedure miscellaneous records of type 80.  */
 
-static boolean
-ieee_read_cxx_misc (info, pp, count)
-     struct ieee_info *info;
-     const bfd_byte **pp;
-     unsigned long count;
+static bfd_boolean
+ieee_read_cxx_misc (struct ieee_info *info, const bfd_byte **pp,
+		    unsigned long count)
 {
   const bfd_byte *start;
   bfd_vma category;
@@ -2488,18 +2453,18 @@ ieee_read_cxx_misc (info, pp, count)
 
   /* Get the category of C++ misc record.  */
   if (! ieee_require_asn (info, pp, &category))
-    return false;
+    return FALSE;
   --count;
 
   switch (category)
     {
     default:
       ieee_error (info, start, _("unrecognized C++ misc record"));
-      return false;
+      return FALSE;
 
     case 'T':
       if (! ieee_read_cxx_class (info, pp, count))
-	return false;
+	return FALSE;
       break;
 
     case 'M':
@@ -2513,12 +2478,12 @@ ieee_read_cxx_misc (info, pp, count)
            function.  */
 
 	if (! ieee_require_asn (info, pp, &flags))
-	  return false;
+	  return FALSE;
 	if (*pp < info->pend
 	    && (ieee_record_enum_type) **pp == ieee_at_record_enum)
 	  {
 	    if (! ieee_require_atn65 (info, pp, &name, &namlen))
-	      return false;
+	      return FALSE;
 	  }
 
 	/* This is emitted for method functions, but I don't think we
@@ -2530,12 +2495,12 @@ ieee_read_cxx_misc (info, pp, count)
 
     case 'B':
       if (! ieee_read_cxx_defaults (info, pp, count))
-	return false;
+	return FALSE;
       break;
 
     case 'z':
       {
-	const char *name, *mangled, *class;
+	const char *name, *mangled, *cxx_class;
 	unsigned long namlen, mangledlen, classlen;
 	bfd_vma control;
 
@@ -2543,9 +2508,9 @@ ieee_read_cxx_misc (info, pp, count)
 
 	if (! ieee_require_atn65 (info, pp, &name, &namlen)
 	    || ! ieee_require_atn65 (info, pp, &mangled, &mangledlen)
-	    || ! ieee_require_atn65 (info, pp, &class, &classlen)
+	    || ! ieee_require_atn65 (info, pp, &cxx_class, &classlen)
 	    || ! ieee_require_asn (info, pp, &control))
-	  return false;
+	  return FALSE;
 
 	/* FIXME: We should now track down name and change its type.  */
       }
@@ -2553,28 +2518,26 @@ ieee_read_cxx_misc (info, pp, count)
 
     case 'R':
       if (! ieee_read_reference (info, pp))
-	return false;
+	return FALSE;
       break;
     }
 
-  return true;
+  return TRUE;
 }
 
 /* Read a C++ class definition.  This is a pmisc type 80 record of
    category 'T'.  */
 
-static boolean
-ieee_read_cxx_class (info, pp, count)
-     struct ieee_info *info;
-     const bfd_byte **pp;
-     unsigned long count;
+static bfd_boolean
+ieee_read_cxx_class (struct ieee_info *info, const bfd_byte **pp,
+		     unsigned long count)
 {
   const bfd_byte *start;
-  bfd_vma class;
+  bfd_vma cxx_class;
   const char *tag;
   unsigned long taglen;
   struct ieee_tag *it;
-  PTR dhandle;
+  void *dhandle;
   debug_field *fields;
   unsigned int field_count, field_alloc;
   debug_baseclass *baseclasses;
@@ -2590,17 +2553,17 @@ ieee_read_cxx_class (info, pp, count)
     } *methods;
   unsigned int methods_count, methods_alloc;
   debug_type vptrbase;
-  boolean ownvptr;
+  bfd_boolean ownvptr;
   debug_method *dmethods;
 
   start = *pp;
 
-  if (! ieee_require_asn (info, pp, &class))
-    return false;
+  if (! ieee_require_asn (info, pp, &cxx_class))
+    return FALSE;
   --count;
 
   if (! ieee_require_atn65 (info, pp, &tag, &taglen))
-    return false;
+    return FALSE;
   --count;
 
   /* Find the C struct with this name.  */
@@ -2612,7 +2575,7 @@ ieee_read_cxx_class (info, pp, count)
   if (it == NULL)
     {
       ieee_error (info, start, _("undefined C++ object"));
-      return false;
+      return FALSE;
     }
 
   dhandle = info->dhandle;
@@ -2627,7 +2590,7 @@ ieee_read_cxx_class (info, pp, count)
   methods_count = 0;
   methods_alloc = 0;
   vptrbase = DEBUG_TYPE_NULL;
-  ownvptr = false;
+  ownvptr = FALSE;
 
   structfields = debug_get_fields (dhandle, it->type);
 
@@ -2639,14 +2602,14 @@ ieee_read_cxx_class (info, pp, count)
       spec_start = *pp;
 
       if (! ieee_require_asn (info, pp, &id))
-	return false;
+	return FALSE;
       --count;
 
       switch (id)
 	{
 	default:
 	  ieee_error (info, spec_start, _("unrecognized C++ object spec"));
-	  return false;
+	  return FALSE;
 
 	case 'b':
 	  {
@@ -2656,7 +2619,7 @@ ieee_read_cxx_class (info, pp, count)
 	    char *basecopy;
 	    debug_type basetype;
 	    bfd_vma bitpos;
-	    boolean virtualp;
+	    bfd_boolean virtualp;
 	    enum debug_visibility visibility;
 	    debug_baseclass baseclass;
 
@@ -2666,7 +2629,7 @@ ieee_read_cxx_class (info, pp, count)
 		|| ! ieee_require_atn65 (info, pp, &basename, &baselen)
 		|| ! ieee_require_asn (info, pp, &cinline)
 		|| ! ieee_require_atn65 (info, pp, &fieldname, &fieldlen))
-	      return false;
+	      return FALSE;
 	    count -= 4;
 
 	    /* We have no way of recording friend information, so we
@@ -2682,7 +2645,7 @@ ieee_read_cxx_class (info, pp, count)
 	    if ((fieldlen == 0) == (cinline == 0))
 	      {
 		ieee_error (info, start, _("unsupported C++ object type"));
-		return false;
+		return FALSE;
 	      }
 
 	    basecopy = savestring (basename, baselen);
@@ -2692,7 +2655,7 @@ ieee_read_cxx_class (info, pp, count)
 	    if (basetype == DEBUG_TYPE_NULL)
 	      {
 		ieee_error (info, start, _("C++ base class not defined"));
-		return false;
+		return FALSE;
 	      }
 
 	    if (fieldlen == 0)
@@ -2704,7 +2667,7 @@ ieee_read_cxx_class (info, pp, count)
 		if (structfields == NULL)
 		  {
 		    ieee_error (info, start, _("C++ object has no fields"));
-		    return false;
+		    return FALSE;
 		  }
 
 		for (pf = structfields; *pf != DEBUG_FIELD_NULL; pf++)
@@ -2713,7 +2676,7 @@ ieee_read_cxx_class (info, pp, count)
 
 		    fname = debug_get_field_name (dhandle, *pf);
 		    if (fname == NULL)
-		      return false;
+		      return FALSE;
 		    if (fname[0] == fieldname[0]
 			&& strncmp (fname, fieldname, fieldlen) == 0
 			&& strlen (fname) == fieldlen)
@@ -2723,16 +2686,16 @@ ieee_read_cxx_class (info, pp, count)
 		  {
 		    ieee_error (info, start,
 				_("C++ base class not found in container"));
-		    return false;
+		    return FALSE;
 		  }
 
 		bitpos = debug_get_field_bitpos (dhandle, *pf);
 	      }
 
 	    if ((flags & BASEFLAGS_VIRTUAL) != 0)
-	      virtualp = true;
+	      virtualp = TRUE;
 	    else
-	      virtualp = false;
+	      virtualp = FALSE;
 	    if ((flags & BASEFLAGS_PRIVATE) != 0)
 	      visibility = DEBUG_VISIBILITY_PRIVATE;
 	    else
@@ -2741,7 +2704,7 @@ ieee_read_cxx_class (info, pp, count)
 	    baseclass = debug_make_baseclass (dhandle, basetype, bitpos,
 					      virtualp, visibility);
 	    if (baseclass == DEBUG_BASECLASS_NULL)
-	      return false;
+	      return FALSE;
 
 	    if (baseclasses_count + 1 >= baseclasses_alloc)
 	      {
@@ -2764,7 +2727,7 @@ ieee_read_cxx_class (info, pp, count)
 	    const char *fieldname, *mangledname;
 	    unsigned long fieldlen, mangledlen;
 	    char *fieldcopy;
-	    boolean staticp;
+	    bfd_boolean staticp;
 	    debug_type ftype;
 	    const debug_field *pf = NULL;
 	    enum debug_visibility visibility;
@@ -2775,12 +2738,12 @@ ieee_read_cxx_class (info, pp, count)
 	    if (! ieee_require_asn (info, pp, &flags)
 		|| ! ieee_require_atn65 (info, pp, &fieldname, &fieldlen)
 		|| ! ieee_require_atn65 (info, pp, &mangledname, &mangledlen))
-	      return false;
+	      return FALSE;
 	    count -= 3;
 
 	    fieldcopy = savestring (fieldname, fieldlen);
 
-	    staticp = (flags & CXXFLAGS_STATIC) != 0 ? true : false;
+	    staticp = (flags & CXXFLAGS_STATIC) != 0 ? TRUE : FALSE;
 
 	    if (staticp)
 	      {
@@ -2809,7 +2772,7 @@ ieee_read_cxx_class (info, pp, count)
 		if (structfields == NULL)
 		  {
 		    ieee_error (info, start, _("C++ object has no fields"));
-		    return false;
+		    return FALSE;
 		  }
 
 		for (pf = structfields, findx = 0;
@@ -2820,7 +2783,7 @@ ieee_read_cxx_class (info, pp, count)
 
 		    fname = debug_get_field_name (dhandle, *pf);
 		    if (fname == NULL)
-		      return false;
+		      return FALSE;
 		    if (fname[0] == mangledname[0]
 			&& strncmp (fname, mangledname, mangledlen) == 0
 			&& strlen (fname) == mangledlen)
@@ -2830,7 +2793,7 @@ ieee_read_cxx_class (info, pp, count)
 		  {
 		    ieee_error (info, start,
 				_("C++ data member not found in container"));
-		    return false;
+		    return FALSE;
 		  }
 
 		ftype = debug_get_field_type (dhandle, *pf);
@@ -2857,7 +2820,7 @@ ieee_read_cxx_class (info, pp, count)
 		      }
 
 		    if (ftype == DEBUG_TYPE_NULL)
-		      return false;
+		      return FALSE;
 		    it->fslots[findx] = ftype;
 		    ftype = debug_make_indirect_type (dhandle,
 						      it->fslots + findx,
@@ -2865,13 +2828,13 @@ ieee_read_cxx_class (info, pp, count)
 		  }
 	      }
 	    if (ftype == DEBUG_TYPE_NULL)
-	      return false;
+	      return FALSE;
 
 	    switch (flags & CXXFLAGS_VISIBILITY)
 	      {
 	      default:
 		ieee_error (info, start, _("unknown C++ visibility"));
-		return false;
+		return FALSE;
 
 	      case CXXFLAGS_VISIBILITY_PUBLIC:
 		visibility = DEBUG_VISIBILITY_PUBLIC;
@@ -2905,14 +2868,14 @@ ieee_read_cxx_class (info, pp, count)
 		if (bitpos == (bfd_vma) -1 || bitsize == (bfd_vma) -1)
 		  {
 		    ieee_error (info, start, _("bad C++ field bit pos or size"));
-		    return false;
+		    return FALSE;
 		  }
 		field = debug_make_field (dhandle, fieldcopy, ftype, bitpos,
 					  bitsize, visibility);
 	      }
 
 	    if (field == DEBUG_FIELD_NULL)
-	      return false;
+	      return FALSE;
 
 	    if (field_count + 1 >= field_alloc)
 	      {
@@ -2936,7 +2899,7 @@ ieee_read_cxx_class (info, pp, count)
 	    struct ieee_var *pv, *pvend;
 	    debug_type type;
 	    enum debug_visibility visibility;
-	    boolean constp, volatilep;
+	    bfd_boolean constp, volatilep;
 	    char *mangledcopy;
 	    debug_method_variant mv;
 	    struct ieee_method *meth;
@@ -2945,18 +2908,18 @@ ieee_read_cxx_class (info, pp, count)
 	    if (! ieee_require_asn (info, pp, &flags)
 		|| ! ieee_require_atn65 (info, pp, &name, &namlen)
 		|| ! ieee_require_atn65 (info, pp, &mangled, &mangledlen))
-	      return false;
+	      return FALSE;
 	    count -= 3;
 	    if (id != 'v')
 	      voffset = 0;
 	    else
 	      {
 		if (! ieee_require_asn (info, pp, &voffset))
-		  return false;
+		  return FALSE;
 		--count;
 	      }
 	    if (! ieee_require_asn (info, pp, &control))
-	      return false;
+	      return FALSE;
 	    --count;
 
 	    /* We just ignore the control information.  */
@@ -2984,20 +2947,20 @@ ieee_read_cxx_class (info, pp, count)
 			 ieee_builtin_type (info, start,
 					    (unsigned int) builtin_void),
 			 (debug_type *) NULL,
-			 false));
+			 FALSE));
 	      }
 	    else
 	      {
 		debug_type return_type;
 		const debug_type *arg_types;
-		boolean varargs;
+		bfd_boolean varargs;
 
 		if (debug_get_type_kind (dhandle, pv->type)
 		    != DEBUG_KIND_FUNCTION)
 		  {
 		    ieee_error (info, start,
 				_("bad type for C++ method function"));
-		    return false;
+		    return FALSE;
 		  }
 
 		return_type = debug_get_return_type (dhandle, pv->type);
@@ -3007,7 +2970,7 @@ ieee_read_cxx_class (info, pp, count)
 		  {
 		    ieee_error (info, start,
 				_("no type information for C++ method function"));
-		    return false;
+		    return FALSE;
 		  }
 
 		type = debug_make_method_type (dhandle, return_type, it->type,
@@ -3015,13 +2978,13 @@ ieee_read_cxx_class (info, pp, count)
 					       varargs);
 	      }
 	    if (type == DEBUG_TYPE_NULL)
-	      return false;
+	      return FALSE;
 
 	    switch (flags & CXXFLAGS_VISIBILITY)
 	      {
 	      default:
 		ieee_error (info, start, _("unknown C++ visibility"));
-		return false;
+		return FALSE;
 
 	      case CXXFLAGS_VISIBILITY_PUBLIC:
 		visibility = DEBUG_VISIBILITY_PUBLIC;
@@ -3036,8 +2999,8 @@ ieee_read_cxx_class (info, pp, count)
 		break;
 	      }
 
-	    constp = (flags & CXXFLAGS_CONST) != 0 ? true : false;
-	    volatilep = (flags & CXXFLAGS_VOLATILE) != 0 ? true : false;
+	    constp = (flags & CXXFLAGS_CONST) != 0 ? TRUE : FALSE;
+	    volatilep = (flags & CXXFLAGS_VOLATILE) != 0 ? TRUE : FALSE;
 
 	    mangledcopy = savestring (mangled, mangledlen);
 
@@ -3046,7 +3009,7 @@ ieee_read_cxx_class (info, pp, count)
 		if (id == 'v')
 		  {
 		    ieee_error (info, start, _("C++ static virtual method"));
-		    return false;
+		    return FALSE;
 		  }
 		mv = debug_make_static_method_variant (dhandle, mangledcopy,
 						       type, visibility,
@@ -3069,7 +3032,7 @@ ieee_read_cxx_class (info, pp, count)
 						vcontext);
 	      }
 	    if (mv == DEBUG_METHOD_VARIANT_NULL)
-	      return false;
+	      return FALSE;
 
 	    for (meth = methods, im = 0; im < methods_count; meth++, im++)
 	      if (meth->namlen == namlen
@@ -3115,7 +3078,7 @@ ieee_read_cxx_class (info, pp, count)
 	    /* We have no way to store this information, so we just
 	       ignore it.  */
 	    if (! ieee_require_asn (info, pp, &spec))
-	      return false;
+	      return FALSE;
 	    --count;
 	    if ((spec & 4) != 0)
 	      {
@@ -3125,7 +3088,7 @@ ieee_read_cxx_class (info, pp, count)
 
 		if (! ieee_require_atn65 (info, pp, &filename, &filenamlen)
 		    || ! ieee_require_asn (info, pp, &lineno))
-		  return false;
+		  return FALSE;
 		count -= 2;
 	      }
 	    else if ((spec & 8) != 0)
@@ -3134,14 +3097,14 @@ ieee_read_cxx_class (info, pp, count)
 		unsigned long mangledlen;
 
 		if (! ieee_require_atn65 (info, pp, &mangled, &mangledlen))
-		  return false;
+		  return FALSE;
 		--count;
 	      }
 	    else
 	      {
 		ieee_error (info, start,
 			    _("unrecognized C++ object overhead spec"));
-		return false;
+		return FALSE;
 	      }
 	  }
 	  break;
@@ -3158,7 +3121,7 @@ ieee_read_cxx_class (info, pp, count)
 		|| ! ieee_require_asn (info, pp, &vsize)
 		|| ! ieee_require_atn65 (info, pp, &basename, &baselen)
 		|| ! ieee_require_asn (info, pp, &control))
-	      return false;
+	      return FALSE;
 	    count -= 4;
 
 	    /* We just ignore the control number.  We don't care what
@@ -3168,7 +3131,7 @@ ieee_read_cxx_class (info, pp, count)
 	    /* FIXME: We can't handle multiple virtual table pointers.  */
 
 	    if (baselen == 0)
-	      ownvptr = true;
+	      ownvptr = TRUE;
 	    else
 	      {
 		char *basecopy;
@@ -3180,7 +3143,7 @@ ieee_read_cxx_class (info, pp, count)
 		if (vptrbase == DEBUG_TYPE_NULL)
 		  {
 		    ieee_error (info, start, _("undefined C++ vtable"));
-		    return false;
+		    return FALSE;
 		  }
 	      }
 	  }
@@ -3207,7 +3170,7 @@ ieee_read_cxx_class (info, pp, count)
 	  dmethods[i] = debug_make_method (dhandle, namcopy,
 					   methods[i].variants);
 	  if (dmethods[i] == DEBUG_METHOD_NULL)
-	    return false;
+	    return FALSE;
 	}
       dmethods[i] = DEBUG_METHOD_NULL;
       free (methods);
@@ -3217,24 +3180,22 @@ ieee_read_cxx_class (info, pp, count)
      it->slot.  We update it->slot to automatically update all
      references to this struct.  */
   it->slot = debug_make_object_type (dhandle,
-				     class != 'u',
+				     cxx_class != 'u',
 				     debug_get_type_size (dhandle,
 							  it->slot),
 				     fields, baseclasses, dmethods,
 				     vptrbase, ownvptr);
   if (it->slot == DEBUG_TYPE_NULL)
-    return false;
+    return FALSE;
 
-  return true;
+  return TRUE;
 }
 
 /* Read C++ default argument value and reference type information.  */
 
-static boolean
-ieee_read_cxx_defaults (info, pp, count)
-     struct ieee_info *info;
-     const bfd_byte **pp;
-     unsigned long count;
+static bfd_boolean
+ieee_read_cxx_defaults (struct ieee_info *info, const bfd_byte **pp,
+			unsigned long count)
 {
   const bfd_byte *start;
   const char *fnname;
@@ -3251,12 +3212,12 @@ ieee_read_cxx_defaults (info, pp, count)
       || info->blockstack.bsp[-1].fnindx == (unsigned int) -1)
     {
       ieee_error (info, start, _("C++ default values not in a function"));
-      return false;
+      return FALSE;
     }
 
   if (! ieee_require_atn65 (info, pp, &fnname, &fnlen)
       || ! ieee_require_asn (info, pp, &defcount))
-    return false;
+    return FALSE;
   count -= 2;
 
   while (defcount-- > 0)
@@ -3266,7 +3227,7 @@ ieee_read_cxx_defaults (info, pp, count)
       unsigned long strvallen;
 
       if (! ieee_require_asn (info, pp, &type))
-	return false;
+	return FALSE;
       --count;
 
       switch (type)
@@ -3278,20 +3239,20 @@ ieee_read_cxx_defaults (info, pp, count)
 	case 1:
 	case 2:
 	  if (! ieee_require_asn (info, pp, &val))
-	    return false;
+	    return FALSE;
 	  --count;
 	  break;
 
 	case 3:
 	case 7:
 	  if (! ieee_require_atn65 (info, pp, &strval, &strvallen))
-	    return false;
+	    return FALSE;
 	  --count;
 	  break;
 
 	default:
 	  ieee_error (info, start, _("unrecognized C++ default type"));
-	  return false;
+	  return FALSE;
 	}
 
       /* We have no way to record the default argument values, so we
@@ -3302,7 +3263,7 @@ ieee_read_cxx_defaults (info, pp, count)
      reference type.  */
   if (count > 0)
     {
-      PTR dhandle;
+      void *dhandle;
       debug_type *arg_slots;
 
       dhandle = info->dhandle;
@@ -3313,7 +3274,7 @@ ieee_read_cxx_defaults (info, pp, count)
 	  debug_type target;
 
 	  if (! ieee_require_asn (info, pp, &indx))
-	    return false;
+	    return FALSE;
 	  /* The index is 1 based.  */
 	  --indx;
 	  if (arg_slots == NULL
@@ -3322,29 +3283,27 @@ ieee_read_cxx_defaults (info, pp, count)
 		  != DEBUG_KIND_POINTER))
 	    {
 	      ieee_error (info, start, _("reference parameter is not a pointer"));
-	      return false;
+	      return FALSE;
 	    }
 
 	  target = debug_get_target_type (dhandle, arg_slots[indx]);
 	  arg_slots[indx] = debug_make_reference_type (dhandle, target);
 	  if (arg_slots[indx] == DEBUG_TYPE_NULL)
-	    return false;
+	    return FALSE;
 	}
     }
 
-  return true;
+  return TRUE;
 }
 
 /* Read a C++ reference definition.  */
 
-static boolean
-ieee_read_reference (info, pp)
-     struct ieee_info *info;
-     const bfd_byte **pp;
+static bfd_boolean
+ieee_read_reference (struct ieee_info *info, const bfd_byte **pp)
 {
   const bfd_byte *start;
   bfd_vma flags;
-  const char *class, *name;
+  const char *cxx_class, *name;
   unsigned long classlen, namlen;
   debug_type *pslot;
   debug_type target;
@@ -3352,18 +3311,18 @@ ieee_read_reference (info, pp)
   start = *pp;
 
   if (! ieee_require_asn (info, pp, &flags))
-    return false;
+    return FALSE;
 
   /* Giving the class name before the member name is in an addendum to
      the spec.  */
   if (flags == 3)
     {
-      if (! ieee_require_atn65 (info, pp, &class, &classlen))
-	return false;
+      if (! ieee_require_atn65 (info, pp, &cxx_class, &classlen))
+	return FALSE;
     }
 
   if (! ieee_require_atn65 (info, pp, &name, &namlen))
-    return false;
+    return FALSE;
 
   pslot = NULL;
   if (flags != 3)
@@ -3392,7 +3351,7 @@ ieee_read_reference (info, pp)
 
 	  for (i = (int) vars->alloc - 1; i >= 0; i--)
 	    {
-	      boolean found;
+	      bfd_boolean found;
 
 	      pv = vars->vars + i;
 
@@ -3401,33 +3360,33 @@ ieee_read_reference (info, pp)
 		  || strncmp (pv->name, name, namlen) != 0)
 		continue;
 
-	      found = false;
+	      found = FALSE;
 	      switch (flags)
 		{
 		default:
 		  ieee_error (info, start,
 			      _("unrecognized C++ reference type"));
-		  return false;
+		  return FALSE;
 
 		case 0:
 		  /* Global variable or function.  */
 		  if (pv->kind == IEEE_GLOBAL
 		      || pv->kind == IEEE_EXTERNAL
 		      || pv->kind == IEEE_FUNCTION)
-		    found = true;
+		    found = TRUE;
 		  break;
 
 		case 1:
 		  /* Global static variable or function.  */
 		  if (pv->kind == IEEE_STATIC
 		      || pv->kind == IEEE_FUNCTION)
-		    found = true;
+		    found = TRUE;
 		  break;
 
 		case 2:
 		  /* Local variable.  */
 		  if (pv->kind == IEEE_LOCAL)
-		    found = true;
+		    found = TRUE;
 		  break;
 		}
 
@@ -3448,8 +3407,8 @@ ieee_read_reference (info, pp)
 
       for (it = info->tags; it != NULL; it = it->next)
 	{
-	  if (it->name[0] == class[0]
-	      && strncmp (it->name, class, classlen) == 0
+	  if (it->name[0] == cxx_class[0]
+	      && strncmp (it->name, cxx_class, classlen) == 0
 	      && strlen (it->name) == classlen)
 	    {
 	      if (it->fslots != NULL)
@@ -3462,7 +3421,7 @@ ieee_read_reference (info, pp)
 		    {
 		      ieee_error (info, start,
 				  "C++ reference in class with no fields");
-		      return false;
+		      return FALSE;
 		    }
 
 		  for (findx = 0; *pf != DEBUG_FIELD_NULL; pf++, findx++)
@@ -3471,7 +3430,7 @@ ieee_read_reference (info, pp)
 
 		      fname = debug_get_field_name (info->dhandle, *pf);
 		      if (fname == NULL)
-			return false;
+			return FALSE;
 		      if (strncmp (fname, name, namlen) == 0
 			  && strlen (fname) == namlen)
 			{
@@ -3489,7 +3448,7 @@ ieee_read_reference (info, pp)
   if (pslot == NULL)
     {
       ieee_error (info, start, _("C++ reference not found"));
-      return false;
+      return FALSE;
     }
 
   /* We allocated the type of the object as an indirect type pointing
@@ -3497,24 +3456,21 @@ ieee_read_reference (info, pp)
   if (debug_get_type_kind (info->dhandle, *pslot) != DEBUG_KIND_POINTER)
     {
       ieee_error (info, start, _("C++ reference is not pointer"));
-      return false;
+      return FALSE;
     }
 
   target = debug_get_target_type (info->dhandle, *pslot);
   *pslot = debug_make_reference_type (info->dhandle, target);
   if (*pslot == DEBUG_TYPE_NULL)
-    return false;
+    return FALSE;
 
-  return true;
+  return TRUE;
 }
 
 /* Require an ASN record.  */
 
-static boolean
-ieee_require_asn (info, pp, pv)
-     struct ieee_info *info;
-     const bfd_byte **pp;
-     bfd_vma *pv;
+static bfd_boolean
+ieee_require_asn (struct ieee_info *info, const bfd_byte **pp, bfd_vma *pv)
 {
   const bfd_byte *start;
   ieee_record_enum_type c;
@@ -3526,7 +3482,7 @@ ieee_require_asn (info, pp, pv)
   if (c != ieee_e2_first_byte_enum)
     {
       ieee_error (info, start, _("missing required ASN"));
-      return false;
+      return FALSE;
     }
   ++*pp;
 
@@ -3534,25 +3490,22 @@ ieee_require_asn (info, pp, pv)
   if (c != ieee_asn_record_enum)
     {
       ieee_error (info, start, _("missing required ASN"));
-      return false;
+      return FALSE;
     }
   ++*pp;
 
   /* Just ignore the variable index.  */
   if (! ieee_read_number (info, pp, &varindx))
-    return false;
+    return FALSE;
 
   return ieee_read_expression (info, pp, pv);
 }
 
 /* Require an ATN65 record.  */
 
-static boolean
-ieee_require_atn65 (info, pp, pname, pnamlen)
-     struct ieee_info *info;
-     const bfd_byte **pp;
-     const char **pname;
-     unsigned long *pnamlen;
+static bfd_boolean
+ieee_require_atn65 (struct ieee_info *info, const bfd_byte **pp,
+		    const char **pname, unsigned long *pnamlen)
 {
   const bfd_byte *start;
   ieee_record_enum_type c;
@@ -3564,7 +3517,7 @@ ieee_require_atn65 (info, pp, pname, pnamlen)
   if (c != ieee_at_record_enum)
     {
       ieee_error (info, start, _("missing required ATN65"));
-      return false;
+      return FALSE;
     }
   ++*pp;
 
@@ -3572,21 +3525,21 @@ ieee_require_atn65 (info, pp, pname, pnamlen)
   if (c != ieee_atn_record_enum)
     {
       ieee_error (info, start, _("missing required ATN65"));
-      return false;
+      return FALSE;
     }
   ++*pp;
 
   if (! ieee_read_number (info, pp, &name_indx)
       || ! ieee_read_number (info, pp, &type_indx)
       || ! ieee_read_number (info, pp, &atn_code))
-    return false;
+    return FALSE;
 
   /* Just ignore name_indx.  */
 
   if (type_indx != 0 || atn_code != 65)
     {
       ieee_error (info, start, _("bad ATN65 record"));
-      return false;
+      return FALSE;
     }
 
   return ieee_read_id (info, pp, pname, pnamlen);
@@ -3596,9 +3549,7 @@ ieee_require_atn65 (info, pp, pname, pnamlen)
    generic register number.  */
 
 static int
-ieee_regno_to_genreg (abfd, r)
-     bfd *abfd;
-     int r;
+ieee_regno_to_genreg (bfd *abfd, int r)
 {
   switch (bfd_get_arch (abfd))
     {
@@ -3625,9 +3576,7 @@ ieee_regno_to_genreg (abfd, r)
 /* Convert a generic register number to an IEEE specific one.  */
 
 static int
-ieee_genreg_to_regno (abfd, r)
-     bfd *abfd;
-     int r;
+ieee_genreg_to_regno (bfd *abfd, int r)
 {
   switch (bfd_get_arch (abfd))
     {
@@ -3708,7 +3657,7 @@ struct ieee_type_class
      class.  */
   const char *vclass;
   /* Whether this class holds its own virtual table.  */
-  boolean ownvptr;
+  bfd_boolean ownvptr;
   /* The largest virtual table offset seen so far.  */
   bfd_vma voffset;
   /* The current method.  */
@@ -3799,7 +3748,7 @@ struct ieee_defined_enum
   /* Type index.  */
   unsigned int indx;
   /* Whether this enum has been defined.  */
-  boolean defined;
+  bfd_boolean defined;
   /* Tag.  */
   const char *tag;
   /* Names.  */
@@ -3851,7 +3800,7 @@ struct ieee_pending_parm
   /* Type index.  */
   unsigned int type;
   /* Whether the type is a reference.  */
-  boolean referencep;
+  bfd_boolean referencep;
   /* Kind.  */
   enum debug_parm_kind kind;
   /* Value.  */
@@ -3866,7 +3815,7 @@ struct ieee_handle
   bfd *abfd;
   /* Whether we got an error in a subroutine called via traverse or
      map_over_sections.  */
-  boolean error;
+  bfd_boolean error;
   /* Current data buffer list.  */
   struct ieee_buflist *current;
   /* Current data buffer.  */
@@ -3944,112 +3893,109 @@ struct ieee_handle
   bfd_vma highaddr;
 };
 
-static boolean ieee_init_buffer
-  PARAMS ((struct ieee_handle *, struct ieee_buflist *));
-static boolean ieee_change_buffer
-  PARAMS ((struct ieee_handle *, struct ieee_buflist *));
-static boolean ieee_append_buffer
-  PARAMS ((struct ieee_handle *, struct ieee_buflist *,
-	   struct ieee_buflist *));
-static boolean ieee_real_write_byte PARAMS ((struct ieee_handle *, int));
-static boolean ieee_write_2bytes PARAMS ((struct ieee_handle *, int));
-static boolean ieee_write_number PARAMS ((struct ieee_handle *, bfd_vma));
-static boolean ieee_write_id PARAMS ((struct ieee_handle *, const char *));
-static boolean ieee_write_asn
-  PARAMS ((struct ieee_handle *, unsigned int, bfd_vma));
-static boolean ieee_write_atn65
-  PARAMS ((struct ieee_handle *, unsigned int, const char *));
-static boolean ieee_push_type
-  PARAMS ((struct ieee_handle *, unsigned int, unsigned int, boolean,
-	   boolean));
-static unsigned int ieee_pop_type PARAMS ((struct ieee_handle *));
-static void ieee_pop_unused_type PARAMS ((struct ieee_handle *));
-static unsigned int ieee_pop_type_used
-  PARAMS ((struct ieee_handle *, boolean));
-static boolean ieee_add_range
-  PARAMS ((struct ieee_handle *, boolean, bfd_vma, bfd_vma));
-static boolean ieee_start_range PARAMS ((struct ieee_handle *, bfd_vma));
-static boolean ieee_end_range PARAMS ((struct ieee_handle *, bfd_vma));
-static boolean ieee_define_type
-  PARAMS ((struct ieee_handle *, unsigned int, boolean, boolean));
-static boolean ieee_define_named_type
-  PARAMS ((struct ieee_handle *, const char *, unsigned int, unsigned int,
-	   boolean, boolean, struct ieee_buflist *));
+static bfd_boolean ieee_init_buffer
+  (struct ieee_handle *, struct ieee_buflist *);
+static bfd_boolean ieee_change_buffer
+  (struct ieee_handle *, struct ieee_buflist *);
+static bfd_boolean ieee_append_buffer
+  (struct ieee_handle *, struct ieee_buflist *, struct ieee_buflist *);
+static bfd_boolean ieee_real_write_byte (struct ieee_handle *, int);
+static bfd_boolean ieee_write_2bytes (struct ieee_handle *, int);
+static bfd_boolean ieee_write_number (struct ieee_handle *, bfd_vma);
+static bfd_boolean ieee_write_id (struct ieee_handle *, const char *);
+static bfd_boolean ieee_write_asn
+  (struct ieee_handle *, unsigned int, bfd_vma);
+static bfd_boolean ieee_write_atn65
+  (struct ieee_handle *, unsigned int, const char *);
+static bfd_boolean ieee_push_type
+  (struct ieee_handle *, unsigned int, unsigned int, bfd_boolean,
+   bfd_boolean);
+static unsigned int ieee_pop_type (struct ieee_handle *);
+static void ieee_pop_unused_type (struct ieee_handle *);
+static unsigned int ieee_pop_type_used (struct ieee_handle *, bfd_boolean);
+static bfd_boolean ieee_add_range
+  (struct ieee_handle *, bfd_boolean, bfd_vma, bfd_vma);
+static bfd_boolean ieee_start_range (struct ieee_handle *, bfd_vma);
+static bfd_boolean ieee_end_range (struct ieee_handle *, bfd_vma);
+static bfd_boolean ieee_define_type
+  (struct ieee_handle *, unsigned int, bfd_boolean, bfd_boolean);
+static bfd_boolean ieee_define_named_type
+  (struct ieee_handle *, const char *, unsigned int, unsigned int,
+   bfd_boolean, bfd_boolean, struct ieee_buflist *);
 static struct ieee_modified_type *ieee_get_modified_info
-  PARAMS ((struct ieee_handle *, unsigned int));
+  (struct ieee_handle *, unsigned int);
 static struct bfd_hash_entry *ieee_name_type_newfunc
-  PARAMS ((struct bfd_hash_entry *, struct bfd_hash_table *, const char *));
-static boolean ieee_write_undefined_tag
-  PARAMS ((struct ieee_name_type_hash_entry *, PTR));
-static boolean ieee_finish_compilation_unit PARAMS ((struct ieee_handle *));
-static void ieee_add_bb11_blocks PARAMS ((bfd *, asection *, PTR));
-static boolean ieee_add_bb11
-  PARAMS ((struct ieee_handle *, asection *, bfd_vma, bfd_vma));
-static boolean ieee_output_pending_parms PARAMS ((struct ieee_handle *));
-static unsigned int ieee_vis_to_flags PARAMS ((enum debug_visibility));
-static boolean ieee_class_method_var
-  PARAMS ((struct ieee_handle *, const char *, enum debug_visibility, boolean,
-	   boolean, boolean, bfd_vma, boolean));
+  (struct bfd_hash_entry *, struct bfd_hash_table *, const char *);
+static bfd_boolean ieee_write_undefined_tag
+  (struct ieee_name_type_hash_entry *, void *);
+static bfd_boolean ieee_finish_compilation_unit (struct ieee_handle *);
+static void ieee_add_bb11_blocks (bfd *, asection *, void *);
+static bfd_boolean ieee_add_bb11
+  (struct ieee_handle *, asection *, bfd_vma, bfd_vma);
+static bfd_boolean ieee_output_pending_parms (struct ieee_handle *);
+static unsigned int ieee_vis_to_flags (enum debug_visibility);
+static bfd_boolean ieee_class_method_var
+  (struct ieee_handle *, const char *, enum debug_visibility, bfd_boolean,
+   bfd_boolean, bfd_boolean, bfd_vma, bfd_boolean);
 
-static boolean ieee_start_compilation_unit PARAMS ((PTR, const char *));
-static boolean ieee_start_source PARAMS ((PTR, const char *));
-static boolean ieee_empty_type PARAMS ((PTR));
-static boolean ieee_void_type PARAMS ((PTR));
-static boolean ieee_int_type PARAMS ((PTR, unsigned int, boolean));
-static boolean ieee_float_type PARAMS ((PTR, unsigned int));
-static boolean ieee_complex_type PARAMS ((PTR, unsigned int));
-static boolean ieee_bool_type PARAMS ((PTR, unsigned int));
-static boolean ieee_enum_type
-  PARAMS ((PTR, const char *, const char **, bfd_signed_vma *));
-static boolean ieee_pointer_type PARAMS ((PTR));
-static boolean ieee_function_type PARAMS ((PTR, int, boolean));
-static boolean ieee_reference_type PARAMS ((PTR));
-static boolean ieee_range_type PARAMS ((PTR, bfd_signed_vma, bfd_signed_vma));
-static boolean ieee_array_type
-  PARAMS ((PTR, bfd_signed_vma, bfd_signed_vma, boolean));
-static boolean ieee_set_type PARAMS ((PTR, boolean));
-static boolean ieee_offset_type PARAMS ((PTR));
-static boolean ieee_method_type PARAMS ((PTR, boolean, int, boolean));
-static boolean ieee_const_type PARAMS ((PTR));
-static boolean ieee_volatile_type PARAMS ((PTR));
-static boolean ieee_start_struct_type
-  PARAMS ((PTR, const char *, unsigned int, boolean, unsigned int));
-static boolean ieee_struct_field
-  PARAMS ((PTR, const char *, bfd_vma, bfd_vma, enum debug_visibility));
-static boolean ieee_end_struct_type PARAMS ((PTR));
-static boolean ieee_start_class_type
-  PARAMS ((PTR, const char *, unsigned int, boolean, unsigned int, boolean,
-	   boolean));
-static boolean ieee_class_static_member
-  PARAMS ((PTR, const char *, const char *, enum debug_visibility));
-static boolean ieee_class_baseclass
-  PARAMS ((PTR, bfd_vma, boolean, enum debug_visibility));
-static boolean ieee_class_start_method PARAMS ((PTR, const char *));
-static boolean ieee_class_method_variant
-  PARAMS ((PTR, const char *, enum debug_visibility, boolean, boolean,
-	   bfd_vma, boolean));
-static boolean ieee_class_static_method_variant
-  PARAMS ((PTR, const char *, enum debug_visibility, boolean, boolean));
-static boolean ieee_class_end_method PARAMS ((PTR));
-static boolean ieee_end_class_type PARAMS ((PTR));
-static boolean ieee_typedef_type PARAMS ((PTR, const char *));
-static boolean ieee_tag_type
-  PARAMS ((PTR, const char *, unsigned int, enum debug_type_kind));
-static boolean ieee_typdef PARAMS ((PTR, const char *));
-static boolean ieee_tag PARAMS ((PTR, const char *));
-static boolean ieee_int_constant PARAMS ((PTR, const char *, bfd_vma));
-static boolean ieee_float_constant PARAMS ((PTR, const char *, double));
-static boolean ieee_typed_constant PARAMS ((PTR, const char *, bfd_vma));
-static boolean ieee_variable
-  PARAMS ((PTR, const char *, enum debug_var_kind, bfd_vma));
-static boolean ieee_start_function PARAMS ((PTR, const char *, boolean));
-static boolean ieee_function_parameter
-  PARAMS ((PTR, const char *, enum debug_parm_kind, bfd_vma));
-static boolean ieee_start_block PARAMS ((PTR, bfd_vma));
-static boolean ieee_end_block PARAMS ((PTR, bfd_vma));
-static boolean ieee_end_function PARAMS ((PTR));
-static boolean ieee_lineno
-  PARAMS ((PTR, const char *, unsigned long, bfd_vma));
+static bfd_boolean ieee_start_compilation_unit (void *, const char *);
+static bfd_boolean ieee_start_source (void *, const char *);
+static bfd_boolean ieee_empty_type (void *);
+static bfd_boolean ieee_void_type (void *);
+static bfd_boolean ieee_int_type (void *, unsigned int, bfd_boolean);
+static bfd_boolean ieee_float_type (void *, unsigned int);
+static bfd_boolean ieee_complex_type (void *, unsigned int);
+static bfd_boolean ieee_bool_type (void *, unsigned int);
+static bfd_boolean ieee_enum_type
+  (void *, const char *, const char **, bfd_signed_vma *);
+static bfd_boolean ieee_pointer_type (void *);
+static bfd_boolean ieee_function_type (void *, int, bfd_boolean);
+static bfd_boolean ieee_reference_type (void *);
+static bfd_boolean ieee_range_type (void *, bfd_signed_vma, bfd_signed_vma);
+static bfd_boolean ieee_array_type
+  (void *, bfd_signed_vma, bfd_signed_vma, bfd_boolean);
+static bfd_boolean ieee_set_type (void *, bfd_boolean);
+static bfd_boolean ieee_offset_type (void *);
+static bfd_boolean ieee_method_type (void *, bfd_boolean, int, bfd_boolean);
+static bfd_boolean ieee_const_type (void *);
+static bfd_boolean ieee_volatile_type (void *);
+static bfd_boolean ieee_start_struct_type
+  (void *, const char *, unsigned int, bfd_boolean, unsigned int);
+static bfd_boolean ieee_struct_field
+  (void *, const char *, bfd_vma, bfd_vma, enum debug_visibility);
+static bfd_boolean ieee_end_struct_type (void *);
+static bfd_boolean ieee_start_class_type
+  (void *, const char *, unsigned int, bfd_boolean, unsigned int, bfd_boolean,
+   bfd_boolean);
+static bfd_boolean ieee_class_static_member
+  (void *, const char *, const char *, enum debug_visibility);
+static bfd_boolean ieee_class_baseclass
+  (void *, bfd_vma, bfd_boolean, enum debug_visibility);
+static bfd_boolean ieee_class_start_method (void *, const char *);
+static bfd_boolean ieee_class_method_variant
+  (void *, const char *, enum debug_visibility, bfd_boolean, bfd_boolean,
+   bfd_vma, bfd_boolean);
+static bfd_boolean ieee_class_static_method_variant
+  (void *, const char *, enum debug_visibility, bfd_boolean, bfd_boolean);
+static bfd_boolean ieee_class_end_method (void *);
+static bfd_boolean ieee_end_class_type (void *);
+static bfd_boolean ieee_typedef_type (void *, const char *);
+static bfd_boolean ieee_tag_type
+  (void *, const char *, unsigned int, enum debug_type_kind);
+static bfd_boolean ieee_typdef (void *, const char *);
+static bfd_boolean ieee_tag (void *, const char *);
+static bfd_boolean ieee_int_constant (void *, const char *, bfd_vma);
+static bfd_boolean ieee_float_constant (void *, const char *, double);
+static bfd_boolean ieee_typed_constant (void *, const char *, bfd_vma);
+static bfd_boolean ieee_variable
+  (void *, const char *, enum debug_var_kind, bfd_vma);
+static bfd_boolean ieee_start_function (void *, const char *, bfd_boolean);
+static bfd_boolean ieee_function_parameter
+  (void *, const char *, enum debug_parm_kind, bfd_vma);
+static bfd_boolean ieee_start_block (void *, bfd_vma);
+static bfd_boolean ieee_end_block (void *, bfd_vma);
+static bfd_boolean ieee_end_function (void *);
+static bfd_boolean ieee_lineno (void *, const char *, unsigned long, bfd_vma);
 
 static const struct debug_write_fns ieee_fns =
 {
@@ -4101,15 +4047,13 @@ static const struct debug_write_fns ieee_fns =
 
 /* Initialize a buffer to be empty.  */
 
-/*ARGSUSED*/
-static boolean
-ieee_init_buffer (info, buflist)
-     struct ieee_handle *info;
-     struct ieee_buflist *buflist;
+static bfd_boolean
+ieee_init_buffer (struct ieee_handle *info ATTRIBUTE_UNUSED,
+		  struct ieee_buflist *buflist)
 {
   buflist->head = NULL;
   buflist->tail = NULL;
-  return true;
+  return TRUE;
 }
 
 /* See whether a buffer list has any data.  */
@@ -4118,10 +4062,8 @@ ieee_init_buffer (info, buflist)
 
 /* Change the current buffer to a specified buffer chain.  */
 
-static boolean
-ieee_change_buffer (info, buflist)
-     struct ieee_handle *info;
-     struct ieee_buflist *buflist;
+static bfd_boolean
+ieee_change_buffer (struct ieee_handle *info, struct ieee_buflist *buflist)
 {
   if (buflist->head == NULL)
     {
@@ -4137,17 +4079,15 @@ ieee_change_buffer (info, buflist)
   info->current = buflist;
   info->curbuf = buflist->tail;
 
-  return true;
+  return TRUE;
 }
 
 /* Append a buffer chain.  */
 
-/*ARGSUSED*/
-static boolean
-ieee_append_buffer (info, mainbuf, newbuf)
-     struct ieee_handle *info;
-     struct ieee_buflist *mainbuf;
-     struct ieee_buflist *newbuf;
+static bfd_boolean
+ieee_append_buffer (struct ieee_handle *info ATTRIBUTE_UNUSED,
+		    struct ieee_buflist *mainbuf,
+		    struct ieee_buflist *newbuf)
 {
   if (newbuf->head != NULL)
     {
@@ -4157,7 +4097,7 @@ ieee_append_buffer (info, mainbuf, newbuf)
 	mainbuf->tail->next = newbuf->head;
       mainbuf->tail = newbuf->tail;
     }
-  return true;
+  return TRUE;
 }
 
 /* Write a byte into the buffer.  We use a macro for speed and a
@@ -4165,13 +4105,11 @@ ieee_append_buffer (info, mainbuf, newbuf)
 
 #define ieee_write_byte(info, b)				\
   ((info)->curbuf->c < IEEE_BUFSIZE				\
-   ? ((info)->curbuf->buf[(info)->curbuf->c++] = (b), true)	\
+   ? ((info)->curbuf->buf[(info)->curbuf->c++] = (b), TRUE)	\
    : ieee_real_write_byte ((info), (b)))
 
-static boolean
-ieee_real_write_byte (info, b)
-     struct ieee_handle *info;
-     int b;
+static bfd_boolean
+ieee_real_write_byte (struct ieee_handle *info, int b)
 {
   if (info->curbuf->c >= IEEE_BUFSIZE)
     {
@@ -4191,15 +4129,13 @@ ieee_real_write_byte (info, b)
   info->curbuf->buf[info->curbuf->c] = b;
   ++info->curbuf->c;
 
-  return true;
+  return TRUE;
 }
 
 /* Write out two bytes.  */
 
-static boolean
-ieee_write_2bytes (info, i)
-     struct ieee_handle *info;
-     int i;
+static bfd_boolean
+ieee_write_2bytes (struct ieee_handle *info, int i)
 {
   return (ieee_write_byte (info, i >> 8)
 	  && ieee_write_byte (info, i & 0xff));
@@ -4207,10 +4143,8 @@ ieee_write_2bytes (info, i)
 
 /* Write out an integer.  */
 
-static boolean
-ieee_write_number (info, v)
-     struct ieee_handle *info;
-     bfd_vma v;
+static bfd_boolean
+ieee_write_number (struct ieee_handle *info, bfd_vma v)
 {
   bfd_vma t;
   bfd_byte ab[20];
@@ -4235,26 +4169,24 @@ ieee_write_number (info, v)
       fprintf (stderr, _("IEEE numeric overflow: 0x"));
       fprintf_vma (stderr, v);
       fprintf (stderr, "\n");
-      return false;
+      return FALSE;
     }
 
   if (! ieee_write_byte (info, (int) ieee_number_repeat_start_enum + c))
-    return false;
+    return FALSE;
   for (; c > 0; --c, ++p)
     {
       if (! ieee_write_byte (info, *p))
-	return false;
+	return FALSE;
     }
 
-  return true;
+  return TRUE;
 }
 
 /* Write out a string.  */
 
-static boolean
-ieee_write_id (info, s)
-     struct ieee_handle *info;
-     const char *s;
+static bfd_boolean
+ieee_write_id (struct ieee_handle *info, const char *s)
 {
   unsigned int len;
 
@@ -4262,40 +4194,37 @@ ieee_write_id (info, s)
   if (len <= 0x7f)
     {
       if (! ieee_write_byte (info, len))
-	return false;
+	return FALSE;
     }
   else if (len <= 0xff)
     {
       if (! ieee_write_byte (info, (int) ieee_extension_length_1_enum)
 	  || ! ieee_write_byte (info, len))
-	return false;
+	return FALSE;
     }
   else if (len <= 0xffff)
     {
       if (! ieee_write_byte (info, (int) ieee_extension_length_2_enum)
 	  || ! ieee_write_2bytes (info, len))
-	return false;
+	return FALSE;
     }
   else
     {
       fprintf (stderr, _("IEEE string length overflow: %u\n"), len);
-      return false;
+      return FALSE;
     }
 
   for (; *s != '\0'; s++)
     if (! ieee_write_byte (info, *s))
-      return false;
+      return FALSE;
 
-  return true;
+  return TRUE;
 }
 
 /* Write out an ASN record.  */
 
-static boolean
-ieee_write_asn (info, indx, val)
-     struct ieee_handle *info;
-     unsigned int indx;
-     bfd_vma val;
+static bfd_boolean
+ieee_write_asn (struct ieee_handle *info, unsigned int indx, bfd_vma val)
 {
   return (ieee_write_2bytes (info, (int) ieee_asn_record_enum)
 	  && ieee_write_number (info, indx)
@@ -4304,11 +4233,8 @@ ieee_write_asn (info, indx, val)
 
 /* Write out an ATN65 record.  */
 
-static boolean
-ieee_write_atn65 (info, indx, s)
-     struct ieee_handle *info;
-     unsigned int indx;
-     const char *s;
+static bfd_boolean
+ieee_write_atn65 (struct ieee_handle *info, unsigned int indx, const char *s)
 {
   return (ieee_write_2bytes (info, (int) ieee_atn_record_enum)
 	  && ieee_write_number (info, indx)
@@ -4319,13 +4245,9 @@ ieee_write_atn65 (info, indx, s)
 
 /* Push a type index onto the type stack.  */
 
-static boolean
-ieee_push_type (info, indx, size, unsignedp, localp)
-     struct ieee_handle *info;
-     unsigned int indx;
-     unsigned int size;
-     boolean unsignedp;
-     boolean localp;
+static bfd_boolean
+ieee_push_type (struct ieee_handle *info, unsigned int indx,
+		unsigned int size, bfd_boolean unsignedp, bfd_boolean localp)
 {
   struct ieee_type_stack *ts;
 
@@ -4340,33 +4262,29 @@ ieee_push_type (info, indx, size, unsignedp, localp)
   ts->next = info->type_stack;
   info->type_stack = ts;
 
-  return true;
+  return TRUE;
 }
 
 /* Pop a type index off the type stack.  */
 
 static unsigned int
-ieee_pop_type (info)
-     struct ieee_handle *info;
+ieee_pop_type (struct ieee_handle *info)
 {
-  return ieee_pop_type_used (info, true);
+  return ieee_pop_type_used (info, TRUE);
 }
 
 /* Pop an unused type index off the type stack.  */
 
 static void
-ieee_pop_unused_type (info)
-     struct ieee_handle *info;
+ieee_pop_unused_type (struct ieee_handle *info)
 {
-  (void) ieee_pop_type_used (info, false);
+  (void) ieee_pop_type_used (info, FALSE);
 }
 
 /* Pop a used or unused type index off the type stack.  */
 
 static unsigned int
-ieee_pop_type_used (info, used)
-     struct ieee_handle *info;
-     boolean used;
+ieee_pop_type_used (struct ieee_handle *info, bfd_boolean used)
 {
   struct ieee_type_stack *ts;
   unsigned int ret;
@@ -4390,7 +4308,7 @@ ieee_pop_type_used (info, used)
 		  || ! ieee_write_byte (info, 1)
 		  || ! ieee_write_number (info, 0)
 		  || ! ieee_write_id (info, info->modname))
-		return false;
+		return FALSE;
 	    }
 	  buflist = &info->types;
 	}
@@ -4404,13 +4322,13 @@ ieee_pop_type_used (info, used)
 		  || ! ieee_write_byte (info, 2)
 		  || ! ieee_write_number (info, 0)
 		  || ! ieee_write_id (info, ""))
-		return false;
+		return FALSE;
 	    }
 	  buflist = &info->global_types;
 	}
 
       if (! ieee_append_buffer (info, buflist, &ts->type.fndef))
-	return false;
+	return FALSE;
     }
 
   ret = ts->type.indx;
@@ -4421,17 +4339,14 @@ ieee_pop_type_used (info, used)
 
 /* Add a range of bytes included in the current compilation unit.  */
 
-static boolean
-ieee_add_range (info, global, low, high)
-     struct ieee_handle *info;
-     boolean global;
-     bfd_vma low;
-     bfd_vma high;
+static bfd_boolean
+ieee_add_range (struct ieee_handle *info, bfd_boolean global, bfd_vma low,
+		bfd_vma high)
 {
   struct ieee_range **plist, *r, **pr;
 
   if (low == (bfd_vma) -1 || high == (bfd_vma) -1 || low == high)
-    return true;
+    return TRUE;
 
   if (global)
     plist = &info->global_ranges;
@@ -4458,7 +4373,7 @@ ieee_add_range (info, global, low, high)
 	      free (*pr);
 	      *pr = n;
 	    }
-	  return true;
+	  return TRUE;
 	}
     }
 
@@ -4475,15 +4390,13 @@ ieee_add_range (info, global, low, high)
   r->next = *pr;
   *pr = r;
 
-  return true;
+  return TRUE;
 }
 
 /* Start a new range for which we only have the low address.  */
 
-static boolean
-ieee_start_range (info, low)
-     struct ieee_handle *info;
-     bfd_vma low;
+static bfd_boolean
+ieee_start_range (struct ieee_handle *info, bfd_vma low)
 {
   struct ieee_range *r;
 
@@ -4492,15 +4405,13 @@ ieee_start_range (info, low)
   r->low = low;
   r->next = info->pending_ranges;
   info->pending_ranges = r;
-  return true;
-}  
+  return TRUE;
+}
 
 /* Finish a range started by ieee_start_range.  */
 
-static boolean
-ieee_end_range (info, high)
-     struct ieee_handle *info;
-     bfd_vma high;
+static bfd_boolean
+ieee_end_range (struct ieee_handle *info, bfd_vma high)
 {
   struct ieee_range *r;
   bfd_vma low;
@@ -4510,17 +4421,14 @@ ieee_end_range (info, high)
   low = r->low;
   info->pending_ranges = r->next;
   free (r);
-  return ieee_add_range (info, false, low, high);
+  return ieee_add_range (info, FALSE, low, high);
 }
 
 /* Start defining a type.  */
 
-static boolean
-ieee_define_type (info, size, unsignedp, localp)
-     struct ieee_handle *info;
-     unsigned int size;
-     boolean unsignedp;
-     boolean localp;
+static bfd_boolean
+ieee_define_type (struct ieee_handle *info, unsigned int size,
+		  bfd_boolean unsignedp, bfd_boolean localp)
 {
   return ieee_define_named_type (info, (const char *) NULL,
 				 (unsigned int) -1, size, unsignedp,
@@ -4529,15 +4437,11 @@ ieee_define_type (info, size, unsignedp, localp)
 
 /* Start defining a named type.  */
 
-static boolean
-ieee_define_named_type (info, name, indx, size, unsignedp, localp, buflist)
-     struct ieee_handle *info;
-     const char *name;
-     unsigned int indx;
-     unsigned int size;
-     boolean unsignedp;
-     boolean localp;
-     struct ieee_buflist *buflist;
+static bfd_boolean
+ieee_define_named_type (struct ieee_handle *info, const char *name,
+			unsigned int indx, unsigned int size,
+			bfd_boolean unsignedp, bfd_boolean localp,
+			struct ieee_buflist *buflist)
 {
   unsigned int type_indx;
   unsigned int name_indx;
@@ -4562,14 +4466,14 @@ ieee_define_named_type (info, name, indx, size, unsignedp, localp, buflist)
   if (buflist != NULL)
     {
       if (! ieee_change_buffer (info, buflist))
-	return false;
+	return FALSE;
     }
   else if (localp)
     {
       if (! ieee_buffer_emptyp (&info->types))
 	{
 	  if (! ieee_change_buffer (info, &info->types))
-	    return false;
+	    return FALSE;
 	}
       else
 	{
@@ -4578,7 +4482,7 @@ ieee_define_named_type (info, name, indx, size, unsignedp, localp, buflist)
 	      || ! ieee_write_byte (info, 1)
 	      || ! ieee_write_number (info, 0)
 	      || ! ieee_write_id (info, info->modname))
-	    return false;
+	    return FALSE;
 	}
     }
   else
@@ -4586,7 +4490,7 @@ ieee_define_named_type (info, name, indx, size, unsignedp, localp, buflist)
       if (! ieee_buffer_emptyp (&info->global_types))
 	{
 	  if (! ieee_change_buffer (info, &info->global_types))
-	    return false;
+	    return FALSE;
 	}
       else
 	{
@@ -4595,7 +4499,7 @@ ieee_define_named_type (info, name, indx, size, unsignedp, localp, buflist)
 	      || ! ieee_write_byte (info, 2)
 	      || ! ieee_write_number (info, 0)
 	      || ! ieee_write_id (info, ""))
-	    return false;
+	    return FALSE;
 	}
     }
 
@@ -4603,7 +4507,7 @@ ieee_define_named_type (info, name, indx, size, unsignedp, localp, buflist)
      write out the start of a TY record.  The caller will then finish
      the TY record.  */
   if (! ieee_push_type (info, type_indx, size, unsignedp, localp))
-    return false;
+    return FALSE;
 
   return (ieee_write_byte (info, (int) ieee_nn_record)
 	  && ieee_write_number (info, name_indx)
@@ -4617,9 +4521,7 @@ ieee_define_named_type (info, name, indx, size, unsignedp, localp, buflist)
 /* Get an entry to the list of modified versions of a type.  */
 
 static struct ieee_modified_type *
-ieee_get_modified_info (info, indx)
-     struct ieee_handle *info;
-     unsigned int indx;
+ieee_get_modified_info (struct ieee_handle *info, unsigned int indx)
 {
   if (indx >= info->modified_alloc)
     {
@@ -4646,10 +4548,8 @@ ieee_get_modified_info (info, indx)
 /* Initialize an entry in the hash table.  */
 
 static struct bfd_hash_entry *
-ieee_name_type_newfunc (entry, table, string)
-     struct bfd_hash_entry *entry;
-     struct bfd_hash_table *table;
-     const char *string;
+ieee_name_type_newfunc (struct bfd_hash_entry *entry,
+			struct bfd_hash_table *table, const char *string)
 {
   struct ieee_name_type_hash_entry *ret =
     (struct ieee_name_type_hash_entry *) entry;
@@ -4685,15 +4585,13 @@ ieee_name_type_newfunc (entry, table, string)
 #define ieee_name_type_hash_traverse(table, func, info)			\
   (bfd_hash_traverse							\
    (&(table)->root,							\
-    (boolean (*) PARAMS ((struct bfd_hash_entry *, PTR))) (func),	\
+    (bfd_boolean (*) (struct bfd_hash_entry *, void *)) (func),		\
     (info)))
 
 /* The general routine to write out IEEE debugging information.  */
 
-boolean
-write_ieee_debugging_info (abfd, dhandle)
-     bfd *abfd;
-     PTR dhandle;
+bfd_boolean
+write_ieee_debugging_info (bfd *abfd, void *dhandle)
 {
   struct ieee_handle info;
   asection *s;
@@ -4705,9 +4603,11 @@ write_ieee_debugging_info (abfd, dhandle)
   info.type_indx = 256;
   info.name_indx = 32;
 
-  if (! bfd_hash_table_init (&info.typedefs.root, ieee_name_type_newfunc)
-      || ! bfd_hash_table_init (&info.tags.root, ieee_name_type_newfunc))
-    return false;
+  if (!bfd_hash_table_init (&info.typedefs.root, ieee_name_type_newfunc,
+			    sizeof (struct ieee_name_type_hash_entry))
+      || !bfd_hash_table_init (&info.tags.root, ieee_name_type_newfunc,
+			       sizeof (struct ieee_name_type_hash_entry)))
+    return FALSE;
 
   if (! ieee_init_buffer (&info, &info.global_types)
       || ! ieee_init_buffer (&info, &info.data)
@@ -4717,24 +4617,24 @@ write_ieee_debugging_info (abfd, dhandle)
       || ! ieee_init_buffer (&info, &info.linenos)
       || ! ieee_init_buffer (&info, &info.fntype)
       || ! ieee_init_buffer (&info, &info.fnargs))
-    return false;
+    return FALSE;
 
-  if (! debug_write (dhandle, &ieee_fns, (PTR) &info))
-    return false;
+  if (! debug_write (dhandle, &ieee_fns, (void *) &info))
+    return FALSE;
 
   if (info.filename != NULL)
     {
       if (! ieee_finish_compilation_unit (&info))
-	return false;
+	return FALSE;
     }
 
   /* Put any undefined tags in the global typedef information.  */
-  info.error = false;
+  info.error = FALSE;
   ieee_name_type_hash_traverse (&info.tags,
 				ieee_write_undefined_tag,
-				(PTR) &info);
+				(void *) &info);
   if (info.error)
-    return false;
+    return FALSE;
 
   /* Prepend the global typedef information to the other data.  */
   if (! ieee_buffer_emptyp (&info.global_types))
@@ -4752,29 +4652,29 @@ write_ieee_debugging_info (abfd, dhandle)
 	  || ! ieee_write_number (&info, 'P')
 	  || ! ieee_write_number (&info, (int) builtin_void + 32)
 	  || ! ieee_write_byte (&info, (int) ieee_be_record_enum))
-	return false;
+	return FALSE;
 
       if (! ieee_append_buffer (&info, &info.global_types, &info.data))
-	return false;
+	return FALSE;
       info.data = info.global_types;
     }
 
   /* Make sure that we have declare BB11 blocks for each range in the
      file.  They are added to info->vars.  */
-  info.error = false;
+  info.error = FALSE;
   if (! ieee_init_buffer (&info, &info.vars))
-    return false;
-  bfd_map_over_sections (abfd, ieee_add_bb11_blocks, (PTR) &info);
+    return FALSE;
+  bfd_map_over_sections (abfd, ieee_add_bb11_blocks, (void *) &info);
   if (info.error)
-    return false;
+    return FALSE;
   if (! ieee_buffer_emptyp (&info.vars))
     {
       if (! ieee_change_buffer (&info, &info.vars)
 	  || ! ieee_write_byte (&info, (int) ieee_be_record_enum))
-	return false;
+	return FALSE;
 
       if (! ieee_append_buffer (&info, &info.data, &info.vars))
-	return false;
+	return FALSE;
     }
 
   /* Now all the data is in info.data.  Write it out to the BFD.  We
@@ -4784,17 +4684,13 @@ write_ieee_debugging_info (abfd, dhandle)
   if (ieee_buffer_emptyp (&info.data))
     {
       /* There is no debugging information.  */
-      return true;
+      return TRUE;
     }
   err = NULL;
-  s = bfd_make_section (abfd, ".debug");
+  s = bfd_make_section_with_flags (abfd, ".debug",
+				   SEC_DEBUGGING | SEC_HAS_CONTENTS);
   if (s == NULL)
     err = "bfd_make_section";
-  if (err == NULL)
-    {
-      if (! bfd_set_section_flags (abfd, s, SEC_DEBUGGING | SEC_HAS_CONTENTS))
-	err = "bfd_set_section_flags";
-    }
   if (err == NULL)
     {
       bfd_size_type size;
@@ -4825,22 +4721,20 @@ write_ieee_debugging_info (abfd, dhandle)
     {
       fprintf (stderr, "%s: %s: %s\n", bfd_get_filename (abfd), err,
 	       bfd_errmsg (bfd_get_error ()));
-      return false;
+      return FALSE;
     }
 
   bfd_hash_table_free (&info.typedefs.root);
   bfd_hash_table_free (&info.tags.root);
 
-  return true;
+  return TRUE;
 }
 
 /* Write out information for an undefined tag.  This is called via
    ieee_name_type_hash_traverse.  */
 
-static boolean
-ieee_write_undefined_tag (h, p)
-     struct ieee_name_type_hash_entry *h;
-     PTR p;
+static bfd_boolean
+ieee_write_undefined_tag (struct ieee_name_type_hash_entry *h, void *p)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
   struct ieee_name_type *nt;
@@ -4861,16 +4755,16 @@ ieee_write_undefined_tag (h, p)
 	      || ! ieee_write_number (info, 0)
 	      || ! ieee_write_id (info, ""))
 	    {
-	      info->error = true;
-	      return false;
+	      info->error = TRUE;
+	      return FALSE;
 	    }
 	}
       else
 	{
 	  if (! ieee_change_buffer (info, &info->global_types))
 	    {
-	      info->error = true;
-	      return false;
+	      info->error = TRUE;
+	      return FALSE;
 	    }
 	}
 
@@ -4884,16 +4778,16 @@ ieee_write_undefined_tag (h, p)
 	  || ! ieee_write_byte (info, 0xce)
 	  || ! ieee_write_number (info, name_indx))
 	{
-	  info->error = true;
-	  return false;
+	  info->error = TRUE;
+	  return FALSE;
 	}
 
       switch (nt->kind)
 	{
 	default:
 	  abort ();
-	  info->error = true;
-	  return false;
+	  info->error = TRUE;
+	  return FALSE;
 	case DEBUG_KIND_STRUCT:
 	case DEBUG_KIND_CLASS:
 	  code = 'S';
@@ -4909,44 +4803,51 @@ ieee_write_undefined_tag (h, p)
       if (! ieee_write_number (info, code)
 	  || ! ieee_write_number (info, 0))
 	{
-	  info->error = true;
-	  return false;
+	  info->error = TRUE;
+	  return FALSE;
 	}
     }
 
-  return true;
+  return TRUE;
 }
 
 /* Start writing out information for a compilation unit.  */
 
-static boolean
-ieee_start_compilation_unit (p, filename)
-     PTR p;
-     const char *filename;
+static bfd_boolean
+ieee_start_compilation_unit (void *p, const char *filename)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
   const char *modname;
+#ifdef HAVE_DOS_BASED_FILE_SYSTEM
+  const char *backslash;
+#endif
   char *c, *s;
   unsigned int nindx;
 
   if (info->filename != NULL)
     {
       if (! ieee_finish_compilation_unit (info))
-	return false;
+	return FALSE;
     }
 
   info->filename = filename;
   modname = strrchr (filename, '/');
+#ifdef HAVE_DOS_BASED_FILE_SYSTEM
+  /* We could have a mixed forward/back slash case.  */
+  backslash = strrchr (filename, '\\');
+  if (modname == NULL || (backslash != NULL && backslash > modname))
+    modname = backslash;
+#endif
+
   if (modname != NULL)
     ++modname;
+#ifdef HAVE_DOS_BASED_FILE_SYSTEM
+  else if (filename[0] && filename[1] == ':')
+    modname = filename + 2;
+#endif
   else
-    {
-      modname = strrchr (filename, '\\');
-      if (modname != NULL)
-	++modname;
-      else
-	modname = filename;
-    }
+    modname = filename;
+
   c = xstrdup (modname);
   s = strrchr (c, '.');
   if (s != NULL)
@@ -4957,7 +4858,7 @@ ieee_start_compilation_unit (p, filename)
       || ! ieee_init_buffer (info, &info->vars)
       || ! ieee_init_buffer (info, &info->cxx)
       || ! ieee_init_buffer (info, &info->linenos))
-    return false;
+    return FALSE;
   info->ranges = NULL;
 
   /* Always include a BB1 and a BB3 block.  That is what the output of
@@ -4967,7 +4868,7 @@ ieee_start_compilation_unit (p, filename)
       || ! ieee_write_byte (info, 1)
       || ! ieee_write_number (info, 0)
       || ! ieee_write_id (info, info->modname))
-    return false;
+    return FALSE;
 
   nindx = info->name_indx;
   ++info->name_indx;
@@ -4976,16 +4877,15 @@ ieee_start_compilation_unit (p, filename)
       || ! ieee_write_byte (info, 3)
       || ! ieee_write_number (info, 0)
       || ! ieee_write_id (info, info->modname))
-    return false;
+    return FALSE;
 
-  return true;
+  return TRUE;
 }
 
 /* Finish up a compilation unit.  */
 
-static boolean
-ieee_finish_compilation_unit (info)
-     struct ieee_handle *info;
+static bfd_boolean
+ieee_finish_compilation_unit (struct ieee_handle *info)
 {
   struct ieee_range *r;
 
@@ -4993,7 +4893,7 @@ ieee_finish_compilation_unit (info)
     {
       if (! ieee_change_buffer (info, &info->types)
 	  || ! ieee_write_byte (info, (int) ieee_be_record_enum))
-	return false;
+	return FALSE;
     }
 
   if (! ieee_buffer_emptyp (&info->cxx))
@@ -5002,7 +4902,7 @@ ieee_finish_compilation_unit (info)
          variable information.  */
       assert (! ieee_buffer_emptyp (&info->vars));
       if (! ieee_change_buffer (info, &info->vars))
-	return false;
+	return FALSE;
 
       /* We put the pmisc records in a dummy procedure, just as the
          MRI compiler does.  */
@@ -5017,45 +4917,45 @@ ieee_finish_compilation_unit (info)
 	  || ! ieee_change_buffer (info, &info->vars)
 	  || ! ieee_write_byte (info, (int) ieee_be_record_enum)
 	  || ! ieee_write_number (info, info->highaddr - 1))
-	return false;
+	return FALSE;
     }
 
   if (! ieee_buffer_emptyp (&info->vars))
     {
       if (! ieee_change_buffer (info, &info->vars)
 	  || ! ieee_write_byte (info, (int) ieee_be_record_enum))
-	return false;
+	return FALSE;
     }
 
   if (info->pending_lineno_filename != NULL)
     {
       /* Force out the pending line number.  */
-      if (! ieee_lineno ((PTR) info, (const char *) NULL, 0, (bfd_vma) -1))
-	return false;
+      if (! ieee_lineno ((void *) info, (const char *) NULL, 0, (bfd_vma) -1))
+	return FALSE;
     }
   if (! ieee_buffer_emptyp (&info->linenos))
     {
       if (! ieee_change_buffer (info, &info->linenos)
 	  || ! ieee_write_byte (info, (int) ieee_be_record_enum))
-	return false;
+	return FALSE;
       if (strcmp (info->filename, info->lineno_filename) != 0)
 	{
 	  /* We were not in the main file.  We just closed the
              included line number block, and now we must close the
              main line number block.  */
 	  if (! ieee_write_byte (info, (int) ieee_be_record_enum))
-	    return false;
+	    return FALSE;
 	}
     }
 
   if (! ieee_append_buffer (info, &info->data, &info->types)
       || ! ieee_append_buffer (info, &info->data, &info->vars)
       || ! ieee_append_buffer (info, &info->data, &info->linenos))
-    return false;
+    return FALSE;
 
   /* Build BB10/BB11 blocks based on the ranges we recorded.  */
   if (! ieee_change_buffer (info, &info->data))
-    return false;
+    return FALSE;
 
   if (! ieee_write_byte (info, (int) ieee_bb_record_enum)
       || ! ieee_write_byte (info, 10)
@@ -5064,7 +4964,7 @@ ieee_finish_compilation_unit (info)
       || ! ieee_write_id (info, "")
       || ! ieee_write_number (info, 0)
       || ! ieee_write_id (info, "GNU objcopy"))
-    return false;
+    return FALSE;
 
   for (r = info->ranges; r != NULL; r = r->next)
     {
@@ -5117,27 +5017,24 @@ ieee_finish_compilation_unit (info)
 	  || ! ieee_write_number (info, low)
 	  || ! ieee_write_byte (info, (int) ieee_be_record_enum)
 	  || ! ieee_write_number (info, high - low))
-	return false;
+	return FALSE;
 
       /* Add this range to the list of global ranges.  */
-      if (! ieee_add_range (info, true, low, high))
-	return false;
+      if (! ieee_add_range (info, TRUE, low, high))
+	return FALSE;
     }
 
   if (! ieee_write_byte (info, (int) ieee_be_record_enum))
-    return false;
+    return FALSE;
 
-  return true;
+  return TRUE;
 }
 
 /* Add BB11 blocks describing each range that we have not already
    described.  */
 
 static void
-ieee_add_bb11_blocks (abfd, sec, data)
-     bfd *abfd;
-     asection *sec;
-     PTR data;
+ieee_add_bb11_blocks (bfd *abfd ATTRIBUTE_UNUSED, asection *sec, void *data)
 {
   struct ieee_handle *info = (struct ieee_handle *) data;
   bfd_vma low, high;
@@ -5157,7 +5054,7 @@ ieee_add_bb11_blocks (abfd, sec, data)
       if (r == NULL || r->low >= high)
 	{
 	  if (! ieee_add_bb11 (info, sec, low, high))
-	    info->error = true;
+	    info->error = TRUE;
 	  return;
 	}
 
@@ -5166,7 +5063,7 @@ ieee_add_bb11_blocks (abfd, sec, data)
 	{
 	  if (! ieee_add_bb11 (info, sec, low, r->low))
 	    {
-	      info->error = true;
+	      info->error = TRUE;
 	      return;
 	    }
 	}
@@ -5178,38 +5075,43 @@ ieee_add_bb11_blocks (abfd, sec, data)
 
 /* Add a single BB11 block for a range.  We add it to info->vars.  */
 
-static boolean
-ieee_add_bb11 (info, sec, low, high)
-     struct ieee_handle *info;
-     asection *sec;
-     bfd_vma low;
-     bfd_vma high;
+static bfd_boolean
+ieee_add_bb11 (struct ieee_handle *info, asection *sec, bfd_vma low,
+	       bfd_vma high)
 {
   int kind;
 
   if (! ieee_buffer_emptyp (&info->vars))
     {
       if (! ieee_change_buffer (info, &info->vars))
-	return false;
+	return FALSE;
     }
   else
     {
       const char *filename, *modname;
+#ifdef HAVE_DOS_BASED_FILE_SYSTEM
+      const char *backslash;
+#endif
       char *c, *s;
 
       /* Start the enclosing BB10 block.  */
       filename = bfd_get_filename (info->abfd);
       modname = strrchr (filename, '/');
+#ifdef HAVE_DOS_BASED_FILE_SYSTEM
+      backslash = strrchr (filename, '\\');
+      if (modname == NULL || (backslash != NULL && backslash > modname))
+	modname = backslash;
+#endif
+
       if (modname != NULL)
 	++modname;
+#ifdef HAVE_DOS_BASED_FILE_SYSTEM
+      else if (filename[0] && filename[1] == ':')
+	modname = filename + 2;
+#endif
       else
-	{
-	  modname = strrchr (filename, '\\');
-	  if (modname != NULL)
-	    ++modname;
-	  else
-	    modname = filename;
-	}
+	modname = filename;
+
       c = xstrdup (modname);
       s = strrchr (c, '.');
       if (s != NULL)
@@ -5223,7 +5125,7 @@ ieee_add_bb11 (info, sec, low, high)
 	  || ! ieee_write_id (info, "")
 	  || ! ieee_write_number (info, 0)
 	  || ! ieee_write_id (info, "GNU objcopy"))
-	return false;
+	return FALSE;
 
       free (c);
     }
@@ -5244,9 +5146,9 @@ ieee_add_bb11 (info, sec, low, high)
       || ! ieee_write_number (info, low)
       || ! ieee_write_byte (info, (int) ieee_be_record_enum)
       || ! ieee_write_number (info, high - low))
-    return false;
+    return FALSE;
 
-  return true;
+  return TRUE;
 }
 
 /* Start recording information from a particular source file.  This is
@@ -5255,44 +5157,37 @@ ieee_add_bb11 (info, sec, low, high)
    down the file name anyhow.  IEEE debugging information doesn't seem
    to store this information anywhere.  */
 
-/*ARGSUSED*/
-static boolean
-ieee_start_source (p, filename)
-     PTR p;
-     const char *filename;
+static bfd_boolean
+ieee_start_source (void *p ATTRIBUTE_UNUSED,
+		   const char *filename ATTRIBUTE_UNUSED)
 {
-  return true;
+  return TRUE;
 }
 
 /* Make an empty type.  */
 
-static boolean
-ieee_empty_type (p)
-     PTR p;
+static bfd_boolean
+ieee_empty_type (void *p)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
 
-  return ieee_push_type (info, (int) builtin_unknown, 0, false, false);
+  return ieee_push_type (info, (int) builtin_unknown, 0, FALSE, FALSE);
 }
 
 /* Make a void type.  */
 
-static boolean
-ieee_void_type (p)
-     PTR p;
+static bfd_boolean
+ieee_void_type (void *p)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
 
-  return ieee_push_type (info, (int) builtin_void, 0, false, false);
+  return ieee_push_type (info, (int) builtin_void, 0, FALSE, FALSE);
 }
 
 /* Make an integer type.  */
 
-static boolean
-ieee_int_type (p, size, unsignedp)
-     PTR p;
-     unsigned int size;
-     boolean unsignedp;
+static bfd_boolean
+ieee_int_type (void *p, unsigned int size, bfd_boolean unsignedp)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
   unsigned int indx;
@@ -5313,21 +5208,19 @@ ieee_int_type (p, size, unsignedp)
       break;
     default:
       fprintf (stderr, _("IEEE unsupported integer type size %u\n"), size);
-      return false;
+      return FALSE;
     }
 
   if (unsignedp)
     ++indx;
 
-  return ieee_push_type (info, indx, size, unsignedp, false);
+  return ieee_push_type (info, indx, size, unsignedp, FALSE);
 }
 
 /* Make a floating point type.  */
 
-static boolean
-ieee_float_type (p, size)
-     PTR p;
-     unsigned int size;
+static bfd_boolean
+ieee_float_type (void *p, unsigned int size)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
   unsigned int indx;
@@ -5349,18 +5242,16 @@ ieee_float_type (p, size)
       break;
     default:
       fprintf (stderr, _("IEEE unsupported float type size %u\n"), size);
-      return false;
+      return FALSE;
     }
 
-  return ieee_push_type (info, indx, size, false, false);
+  return ieee_push_type (info, indx, size, FALSE, FALSE);
 }
 
 /* Make a complex type.  */
 
-static boolean
-ieee_complex_type (p, size)
-     PTR p;
-     unsigned int size;
+static bfd_boolean
+ieee_complex_type (void *p, unsigned int size)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
   char code;
@@ -5370,7 +5261,7 @@ ieee_complex_type (p, size)
     case 4:
       if (info->complex_float_index != 0)
 	return ieee_push_type (info, info->complex_float_index, size * 2,
-			       false, false);
+			       FALSE, FALSE);
       code = 'c';
       break;
     case 12:
@@ -5380,55 +5271,50 @@ ieee_complex_type (p, size)
     case 8:
       if (info->complex_double_index != 0)
 	return ieee_push_type (info, info->complex_double_index, size * 2,
-			       false, false);
+			       FALSE, FALSE);
       code = 'd';
       break;
     default:
       fprintf (stderr, _("IEEE unsupported complex type size %u\n"), size);
-      return false;
+      return FALSE;
     }
 
   /* FIXME: I don't know what the string is for.  */
-  if (! ieee_define_type (info, size * 2, false, false)
+  if (! ieee_define_type (info, size * 2, FALSE, FALSE)
       || ! ieee_write_number (info, code)
       || ! ieee_write_id (info, ""))
-    return false;
+    return FALSE;
 
   if (size == 4)
     info->complex_float_index = info->type_stack->type.indx;
   else
     info->complex_double_index = info->type_stack->type.indx;
 
-  return true;
+  return TRUE;
 }
 
 /* Make a boolean type.  IEEE doesn't support these, so we just make
    an integer type instead.  */
 
-static boolean
-ieee_bool_type (p, size)
-     PTR p;
-     unsigned int size;
+static bfd_boolean
+ieee_bool_type (void *p, unsigned int size)
 {
-  return ieee_int_type (p, size, true);
+  return ieee_int_type (p, size, TRUE);
 }
 
 /* Make an enumeration.  */
 
-static boolean
-ieee_enum_type (p, tag, names, vals)
-     PTR p;
-     const char *tag;
-     const char **names;
-     bfd_signed_vma *vals;
+static bfd_boolean
+ieee_enum_type (void *p, const char *tag, const char **names,
+		bfd_signed_vma *vals)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
   struct ieee_defined_enum *e;
-  boolean localp, simple;
+  bfd_boolean localp, simple;
   unsigned int indx;
   int i = 0;
 
-  localp = false;
+  localp = FALSE;
   indx = (unsigned int) -1;
   for (e = info->enums; e != NULL; e = e->next)
     {
@@ -5470,14 +5356,14 @@ ieee_enum_type (p, tag, names, vals)
 	      && e->names[i] == NULL))
 	{
 	  /* We've seen this enum before.  */
-	  return ieee_push_type (info, e->indx, 0, true, false);
+	  return ieee_push_type (info, e->indx, 0, TRUE, FALSE);
 	}
 
       if (tag != NULL)
 	{
 	  /* We've already seen an enum of the same name, so we must make
 	     sure to output this one locally.  */
-	  localp = true;
+	  localp = TRUE;
 	  break;
 	}
     }
@@ -5486,40 +5372,40 @@ ieee_enum_type (p, tag, names, vals)
      and always increment by 1, we can use type E.  Otherwise we must
      use type N.  */
 
-  simple = true;
+  simple = TRUE;
   if (names != NULL)
     {
       for (i = 0; names[i] != NULL; i++)
 	{
 	  if (vals[i] != i)
 	    {
-	      simple = false;
+	      simple = FALSE;
 	      break;
 	    }
 	}
     }
 
-  if (! ieee_define_named_type (info, tag, indx, 0, true, localp,
+  if (! ieee_define_named_type (info, tag, indx, 0, TRUE, localp,
 				(struct ieee_buflist *) NULL)
       || ! ieee_write_number (info, simple ? 'E' : 'N'))
-    return false;
+    return FALSE;
   if (simple)
     {
       /* FIXME: This is supposed to be the enumeration size, but we
          don't store that.  */
       if (! ieee_write_number (info, 4))
-	return false;
+	return FALSE;
     }
   if (names != NULL)
     {
       for (i = 0; names[i] != NULL; i++)
 	{
 	  if (! ieee_write_id (info, names[i]))
-	    return false;
+	    return FALSE;
 	  if (! simple)
 	    {
 	      if (! ieee_write_number (info, vals[i]))
-		return false;
+		return FALSE;
 	    }
 	}
     }
@@ -5539,20 +5425,19 @@ ieee_enum_type (p, tag, names, vals)
 
       e->names = names;
       e->vals = vals;
-      e->defined = true;
+      e->defined = TRUE;
     }
 
-  return true;
+  return TRUE;
 }
 
 /* Make a pointer type.  */
 
-static boolean
-ieee_pointer_type (p)
-     PTR p;
+static bfd_boolean
+ieee_pointer_type (void *p)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
-  boolean localp;
+  bfd_boolean localp;
   unsigned int indx;
   struct ieee_modified_type *m = NULL;
 
@@ -5562,28 +5447,28 @@ ieee_pointer_type (p)
   /* A pointer to a simple builtin type can be obtained by adding 32.
      FIXME: Will this be a short pointer, and will that matter?  */
   if (indx < 32)
-    return ieee_push_type (info, indx + 32, 0, true, false);
+    return ieee_push_type (info, indx + 32, 0, TRUE, FALSE);
 
   if (! localp)
     {
       m = ieee_get_modified_info (p, indx);
       if (m == NULL)
-	return false;
+	return FALSE;
 
       /* FIXME: The size should depend upon the architecture.  */
       if (m->pointer > 0)
-	return ieee_push_type (info, m->pointer, 4, true, false);
+	return ieee_push_type (info, m->pointer, 4, TRUE, FALSE);
     }
 
-  if (! ieee_define_type (info, 4, true, localp)
+  if (! ieee_define_type (info, 4, TRUE, localp)
       || ! ieee_write_number (info, 'P')
       || ! ieee_write_number (info, indx))
-    return false;
+    return FALSE;
 
   if (! localp)
     m->pointer = info->type_stack->type.indx;
 
-  return true;
+  return TRUE;
 }
 
 /* Make a function type.  This will be called for a method, but we
@@ -5591,21 +5476,18 @@ ieee_pointer_type (p)
    handle this by defining the type in a private buffer, and only
    adding that buffer to the typedef block if we are going to use it.  */
 
-static boolean
-ieee_function_type (p, argcount, varargs)
-     PTR p;
-     int argcount;
-     boolean varargs;
+static bfd_boolean
+ieee_function_type (void *p, int argcount, bfd_boolean varargs)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
-  boolean localp;
+  bfd_boolean localp;
   unsigned int *args = NULL;
   int i;
   unsigned int retindx;
   struct ieee_buflist fndef;
   struct ieee_modified_type *m;
 
-  localp = false;
+  localp = FALSE;
 
   if (argcount > 0)
     {
@@ -5613,15 +5495,15 @@ ieee_function_type (p, argcount, varargs)
       for (i = argcount - 1; i >= 0; i--)
 	{
 	  if (info->type_stack->type.localp)
-	    localp = true;
+	    localp = TRUE;
 	  args[i] = ieee_pop_type (info);
 	}
     }
   else if (argcount < 0)
-    varargs = false;
+    varargs = FALSE;
 
   if (info->type_stack->type.localp)
-    localp = true;
+    localp = TRUE;
   retindx = ieee_pop_type (info);
 
   m = NULL;
@@ -5629,17 +5511,17 @@ ieee_function_type (p, argcount, varargs)
     {
       m = ieee_get_modified_info (p, retindx);
       if (m == NULL)
-	return false;
+	return FALSE;
 
       if (m->function > 0)
-	return ieee_push_type (info, m->function, 0, true, false);
+	return ieee_push_type (info, m->function, 0, TRUE, FALSE);
     }
 
   /* An attribute of 0x41 means that the frame and push mask are
      unknown.  */
   if (! ieee_init_buffer (info, &fndef)
       || ! ieee_define_named_type (info, (const char *) NULL,
-				   (unsigned int) -1, 0, true, localp,
+				   (unsigned int) -1, 0, TRUE, localp,
 				   &fndef)
       || ! ieee_write_number (info, 'x')
       || ! ieee_write_number (info, 0x41)
@@ -5647,12 +5529,12 @@ ieee_function_type (p, argcount, varargs)
       || ! ieee_write_number (info, 0)
       || ! ieee_write_number (info, retindx)
       || ! ieee_write_number (info, (bfd_vma) argcount + (varargs ? 1 : 0)))
-    return false;
+    return FALSE;
   if (argcount > 0)
     {
       for (i = 0; i < argcount; i++)
 	if (! ieee_write_number (info, args[i]))
-	  return false;
+	  return FALSE;
       free (args);
     }
   if (varargs)
@@ -5660,11 +5542,11 @@ ieee_function_type (p, argcount, varargs)
       /* A varargs function is represented by writing out the last
          argument as type void *, although this makes little sense.  */
       if (! ieee_write_number (info, (bfd_vma) builtin_void + 32))
-	return false;
+	return FALSE;
     }
 
   if (! ieee_write_number (info, 0))
-    return false;
+    return FALSE;
 
   /* We wrote the information into fndef, in case we don't need it.
      It will be appended to info->types by ieee_pop_type.  */
@@ -5673,14 +5555,13 @@ ieee_function_type (p, argcount, varargs)
   if (m != NULL)
     m->function = info->type_stack->type.indx;
 
-  return true;
+  return TRUE;
 }
 
 /* Make a reference type.  */
 
-static boolean
-ieee_reference_type (p)
-     PTR p;
+static bfd_boolean
+ieee_reference_type (void *p)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
 
@@ -5688,22 +5569,19 @@ ieee_reference_type (p)
      pmisc record to indicate that it is really a reference.  */
 
   if (! ieee_pointer_type (p))
-    return false;
-  info->type_stack->type.referencep = true;
-  return true;
+    return FALSE;
+  info->type_stack->type.referencep = TRUE;
+  return TRUE;
 }
 
 /* Make a range type.  */
 
-static boolean
-ieee_range_type (p, low, high)
-     PTR p;
-     bfd_signed_vma low;
-     bfd_signed_vma high;
+static bfd_boolean
+ieee_range_type (void *p, bfd_signed_vma low, bfd_signed_vma high)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
   unsigned int size;
-  boolean unsignedp, localp;
+  bfd_boolean unsignedp, localp;
 
   size = info->type_stack->type.size;
   unsignedp = info->type_stack->type.unsignedp;
@@ -5719,17 +5597,13 @@ ieee_range_type (p, low, high)
 
 /* Make an array type.  */
 
-/*ARGSUSED*/
-static boolean
-ieee_array_type (p, low, high, stringp)
-     PTR p;
-     bfd_signed_vma low;
-     bfd_signed_vma high;
-     boolean stringp;
+static bfd_boolean
+ieee_array_type (void *p, bfd_signed_vma low, bfd_signed_vma high,
+		 bfd_boolean stringp ATTRIBUTE_UNUSED)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
   unsigned int eleindx;
-  boolean localp;
+  bfd_boolean localp;
   unsigned int size;
   struct ieee_modified_type *m = NULL;
   struct ieee_modified_array_type *a;
@@ -5749,27 +5623,27 @@ ieee_array_type (p, low, high, stringp)
     {
       m = ieee_get_modified_info (info, eleindx);
       if (m == NULL)
-	return false;
+	return FALSE;
 
       for (a = m->arrays; a != NULL; a = a->next)
 	{
 	  if (a->low == low && a->high == high)
-	    return ieee_push_type (info, a->indx, size, false, false);
+	    return ieee_push_type (info, a->indx, size, FALSE, FALSE);
 	}
     }
 
-  if (! ieee_define_type (info, size, false, localp)
+  if (! ieee_define_type (info, size, FALSE, localp)
       || ! ieee_write_number (info, low == 0 ? 'Z' : 'C')
       || ! ieee_write_number (info, eleindx))
-    return false;
+    return FALSE;
   if (low != 0)
     {
       if (! ieee_write_number (info, low))
-	return false;
+	return FALSE;
     }
 
   if (! ieee_write_number (info, high + 1))
-    return false;
+    return FALSE;
 
   if (! localp)
     {
@@ -5784,18 +5658,16 @@ ieee_array_type (p, low, high, stringp)
       m->arrays = a;
     }
 
-  return true;
+  return TRUE;
 }
 
 /* Make a set type.  */
 
-static boolean
-ieee_set_type (p, bitstringp)
-     PTR p;
-     boolean bitstringp;
+static bfd_boolean
+ieee_set_type (void *p, bfd_boolean bitstringp ATTRIBUTE_UNUSED)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
-  boolean localp;
+  bfd_boolean localp;
   unsigned int eleindx;
 
   localp = info->type_stack->type.localp;
@@ -5803,7 +5675,7 @@ ieee_set_type (p, bitstringp)
 
   /* FIXME: We don't know the size, so we just use 4.  */
 
-  return (ieee_define_type (info, 0, true, localp)
+  return (ieee_define_type (info, 0, TRUE, localp)
 	  && ieee_write_number (info, 's')
 	  && ieee_write_number (info, 4)
 	  && ieee_write_number (info, eleindx));
@@ -5811,9 +5683,8 @@ ieee_set_type (p, bitstringp)
 
 /* Make an offset type.  */
 
-static boolean
-ieee_offset_type (p)
-     PTR p;
+static bfd_boolean
+ieee_offset_type (void *p)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
   unsigned int targetindx, baseindx;
@@ -5828,17 +5699,14 @@ ieee_offset_type (p)
      member.  Unfortunately, it does not describe the target type,
      which seems pretty important.  I'm going to punt this for now.  */
 
-  return ieee_int_type (p, 4, true);
-}  
+  return ieee_int_type (p, 4, TRUE);
+}
 
 /* Make a method type.  */
 
-static boolean
-ieee_method_type (p, domain, argcount, varargs)
-     PTR p;
-     boolean domain;
-     int argcount;
-     boolean varargs;
+static bfd_boolean
+ieee_method_type (void *p, bfd_boolean domain, int argcount,
+		  bfd_boolean varargs)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
 
@@ -5854,13 +5722,12 @@ ieee_method_type (p, domain, argcount, varargs)
 
 /* Make a const qualified type.  */
 
-static boolean
-ieee_const_type (p)
-     PTR p;
+static bfd_boolean
+ieee_const_type (void *p)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
   unsigned int size;
-  boolean unsignedp, localp;
+  bfd_boolean unsignedp, localp;
   unsigned int indx;
   struct ieee_modified_type *m = NULL;
 
@@ -5873,34 +5740,33 @@ ieee_const_type (p)
     {
       m = ieee_get_modified_info (info, indx);
       if (m == NULL)
-	return false;
+	return FALSE;
 
       if (m->const_qualified > 0)
 	return ieee_push_type (info, m->const_qualified, size, unsignedp,
-			       false);
+			       FALSE);
     }
 
   if (! ieee_define_type (info, size, unsignedp, localp)
       || ! ieee_write_number (info, 'n')
       || ! ieee_write_number (info, 1)
       || ! ieee_write_number (info, indx))
-    return false;
+    return FALSE;
 
   if (! localp)
     m->const_qualified = info->type_stack->type.indx;
 
-  return true;
+  return TRUE;
 }
 
 /* Make a volatile qualified type.  */
 
-static boolean
-ieee_volatile_type (p)
-     PTR p;
+static bfd_boolean
+ieee_volatile_type (void *p)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
   unsigned int size;
-  boolean unsignedp, localp;
+  bfd_boolean unsignedp, localp;
   unsigned int indx;
   struct ieee_modified_type *m = NULL;
 
@@ -5913,30 +5779,29 @@ ieee_volatile_type (p)
     {
       m = ieee_get_modified_info (info, indx);
       if (m == NULL)
-	return false;
+	return FALSE;
 
       if (m->volatile_qualified > 0)
 	return ieee_push_type (info, m->volatile_qualified, size, unsignedp,
-			       false);
+			       FALSE);
     }
 
   if (! ieee_define_type (info, size, unsignedp, localp)
       || ! ieee_write_number (info, 'n')
       || ! ieee_write_number (info, 2)
       || ! ieee_write_number (info, indx))
-    return false;
+    return FALSE;
 
   if (! localp)
     m->volatile_qualified = info->type_stack->type.indx;
 
-  return true;
+  return TRUE;
 }
 
 /* Convert an enum debug_visibility into a CXXFLAGS value.  */
 
 static unsigned int
-ieee_vis_to_flags (visibility)
-     enum debug_visibility visibility;
+ieee_vis_to_flags (enum debug_visibility visibility)
 {
   switch (visibility)
     {
@@ -5956,25 +5821,21 @@ ieee_vis_to_flags (visibility)
    the stack, to avoid confusing type definitions required by the
    fields with the struct type itself.  */
 
-static boolean
-ieee_start_struct_type (p, tag, id, structp, size)
-     PTR p;
-     const char *tag;
-     unsigned int id;
-     boolean structp;
-     unsigned int size;
+static bfd_boolean
+ieee_start_struct_type (void *p, const char *tag, unsigned int id,
+			bfd_boolean structp, unsigned int size)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
-  boolean localp, ignorep;
-  boolean copy;
+  bfd_boolean localp, ignorep;
+  bfd_boolean copy;
   char ab[20];
   const char *look;
   struct ieee_name_type_hash_entry *h;
   struct ieee_name_type *nt, *ntlook;
   struct ieee_buflist strdef;
 
-  localp = false;
-  ignorep = false;
+  localp = FALSE;
+  ignorep = FALSE;
 
   /* We need to create a tag for internal use even if we don't want
      one for external use.  This will let us refer to an anonymous
@@ -5982,20 +5843,20 @@ ieee_start_struct_type (p, tag, id, structp, size)
   if (tag != NULL)
     {
       look = tag;
-      copy = false;
+      copy = FALSE;
     }
   else
     {
       sprintf (ab, "__anon%u", id);
       look = ab;
-      copy = true;
+      copy = TRUE;
     }
 
   /* If we already have references to the tag, we must use the
      existing type index.  */
-  h = ieee_name_type_hash_lookup (&info->tags, look, true, copy);
+  h = ieee_name_type_hash_lookup (&info->tags, look, TRUE, copy);
   if (h == NULL)
-    return false;
+    return FALSE;
 
   nt = NULL;
   for (ntlook = h->types; ntlook != NULL; ntlook = ntlook->next)
@@ -6007,7 +5868,7 @@ ieee_start_struct_type (p, tag, id, structp, size)
 	  /* We are creating a duplicate definition of a globally
 	     defined tag.  Force it to be local to avoid
 	     confusion.  */
-	  localp = true;
+	  localp = TRUE;
 	}
     }
 
@@ -6018,7 +5879,7 @@ ieee_start_struct_type (p, tag, id, structp, size)
 	{
 	  /* We've already seen a global definition of the type.
              Ignore this new definition.  */
-	  ignorep = true;
+	  ignorep = TRUE;
 	}
     }
   else
@@ -6036,11 +5897,11 @@ ieee_start_struct_type (p, tag, id, structp, size)
   nt->kind = DEBUG_KIND_ILLEGAL;
 
   if (! ieee_init_buffer (info, &strdef)
-      || ! ieee_define_named_type (info, tag, nt->type.indx, size, true,
+      || ! ieee_define_named_type (info, tag, nt->type.indx, size, TRUE,
 				   localp, &strdef)
       || ! ieee_write_number (info, structp ? 'S' : 'U')
       || ! ieee_write_number (info, size))
-    return false;
+    return FALSE;
 
   if (! ignorep)
     {
@@ -6058,24 +5919,20 @@ ieee_start_struct_type (p, tag, id, structp, size)
   info->type_stack->type.strdef = strdef;
   info->type_stack->type.ignorep = ignorep;
 
-  return true;
+  return TRUE;
 }
 
 /* Add a field to a struct.  */
 
-static boolean
-ieee_struct_field (p, name, bitpos, bitsize, visibility)
-     PTR p;
-     const char *name;
-     bfd_vma bitpos;
-     bfd_vma bitsize;
-     enum debug_visibility visibility;
+static bfd_boolean
+ieee_struct_field (void *p, const char *name, bfd_vma bitpos, bfd_vma bitsize,
+		   enum debug_visibility visibility)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
   unsigned int size;
-  boolean unsignedp;
-  boolean referencep;
-  boolean localp;
+  bfd_boolean unsignedp;
+  bfd_boolean referencep;
+  bfd_boolean localp;
   unsigned int indx;
   bfd_vma offset;
 
@@ -6088,7 +5945,7 @@ ieee_struct_field (p, name, bitpos, bitsize, visibility)
   if (info->type_stack->next->type.ignorep)
     {
       ieee_pop_unused_type (info);
-      return true;
+      return TRUE;
     }
 
   size = info->type_stack->type.size;
@@ -6098,7 +5955,7 @@ ieee_struct_field (p, name, bitpos, bitsize, visibility)
   indx = ieee_pop_type (info);
 
   if (localp)
-    info->type_stack->type.localp = true;
+    info->type_stack->type.localp = TRUE;
 
   if (info->type_stack->type.classdef != NULL)
     {
@@ -6116,7 +5973,7 @@ ieee_struct_field (p, name, bitpos, bitsize, visibility)
 	  || ! ieee_write_asn (info, nindx, flags)
 	  || ! ieee_write_atn65 (info, nindx, name)
 	  || ! ieee_write_atn65 (info, nindx, name))
-	return false;
+	return FALSE;
       info->type_stack->type.classdef->pmisccount += 4;
 
       if (referencep)
@@ -6146,7 +6003,7 @@ ieee_struct_field (p, name, bitpos, bitsize, visibility)
 	      || ! ieee_write_asn (info, nindx, 3)
 	      || ! ieee_write_atn65 (info, nindx, info->type_stack->type.name)
 	      || ! ieee_write_atn65 (info, nindx, name))
-	    return false;
+	    return FALSE;
 	}
     }
 
@@ -6162,7 +6019,7 @@ ieee_struct_field (p, name, bitpos, bitsize, visibility)
 	  || ! ieee_write_number (info, unsignedp ? 0 : 1)
 	  || ! ieee_write_number (info, bitsize)
 	  || ! ieee_write_number (info, indx))
-	return false;
+	return FALSE;
       indx = ieee_pop_type (info);
       offset = bitpos;
     }
@@ -6177,9 +6034,8 @@ ieee_struct_field (p, name, bitpos, bitsize, visibility)
 
 /* Finish up a struct type.  */
 
-static boolean
-ieee_end_struct_type (p)
-     PTR p;
+static bfd_boolean
+ieee_end_struct_type (void *p)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
   struct ieee_buflist *pb;
@@ -6188,13 +6044,13 @@ ieee_end_struct_type (p)
 	  && ! ieee_buffer_emptyp (&info->type_stack->type.strdef));
 
   /* If we were ignoring this struct definition because it was a
-     duplicate defintion, just through away whatever bytes we have
-     accumulated.  Leave the type on the stack. */
+     duplicate definition, just through away whatever bytes we have
+     accumulated.  Leave the type on the stack.  */
   if (info->type_stack->type.ignorep)
-    return true;
+    return TRUE;
 
   /* If this is not a duplicate definition of this tag, then localp
-     will be false, and we can put it in the global type block.
+     will be FALSE, and we can put it in the global type block.
      FIXME: We should avoid outputting duplicate definitions which are
      the same.  */
   if (! info->type_stack->type.localp)
@@ -6207,7 +6063,7 @@ ieee_end_struct_type (p)
 	      || ! ieee_write_byte (info, 2)
 	      || ! ieee_write_number (info, 0)
 	      || ! ieee_write_id (info, ""))
-	    return false;
+	    return FALSE;
 	}
       pb = &info->global_types;
     }
@@ -6221,7 +6077,7 @@ ieee_end_struct_type (p)
 	      || ! ieee_write_byte (info, 1)
 	      || ! ieee_write_number (info, 0)
 	      || ! ieee_write_id (info, info->modname))
-	    return false;
+	    return FALSE;
 	}
       pb = &info->types;
     }
@@ -6229,24 +6085,19 @@ ieee_end_struct_type (p)
   /* Append the struct definition to the types.  */
   if (! ieee_append_buffer (info, pb, &info->type_stack->type.strdef)
       || ! ieee_init_buffer (info, &info->type_stack->type.strdef))
-    return false;
+    return FALSE;
 
   /* Leave the struct on the type stack.  */
 
-  return true;
+  return TRUE;
 }
 
 /* Start a class type.  */
 
-static boolean
-ieee_start_class_type (p, tag, id, structp, size, vptr, ownvptr)
-     PTR p;
-     const char *tag;
-     unsigned int id;
-     boolean structp;
-     unsigned int size;
-     boolean vptr;
-     boolean ownvptr;
+static bfd_boolean
+ieee_start_class_type (void *p, const char *tag, unsigned int id,
+		       bfd_boolean structp, unsigned int size,
+		       bfd_boolean vptr, bfd_boolean ownvptr)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
   const char *vclass;
@@ -6282,7 +6133,7 @@ ieee_start_class_type (p, tag, id, structp, size, vptr, ownvptr)
     }
 
   if (! ieee_start_struct_type (p, tag, id, structp, size))
-    return false;
+    return FALSE;
 
   indx = info->name_indx;
   ++info->name_indx;
@@ -6295,7 +6146,7 @@ ieee_start_class_type (p, tag, id, structp, size, vptr, ownvptr)
       || ! ieee_write_asn (info, indx, 'T')
       || ! ieee_write_asn (info, indx, structp ? 'o' : 'u')
       || ! ieee_write_atn65 (info, indx, tag))
-    return false;
+    return FALSE;
 
   classdef = (struct ieee_type_class *) xmalloc (sizeof *classdef);
   memset (classdef, 0, sizeof *classdef);
@@ -6308,17 +6159,14 @@ ieee_start_class_type (p, tag, id, structp, size, vptr, ownvptr)
 
   info->type_stack->type.classdef = classdef;
 
-  return true;
+  return TRUE;
 }
 
 /* Add a static member to a class.  */
 
-static boolean
-ieee_class_static_member (p, name, physname, visibility)
-     PTR p;
-     const char *name;
-     const char *physname;
-     enum debug_visibility visibility;
+static bfd_boolean
+ieee_class_static_member (void *p, const char *name, const char *physname,
+			  enum debug_visibility visibility)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
   unsigned int flags;
@@ -6342,24 +6190,21 @@ ieee_class_static_member (p, name, physname, visibility)
       || ! ieee_write_asn (info, nindx, flags)
       || ! ieee_write_atn65 (info, nindx, name)
       || ! ieee_write_atn65 (info, nindx, physname))
-    return false;
+    return FALSE;
   info->type_stack->type.classdef->pmisccount += 4;
 
-  return true;
+  return TRUE;
 }
 
 /* Add a base class to a class.  */
 
-static boolean
-ieee_class_baseclass (p, bitpos, virtual, visibility)
-     PTR p;
-     bfd_vma bitpos;
-     boolean virtual;
-     enum debug_visibility visibility;
+static bfd_boolean
+ieee_class_baseclass (void *p, bfd_vma bitpos, bfd_boolean virtual,
+		      enum debug_visibility visibility)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
   const char *bname;
-  boolean localp;
+  bfd_boolean localp;
   unsigned int bindx;
   char *fname;
   unsigned int flags;
@@ -6389,7 +6234,7 @@ ieee_class_baseclass (p, bitpos, virtual, visibility)
   else
     {
       if (localp)
-	info->type_stack->type.localp = true;
+	info->type_stack->type.localp = TRUE;
 
       fname = (char *) xmalloc (strlen (bname) + sizeof "_b$");
       sprintf (fname, "_b$%s", bname);
@@ -6398,7 +6243,7 @@ ieee_class_baseclass (p, bitpos, virtual, visibility)
 	  || ! ieee_write_id (info, fname)
 	  || ! ieee_write_number (info, bindx)
 	  || ! ieee_write_number (info, bitpos / 8))
-	return false;
+	return FALSE;
       flags = 0;
     }
 
@@ -6413,20 +6258,18 @@ ieee_class_baseclass (p, bitpos, virtual, visibility)
       || ! ieee_write_atn65 (info, nindx, bname)
       || ! ieee_write_asn (info, nindx, 0)
       || ! ieee_write_atn65 (info, nindx, fname))
-    return false;
+    return FALSE;
   info->type_stack->type.classdef->pmisccount += 5;
 
   free (fname);
 
-  return true;
+  return TRUE;
 }
 
 /* Start building a method for a class.  */
 
-static boolean
-ieee_class_start_method (p, name)
-     PTR p;
-     const char *name;
+static bfd_boolean
+ieee_class_start_method (void *p, const char *name)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
 
@@ -6436,26 +6279,21 @@ ieee_class_start_method (p, name)
 
   info->type_stack->type.classdef->method = name;
 
-  return true;
+  return TRUE;
 }
 
 /* Define a new method variant, either static or not.  */
 
-static boolean
-ieee_class_method_var (info, physname, visibility, staticp, constp,
-		       volatilep, voffset, context)
-     struct ieee_handle *info;
-     const char *physname;
-     enum debug_visibility visibility;
-     boolean staticp;
-     boolean constp;
-     boolean volatilep;
-     bfd_vma voffset;
-     boolean context;
+static bfd_boolean
+ieee_class_method_var (struct ieee_handle *info, const char *physname,
+		       enum debug_visibility visibility,
+		       bfd_boolean staticp, bfd_boolean constp,
+		       bfd_boolean volatilep, bfd_vma voffset,
+		       bfd_boolean context)
 {
   unsigned int flags;
   unsigned int nindx;
-  boolean virtual;
+  bfd_boolean virtual;
 
   /* We don't need the type of the method.  An IEEE consumer which
      wants the type must track down the function by the physical name
@@ -6494,65 +6332,56 @@ ieee_class_method_var (info, physname, visibility, staticp, constp,
       || ! ieee_write_atn65 (info, nindx,
 			     info->type_stack->type.classdef->method)
       || ! ieee_write_atn65 (info, nindx, physname))
-    return false;
+    return FALSE;
 
   if (virtual)
     {
       if (voffset > info->type_stack->type.classdef->voffset)
 	info->type_stack->type.classdef->voffset = voffset;
       if (! ieee_write_asn (info, nindx, voffset))
-	return false;
+	return FALSE;
       ++info->type_stack->type.classdef->pmisccount;
     }
 
   if (! ieee_write_asn (info, nindx, 0))
-    return false;
+    return FALSE;
 
   info->type_stack->type.classdef->pmisccount += 5;
 
-  return true;
+  return TRUE;
 }
 
 /* Define a new method variant.  */
 
-static boolean
-ieee_class_method_variant (p, physname, visibility, constp, volatilep,
-			   voffset, context)
-     PTR p;
-     const char *physname;
-     enum debug_visibility visibility;
-     boolean constp;
-     boolean volatilep;
-     bfd_vma voffset;
-     boolean context;
+static bfd_boolean
+ieee_class_method_variant (void *p, const char *physname,
+			   enum debug_visibility visibility,
+			   bfd_boolean constp, bfd_boolean volatilep,
+			   bfd_vma voffset, bfd_boolean context)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
 
-  return ieee_class_method_var (info, physname, visibility, false, constp,
+  return ieee_class_method_var (info, physname, visibility, FALSE, constp,
 				volatilep, voffset, context);
 }
 
 /* Define a new static method variant.  */
 
-static boolean
-ieee_class_static_method_variant (p, physname, visibility, constp, volatilep)
-     PTR p;
-     const char *physname;
-     enum debug_visibility visibility;
-     boolean constp;
-     boolean volatilep;
+static bfd_boolean
+ieee_class_static_method_variant (void *p, const char *physname,
+				  enum debug_visibility visibility,
+				  bfd_boolean constp, bfd_boolean volatilep)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
 
-  return ieee_class_method_var (info, physname, visibility, true, constp,
-				volatilep, 0, false);
+  return ieee_class_method_var (info, physname, visibility, TRUE, constp,
+				volatilep, 0, FALSE);
 }
 
 /* Finish up a method.  */
 
-static boolean
-ieee_class_end_method (p)
-     PTR p;
+static bfd_boolean
+ieee_class_end_method (void *p)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
 
@@ -6562,14 +6391,13 @@ ieee_class_end_method (p)
 
   info->type_stack->type.classdef->method = NULL;
 
-  return true;
+  return TRUE;
 }
 
 /* Finish up a class.  */
 
-static boolean
-ieee_end_class_type (p)
-     PTR p;
+static bfd_boolean
+ieee_end_class_type (void *p)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
   unsigned int nindx;
@@ -6581,7 +6409,7 @@ ieee_end_class_type (p)
      duplicate definition, just through away whatever bytes we have
      accumulated.  Leave the type on the stack.  */
   if (info->type_stack->type.ignorep)
-    return true;
+    return TRUE;
 
   nindx = info->type_stack->type.classdef->indx;
 
@@ -6595,20 +6423,20 @@ ieee_end_class_type (p)
 	  || ! ieee_write_atn65 (info, nindx, "")
 	  || ! ieee_write_asn (info, nindx,
 			       info->type_stack->type.classdef->voffset))
-	return false;
+	return FALSE;
       if (info->type_stack->type.classdef->ownvptr)
 	{
 	  if (! ieee_write_atn65 (info, nindx, ""))
-	    return false;
+	    return FALSE;
 	}
       else
 	{
 	  if (! ieee_write_atn65 (info, nindx,
 				  info->type_stack->type.classdef->vclass))
-	    return false;
+	    return FALSE;
 	}
       if (! ieee_write_asn (info, nindx, 0))
-	return false;
+	return FALSE;
       info->type_stack->type.classdef->pmisccount += 5;
     }
 
@@ -6627,16 +6455,16 @@ ieee_end_class_type (p)
       || ! ieee_write_number (info, 80)
       || ! ieee_write_number (info,
 			      info->type_stack->type.classdef->pmisccount))
-    return false;
+    return FALSE;
 
   if (! ieee_append_buffer (info, &info->cxx,
 			    &info->type_stack->type.classdef->pmiscbuf))
-    return false;
+    return FALSE;
   if (! ieee_buffer_emptyp (&info->type_stack->type.classdef->refs))
     {
       if (! ieee_append_buffer (info, &info->cxx,
 				&info->type_stack->type.classdef->refs))
-	return false;
+	return FALSE;
     }
 
   return ieee_end_struct_type (p);
@@ -6644,16 +6472,14 @@ ieee_end_class_type (p)
 
 /* Push a previously seen typedef onto the type stack.  */
 
-static boolean
-ieee_typedef_type (p, name)
-     PTR p;
-     const char *name;
+static bfd_boolean
+ieee_typedef_type (void *p, const char *name)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
   struct ieee_name_type_hash_entry *h;
   struct ieee_name_type *nt;
 
-  h = ieee_name_type_hash_lookup (&info->typedefs, name, false, false);
+  h = ieee_name_type_hash_lookup (&info->typedefs, name, FALSE, FALSE);
 
   /* h should never be NULL, since that would imply that the generic
      debugging code has asked for a typedef which it has not yet
@@ -6666,26 +6492,23 @@ ieee_typedef_type (p, name)
   nt = h->types;
   if (! ieee_push_type (info, nt->type.indx, nt->type.size,
 			nt->type.unsignedp, nt->type.localp))
-    return false;
+    return FALSE;
 
   /* Copy over any other type information we may have.  */
   info->type_stack->type = nt->type;
 
-  return true;
+  return TRUE;
 }
 
 /* Push a tagged type onto the type stack.  */
 
-static boolean
-ieee_tag_type (p, name, id, kind)
-     PTR p;
-     const char *name;
-     unsigned int id;
-     enum debug_type_kind kind;
+static bfd_boolean
+ieee_tag_type (void *p, const char *name, unsigned int id,
+	       enum debug_type_kind kind)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
-  boolean localp;
-  boolean copy;
+  bfd_boolean localp;
+  bfd_boolean copy;
   char ab[20];
   struct ieee_name_type_hash_entry *h;
   struct ieee_name_type *nt;
@@ -6698,7 +6521,7 @@ ieee_tag_type (p, name, id, kind)
 	abort ();
       for (e = info->enums; e != NULL; e = e->next)
 	if (e->tag != NULL && strcmp (e->tag, name) == 0)
-	  return ieee_push_type (info, e->indx, 0, true, false);
+	  return ieee_push_type (info, e->indx, 0, TRUE, FALSE);
 
       e = (struct ieee_defined_enum *) xmalloc (sizeof *e);
       memset (e, 0, sizeof *e);
@@ -6706,27 +6529,27 @@ ieee_tag_type (p, name, id, kind)
       e->indx = info->type_indx;
       ++info->type_indx;
       e->tag = name;
-      e->defined = false;
+      e->defined = FALSE;
 
       e->next = info->enums;
       info->enums = e;
 
-      return ieee_push_type (info, e->indx, 0, true, false);
+      return ieee_push_type (info, e->indx, 0, TRUE, FALSE);
     }
 
-  localp = false;
+  localp = FALSE;
 
-  copy = false;
+  copy = FALSE;
   if (name == NULL)
     {
       sprintf (ab, "__anon%u", id);
       name = ab;
-      copy = true;
+      copy = TRUE;
     }
 
-  h = ieee_name_type_hash_lookup (&info->tags, name, true, copy);
+  h = ieee_name_type_hash_lookup (&info->tags, name, TRUE, copy);
   if (h == NULL)
-    return false;
+    return FALSE;
 
   for (nt = h->types; nt != NULL; nt = nt->next)
     {
@@ -6734,17 +6557,17 @@ ieee_tag_type (p, name, id, kind)
 	{
 	  if (! ieee_push_type (info, nt->type.indx, nt->type.size,
 				nt->type.unsignedp, nt->type.localp))
-	    return false;
+	    return FALSE;
 	  /* Copy over any other type information we may have.  */
 	  info->type_stack->type = nt->type;
-	  return true;
+	  return TRUE;
 	}
 
       if (! nt->type.localp)
 	{
 	  /* This is a duplicate of a global type, so it must be
-             local. */
-	  localp = true;
+             local.  */
+	  localp = TRUE;
 	}
     }
 
@@ -6761,26 +6584,24 @@ ieee_tag_type (p, name, id, kind)
   nt->next = h->types;
   h->types = nt;
 
-  if (! ieee_push_type (info, nt->type.indx, 0, false, localp))
-    return false;
+  if (! ieee_push_type (info, nt->type.indx, 0, FALSE, localp))
+    return FALSE;
 
   info->type_stack->type.name = h->root.string;
 
-  return true;
+  return TRUE;
 }
 
 /* Output a typedef.  */
 
-static boolean
-ieee_typdef (p, name)
-     PTR p;
-     const char *name;
+static bfd_boolean
+ieee_typdef (void *p, const char *name)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
   struct ieee_write_type type;
   unsigned int indx;
-  boolean found;
-  boolean localp;
+  bfd_boolean found;
+  bfd_boolean localp;
   struct ieee_name_type_hash_entry *h;
   struct ieee_name_type *nt;
 
@@ -6792,7 +6613,7 @@ ieee_typdef (p, name)
      type index to correspond to the name being used.  We recognize
      names used in stabs debugging output even if they don't exactly
      correspond to the names used for the IEEE builtin types.  */
-  found = false;
+  found = FALSE;
   if (indx <= (unsigned int) builtin_bcd_float)
     {
       switch ((enum builtin_types) indx)
@@ -6802,7 +6623,7 @@ ieee_typdef (p, name)
 
 	case builtin_void:
 	  if (strcmp (name, "void") == 0)
-	    found = true;
+	    found = TRUE;
 	  break;
 
 	case builtin_signed_char:
@@ -6810,18 +6631,18 @@ ieee_typdef (p, name)
 	  if (strcmp (name, "signed char") == 0)
 	    {
 	      indx = (unsigned int) builtin_signed_char;
-	      found = true;
+	      found = TRUE;
 	    }
 	  else if (strcmp (name, "char") == 0)
 	    {
 	      indx = (unsigned int) builtin_char;
-	      found = true;
+	      found = TRUE;
 	    }
 	  break;
 
 	case builtin_unsigned_char:
 	  if (strcmp (name, "unsigned char") == 0)
-	    found = true;
+	    found = TRUE;
 	  break;
 
 	case builtin_signed_short_int:
@@ -6831,22 +6652,22 @@ ieee_typdef (p, name)
 	  if (strcmp (name, "signed short int") == 0)
 	    {
 	      indx = (unsigned int) builtin_signed_short_int;
-	      found = true;
+	      found = TRUE;
 	    }
 	  else if (strcmp (name, "short") == 0)
 	    {
 	      indx = (unsigned int) builtin_short;
-	      found = true;
+	      found = TRUE;
 	    }
 	  else if (strcmp (name, "short int") == 0)
 	    {
 	      indx = (unsigned int) builtin_short_int;
-	      found = true;
+	      found = TRUE;
 	    }
 	  else if (strcmp (name, "signed short") == 0)
 	    {
 	      indx = (unsigned int) builtin_signed_short;
-	      found = true;
+	      found = TRUE;
 	    }
 	  break;
 
@@ -6856,12 +6677,12 @@ ieee_typdef (p, name)
 	      || strcmp (name, "short unsigned int") == 0)
 	    {
 	      indx = builtin_unsigned_short_int;
-	      found = true;
+	      found = TRUE;
 	    }
 	  else if (strcmp (name, "unsigned short") == 0)
 	    {
 	      indx = builtin_unsigned_short;
-	      found = true;
+	      found = TRUE;
 	    }
 	  break;
 
@@ -6871,18 +6692,18 @@ ieee_typdef (p, name)
 	  if (strcmp (name, "signed long") == 0)
 	    {
 	      indx = builtin_signed_long;
-	      found = true;
+	      found = TRUE;
 	    }
 	  else if (strcmp (name, "int") == 0)
 	    {
 	      indx = builtin_int;
-	      found = true;
+	      found = TRUE;
 	    }
 	  else if (strcmp (name, "long") == 0
 		   || strcmp (name, "long int") == 0)
 	    {
 	      indx = builtin_long;
-	      found = true;
+	      found = TRUE;
 	    }
 	  break;
 
@@ -6893,50 +6714,50 @@ ieee_typdef (p, name)
 	      || strcmp (name, "long unsigned int") == 0)
 	    {
 	      indx = builtin_unsigned_long;
-	      found = true;
+	      found = TRUE;
 	    }
 	  else if (strcmp (name, "unsigned") == 0)
 	    {
 	      indx = builtin_unsigned;
-	      found = true;
+	      found = TRUE;
 	    }
 	  else if (strcmp (name, "unsigned int") == 0)
 	    {
 	      indx = builtin_unsigned_int;
-	      found = true;
+	      found = TRUE;
 	    }
 	  break;
 
 	case builtin_signed_long_long:
 	  if (strcmp (name, "signed long long") == 0
 	      || strcmp (name, "long long int") == 0)
-	    found = true;
+	    found = TRUE;
 	  break;
 
 	case builtin_unsigned_long_long:
 	  if (strcmp (name, "unsigned long long") == 0
 	      || strcmp (name, "long long unsigned int") == 0)
-	    found = true;
+	    found = TRUE;
 	  break;
 
 	case builtin_float:
 	  if (strcmp (name, "float") == 0)
-	    found = true;
+	    found = TRUE;
 	  break;
 
 	case builtin_double:
 	  if (strcmp (name, "double") == 0)
-	    found = true;
+	    found = TRUE;
 	  break;
 
 	case builtin_long_double:
 	  if (strcmp (name, "long double") == 0)
-	    found = true;
+	    found = TRUE;
 	  break;
 
 	case builtin_long_long_double:
 	  if (strcmp (name, "long long double") == 0)
-	    found = true;
+	    found = TRUE;
 	  break;
 	}
 
@@ -6944,9 +6765,9 @@ ieee_typdef (p, name)
 	type.indx = indx;
     }
 
-  h = ieee_name_type_hash_lookup (&info->typedefs, name, true, false);
+  h = ieee_name_type_hash_lookup (&info->typedefs, name, TRUE, FALSE);
   if (h == NULL)
-    return false;
+    return FALSE;
 
   /* See if we have already defined this type with this name.  */
   localp = type.localp;
@@ -6959,13 +6780,13 @@ ieee_typdef (p, name)
 	  if (! nt->type.localp)
 	    {
 	      ieee_pop_unused_type (info);
-	      return true;
+	      return TRUE;
 	    }
 	}
       else
 	{
 	  /* This is a duplicate definition, so make this one local.  */
-	  localp = true;
+	  localp = TRUE;
 	}
     }
 
@@ -6987,7 +6808,7 @@ ieee_typdef (p, name)
       /* This is one of the builtin typedefs, so we don't need to
          actually define it.  */
       ieee_pop_unused_type (info);
-      return true;
+      return TRUE;
     }
 
   indx = ieee_pop_type (info);
@@ -6997,85 +6818,75 @@ ieee_typdef (p, name)
 				(struct ieee_buflist *) NULL)
       || ! ieee_write_number (info, 'T')
       || ! ieee_write_number (info, indx))
-    return false;
+    return FALSE;
 
   /* Remove the type we just added to the type stack.  This should not
      be ieee_pop_unused_type, since the type is used, we just don't
      need it now.  */
   (void) ieee_pop_type (info);
 
-  return true;
+  return TRUE;
 }
 
 /* Output a tag for a type.  We don't have to do anything here.  */
 
-static boolean
-ieee_tag (p, name)
-     PTR p;
-     const char *name;
+static bfd_boolean
+ieee_tag (void *p, const char *name ATTRIBUTE_UNUSED)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
 
   /* This should not be ieee_pop_unused_type, since we want the type
      to be defined.  */
   (void) ieee_pop_type (info);
-  return true;
+  return TRUE;
 }
 
 /* Output an integer constant.  */
 
-static boolean
-ieee_int_constant (p, name, val)
-     PTR p;
-     const char *name;
-     bfd_vma val;
+static bfd_boolean
+ieee_int_constant (void *p ATTRIBUTE_UNUSED, const char *name ATTRIBUTE_UNUSED,
+		   bfd_vma val ATTRIBUTE_UNUSED)
 {
   /* FIXME.  */
-  return true;
+  return TRUE;
 }
 
 /* Output a floating point constant.  */
 
-static boolean
-ieee_float_constant (p, name, val)
-     PTR p;
-     const char *name;
-     double val;
+static bfd_boolean
+ieee_float_constant (void *p ATTRIBUTE_UNUSED,
+		     const char *name ATTRIBUTE_UNUSED,
+		     double val ATTRIBUTE_UNUSED)
 {
   /* FIXME.  */
-  return true;
+  return TRUE;
 }
 
 /* Output a typed constant.  */
 
-static boolean
-ieee_typed_constant (p, name, val)
-     PTR p;
-     const char *name;
-     bfd_vma val;
+static bfd_boolean
+ieee_typed_constant (void *p, const char *name ATTRIBUTE_UNUSED,
+		     bfd_vma val ATTRIBUTE_UNUSED)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
 
   /* FIXME.  */
   ieee_pop_unused_type (info);
-  return true;
+  return TRUE;
 }
 
 /* Output a variable.  */
 
-static boolean
-ieee_variable (p, name, kind, val)
-     PTR p;
-     const char *name;
-     enum debug_var_kind kind;
-     bfd_vma val;
+static bfd_boolean
+ieee_variable (void *p, const char *name, enum debug_var_kind kind,
+	       bfd_vma val)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
   unsigned int name_indx;
   unsigned int size;
-  boolean referencep;
+  bfd_boolean referencep;
   unsigned int type_indx;
-  boolean asn;
+  bfd_boolean asn;
   int refflag;
 
   size = info->type_stack->type.size;
@@ -7084,7 +6895,7 @@ ieee_variable (p, name, kind, val)
 
   assert (! ieee_buffer_emptyp (&info->vars));
   if (! ieee_change_buffer (info, &info->vars))
-    return false;
+    return FALSE;
 
   name_indx = info->name_indx;
   ++info->name_indx;
@@ -7096,54 +6907,54 @@ ieee_variable (p, name, kind, val)
       || ! ieee_write_2bytes (info, (int) ieee_atn_record_enum)
       || ! ieee_write_number (info, name_indx)
       || ! ieee_write_number (info, type_indx))
-    return false;
+    return FALSE;
   switch (kind)
     {
     default:
       abort ();
-      return false;
+      return FALSE;
     case DEBUG_GLOBAL:
       if (! ieee_write_number (info, 8)
-	  || ! ieee_add_range (info, false, val, val + size))
-	return false;
+	  || ! ieee_add_range (info, FALSE, val, val + size))
+	return FALSE;
       refflag = 0;
-      asn = true;
+      asn = TRUE;
       break;
     case DEBUG_STATIC:
       if (! ieee_write_number (info, 3)
-	  || ! ieee_add_range (info, false, val, val + size))
-	return false;
+	  || ! ieee_add_range (info, FALSE, val, val + size))
+	return FALSE;
       refflag = 1;
-      asn = true;
+      asn = TRUE;
       break;
     case DEBUG_LOCAL_STATIC:
       if (! ieee_write_number (info, 3)
-	  || ! ieee_add_range (info, false, val, val + size))
-	return false;
+	  || ! ieee_add_range (info, FALSE, val, val + size))
+	return FALSE;
       refflag = 2;
-      asn = true;
+      asn = TRUE;
       break;
     case DEBUG_LOCAL:
       if (! ieee_write_number (info, 1)
 	  || ! ieee_write_number (info, val))
-	return false;
+	return FALSE;
       refflag = 2;
-      asn = false;
+      asn = FALSE;
       break;
     case DEBUG_REGISTER:
       if (! ieee_write_number (info, 2)
 	  || ! ieee_write_number (info,
 				  ieee_genreg_to_regno (info->abfd, val)))
-	return false;
+	return FALSE;
       refflag = 2;
-      asn = false;
+      asn = FALSE;
       break;
     }
 
   if (asn)
     {
       if (! ieee_write_asn (info, name_indx, val))
-	return false;
+	return FALSE;
     }
 
   /* If this is really a reference type, then we just output it with
@@ -7163,7 +6974,7 @@ ieee_variable (p, name, kind, val)
       if (refflag != 2)
 	{
 	  if (! ieee_change_buffer (info, &info->cxx))
-	    return false;
+	    return FALSE;
 	}
 
       if (! ieee_write_byte (info, (int) ieee_nn_record)
@@ -7178,22 +6989,19 @@ ieee_variable (p, name, kind, val)
 	  || ! ieee_write_asn (info, nindx, 'R')
 	  || ! ieee_write_asn (info, nindx, refflag)
 	  || ! ieee_write_atn65 (info, nindx, name))
-	return false;
+	return FALSE;
     }
 
-  return true;
+  return TRUE;
 }
 
 /* Start outputting information for a function.  */
 
-static boolean
-ieee_start_function (p, name, global)
-     PTR p;
-     const char *name;
-     boolean global;
+static bfd_boolean
+ieee_start_function (void *p, const char *name, bfd_boolean global)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
-  boolean referencep;
+  bfd_boolean referencep;
   unsigned int retindx, typeindx;
 
   referencep = info->type_stack->type.referencep;
@@ -7213,19 +7021,19 @@ ieee_start_function (p, name, global)
   info->fnname = name;
 
   /* An attribute of 0x40 means that the push mask is unknown.  */
-  if (! ieee_define_named_type (info, name, (unsigned int) -1, 0, false, true,
+  if (! ieee_define_named_type (info, name, (unsigned int) -1, 0, FALSE, TRUE,
 				&info->fntype)
       || ! ieee_write_number (info, 'x')
       || ! ieee_write_number (info, 0x40)
       || ! ieee_write_number (info, 0)
       || ! ieee_write_number (info, 0)
       || ! ieee_write_number (info, retindx))
-    return false;
+    return FALSE;
 
   typeindx = ieee_pop_type (info);
 
   if (! ieee_init_buffer (info, &info->fnargs))
-    return false;
+    return FALSE;
   info->fnargcount = 0;
 
   /* If the function return value is actually a reference type, we
@@ -7249,12 +7057,12 @@ ieee_start_function (p, name, global)
 	  || ! ieee_write_asn (info, nindx, 'R')
 	  || ! ieee_write_asn (info, nindx, global ? 0 : 1)
 	  || ! ieee_write_atn65 (info, nindx, name))
-	return false;
+	return FALSE;
     }
 
   assert (! ieee_buffer_emptyp (&info->vars));
   if (! ieee_change_buffer (info, &info->vars))
-    return false;
+    return FALSE;
 
   /* The address is written out as the first block.  */
 
@@ -7271,12 +7079,9 @@ ieee_start_function (p, name, global)
 /* Add a function parameter.  This will normally be called before the
    first block, so we postpone them until we see the block.  */
 
-static boolean
-ieee_function_parameter (p, name, kind, val)
-     PTR p;
-     const char *name;
-     enum debug_parm_kind kind;
-     bfd_vma val;
+static bfd_boolean
+ieee_function_parameter (void *p, const char *name, enum debug_parm_kind kind,
+			 bfd_vma val)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
   struct ieee_pending_parm *m, **pm;
@@ -7300,17 +7105,16 @@ ieee_function_parameter (p, name, kind, val)
   /* Add the type to the fnargs list.  */
   if (! ieee_change_buffer (info, &info->fnargs)
       || ! ieee_write_number (info, m->type))
-    return false;
+    return FALSE;
   ++info->fnargcount;
 
-  return true;  
+  return TRUE;
 }
 
 /* Output pending function parameters.  */
 
-static boolean
-ieee_output_pending_parms (info)
-     struct ieee_handle *info;
+static bfd_boolean
+ieee_output_pending_parms (struct ieee_handle *info)
 {
   struct ieee_pending_parm *m;
   unsigned int refcount;
@@ -7324,7 +7128,7 @@ ieee_output_pending_parms (info)
 	{
 	default:
 	  abort ();
-	  return false;
+	  return FALSE;
 	case DEBUG_PARM_STACK:
 	case DEBUG_PARM_REFERENCE:
 	  vkind = DEBUG_LOCAL;
@@ -7335,13 +7139,13 @@ ieee_output_pending_parms (info)
 	  break;
 	}
 
-      if (! ieee_push_type (info, m->type, 0, false, false))
-	return false;
+      if (! ieee_push_type (info, m->type, 0, FALSE, FALSE))
+	return FALSE;
       info->type_stack->type.referencep = m->referencep;
       if (m->referencep)
 	++refcount;
-      if (! ieee_variable ((PTR) info, m->name, vkind, m->val))
-	return false;
+      if (! ieee_variable ((void *) info, m->name, vkind, m->val))
+	return FALSE;
     }
 
   /* If there are any reference parameters, we need to output a
@@ -7367,7 +7171,7 @@ ieee_output_pending_parms (info)
 	  || ! ieee_write_asn (info, nindx, 'B')
 	  || ! ieee_write_atn65 (info, nindx, info->fnname)
 	  || ! ieee_write_asn (info, nindx, 0))
-	return false;
+	return FALSE;
       for (m = info->pending_parms, varindx = 1;
 	   m != NULL;
 	   m = m->next, varindx++)
@@ -7375,7 +7179,7 @@ ieee_output_pending_parms (info)
 	  if (m->referencep)
 	    {
 	      if (! ieee_write_asn (info, nindx, varindx))
-		return false;
+		return FALSE;
 	    }
 	}
     }
@@ -7392,27 +7196,25 @@ ieee_output_pending_parms (info)
 
   info->pending_parms = NULL;
 
-  return true;
+  return TRUE;
 }
 
 /* Start a block.  If this is the first block, we output the address
    to finish the BB4 or BB6, and then output the function parameters.  */
 
-static boolean
-ieee_start_block (p, addr)
-     PTR p;
-     bfd_vma addr;
+static bfd_boolean
+ieee_start_block (void *p, bfd_vma addr)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
 
   if (! ieee_change_buffer (info, &info->vars))
-    return false;
+    return FALSE;
 
   if (info->block_depth == 1)
     {
       if (! ieee_write_number (info, addr)
 	  || ! ieee_output_pending_parms (info))
-	return false;
+	return FALSE;
     }
   else
     {
@@ -7423,23 +7225,21 @@ ieee_start_block (p, addr)
 	  || ! ieee_write_number (info, 0)
 	  || ! ieee_write_number (info, 0)
 	  || ! ieee_write_number (info, addr))
-	return false;
+	return FALSE;
     }
 
   if (! ieee_start_range (info, addr))
-    return false;
+    return FALSE;
 
   ++info->block_depth;
 
-  return true;
+  return TRUE;
 }
 
 /* End a block.  */
 
-static boolean
-ieee_end_block (p, addr)
-     PTR p;
-     bfd_vma addr;
+static bfd_boolean
+ieee_end_block (void *p, bfd_vma addr)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
 
@@ -7449,24 +7249,23 @@ ieee_end_block (p, addr)
   if (! ieee_change_buffer (info, &info->vars)
       || ! ieee_write_byte (info, (int) ieee_be_record_enum)
       || ! ieee_write_number (info, addr - 1))
-    return false;
+    return FALSE;
 
   if (! ieee_end_range (info, addr))
-    return false;
+    return FALSE;
 
   --info->block_depth;
 
   if (addr > info->highaddr)
     info->highaddr = addr;
 
-  return true;
+  return TRUE;
 }
 
 /* End a function.  */
 
-static boolean
-ieee_end_function (p)
-     PTR p;
+static bfd_boolean
+ieee_end_function (void *p)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
 
@@ -7484,7 +7283,7 @@ ieee_end_function (p)
       || ! ieee_write_number (info, info->fnargcount)
       || ! ieee_change_buffer (info, &info->fnargs)
       || ! ieee_write_number (info, 0))
-    return false;
+    return FALSE;
 
   /* Make sure the typdef block has been started.  */
   if (ieee_buffer_emptyp (&info->types))
@@ -7494,30 +7293,26 @@ ieee_end_function (p)
 	  || ! ieee_write_byte (info, 1)
 	  || ! ieee_write_number (info, 0)
 	  || ! ieee_write_id (info, info->modname))
-	return false;
+	return FALSE;
     }
 
   if (! ieee_append_buffer (info, &info->types, &info->fntype)
       || ! ieee_append_buffer (info, &info->types, &info->fnargs))
-    return false;
+    return FALSE;
 
   info->fnname = NULL;
   if (! ieee_init_buffer (info, &info->fntype)
       || ! ieee_init_buffer (info, &info->fnargs))
-    return false;
+    return FALSE;
   info->fnargcount = 0;
 
-  return true;
+  return TRUE;
 }
 
 /* Record line number information.  */
 
-static boolean
-ieee_lineno (p, filename, lineno, addr)
-     PTR p;
-     const char *filename;
-     unsigned long lineno;
-     bfd_vma addr;
+static bfd_boolean
+ieee_lineno (void *p, const char *filename, unsigned long lineno, bfd_vma addr)
 {
   struct ieee_handle *info = (struct ieee_handle *) p;
 
@@ -7534,7 +7329,7 @@ ieee_lineno (p, filename, lineno, addr)
       if (! ieee_buffer_emptyp (&info->linenos))
 	{
 	  if (! ieee_change_buffer (info, &info->linenos))
-	    return false;
+	    return FALSE;
 	}
       else
 	{
@@ -7548,7 +7343,7 @@ ieee_lineno (p, filename, lineno, addr)
 	      || ! ieee_write_byte (info, (int) ieee_nn_record)
 	      || ! ieee_write_number (info, info->lineno_name_indx)
 	      || ! ieee_write_id (info, ""))
-	    return false;
+	    return FALSE;
 	  info->lineno_filename = info->filename;
 	}
 
@@ -7559,7 +7354,7 @@ ieee_lineno (p, filename, lineno, addr)
 	      /* We were not in the main file.  Close the block for the
 		 included file.  */
 	      if (! ieee_write_byte (info, (int) ieee_be_record_enum))
-		return false;
+		return FALSE;
 	      if (strcmp (info->filename, info->pending_lineno_filename) == 0)
 		{
 		  /* We need a new NN record, and we aren't about to
@@ -7569,7 +7364,7 @@ ieee_lineno (p, filename, lineno, addr)
 		  if (! ieee_write_byte (info, (int) ieee_nn_record)
 		      || ! ieee_write_number (info, info->lineno_name_indx)
 		      || ! ieee_write_id (info, ""))
-		    return false;
+		    return FALSE;
 		}
 	    }
 	  if (strcmp (info->filename, info->pending_lineno_filename) != 0)
@@ -7585,7 +7380,7 @@ ieee_lineno (p, filename, lineno, addr)
 		  || ! ieee_write_byte (info, (int) ieee_nn_record)
 		  || ! ieee_write_number (info, info->lineno_name_indx)
 		  || ! ieee_write_id (info, ""))
-		return false;
+		return FALSE;
 	    }
 	  info->lineno_filename = info->pending_lineno_filename;
 	}
@@ -7598,12 +7393,12 @@ ieee_lineno (p, filename, lineno, addr)
 	  || ! ieee_write_number (info, 0)
 	  || ! ieee_write_asn (info, info->lineno_name_indx,
 			       info->pending_lineno_addr))
-	return false;
+	return FALSE;
     }
 
   info->pending_lineno_filename = filename;
   info->pending_lineno = lineno;
   info->pending_lineno_addr = addr;
 
-  return true;
+  return TRUE;
 }
