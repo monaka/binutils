@@ -17,7 +17,7 @@
    Free Software Foundation, 51 Franklin Street - Fifth Floor, Boston,
    MA 02110-1301, USA.  */
 
-/* This program generates z8k-opc.h.  */
+/* This program generates z8k-opc.h.  Compile with -fwritable-strings.  */
 
 #include <stdio.h>
 #include "sysdep.h"
@@ -32,8 +32,7 @@ struct op
   char type;
   char *bits;
   char *name;
-  /* Unique number for stable sorting.  */
-  int id;
+  char *flavor;
 };
 
 #define iswhite(x) ((x) == ' ' || (x) == '\t')
@@ -548,6 +547,7 @@ static struct op opt[] =
   {"------", 7, 32, "1000 1100 dddd 0001", "ldctlb rbd,ctrl", 0},
   {"CZSVDH", 7, 32, "1000 1100 ssss 1001", "ldctlb ctrl,rbs", 0},
 
+  {"*", 4, 8, "1000 1000 ssss dddd", "xorb rbd,rbs", 0},
   {"*", 0, 0, 0, 0, 0}
 };
 
@@ -574,7 +574,7 @@ func (const void *p1, const void *p2)
   int ret = strcmp (a->name, b->name);
   if (ret != 0)
     return ret;
-  return a->id > b->id ? 1 : -1;
+  return p1 > p2;
 }
 
 
@@ -826,12 +826,9 @@ chewname (char **name)
   return nargs;
 }
 
-static char *
+static void
 sub (char *x, char c)
 {
-  /* Create copy.  */
-  char *ret = xstrdup (x);
-  x = ret;
   while (*x)
     {
       if (x[0] == c && x[1] == c &&
@@ -842,7 +839,6 @@ sub (char *x, char c)
 	}
       x++;
     }
-  return ret;
 }
 
 
@@ -913,14 +909,9 @@ static void
 internal (void)
 {
   int c = count ();
-  int id;
-  struct op *new_op = xmalloc (sizeof (struct op) * (c + 1));
+  struct op *new_op = xmalloc (sizeof (struct op) * c);
   struct op *p = opt;
-  memcpy (new_op, p, (c + 1) * sizeof (struct op));
-
-  /* Assign unique id.  */
-  for (id = 0; id < c; id++)
-    new_op[id].id = id;
+  memcpy (new_op, p, c * sizeof (struct op));
 
   /* Sort all names in table alphabetically.  */
   qsort (new_op, c, sizeof (struct op), func);
@@ -946,15 +937,15 @@ internal (void)
 	  /* Skip the r and sub the string.  */
 	  s++;
 	  c = s[1];
-	  p->bits = sub (p->bits, c);
+	  sub (p->bits, c);
 	}
 	if (s[0] == '(' && s[3] == ')')
 	{
-	  p->bits = sub (p->bits, s[2]);
+	  sub (p->bits, s[2]);
 	}
 	if (s[0] == '(')
 	{
-	  p->bits = sub (p->bits, s[-1]);
+	  sub (p->bits, s[-1]);
 	}
 
 	s++;
@@ -971,17 +962,12 @@ static void
 gas (void)
 {
   int c = count ();
-  int id;
   struct op *p = opt;
   int idx = -1;
   char *oldname = "";
-  struct op *new_op = xmalloc (sizeof (struct op) * (c + 1));
+  struct op *new_op = xmalloc (sizeof (struct op) * c);
 
-  memcpy (new_op, p, (c + 1) * sizeof (struct op));
-
-  /* Assign unique id.  */
-  for (id = 0; id < c; id++)
-    new_op[id].id = id;
+  memcpy (new_op, p, c * sizeof (struct op));
 
   /* Sort all names in table alphabetically.  */
   qsort (new_op, c, sizeof (struct op), func);
@@ -1298,7 +1284,7 @@ gas (void)
   printf ("#ifdef DEFINE_TABLE\n");
   printf ("const opcode_entry_type z8k_table[] = {\n");
 
-  while (new_op->flags && new_op->flags[0] != '*')
+  while (new_op->flags && new_op->flags[0])
     {
       int nargs;
       int length;
