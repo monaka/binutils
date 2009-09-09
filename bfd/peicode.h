@@ -422,6 +422,7 @@ pe_bfd_copy_private_bfd_data (bfd *ibfd, bfd *obfd)
 #define SIZEOF_ILF_SECTIONS     (NUM_ILF_SECTIONS * sizeof (struct coff_section_tdata))
 
 #define ILF_DATA_SIZE				\
+      sizeof (* vars.bim)			\
     + SIZEOF_ILF_SYMS				\
     + SIZEOF_ILF_SYM_TABLE			\
     + SIZEOF_ILF_NATIVE_SYMS			\
@@ -779,16 +780,15 @@ pe_ILF_build_a_bfd (bfd *           abfd,
 
      We are going to construct the contents of the BFD in memory,
      so allocate all the space that we will need right now.  */
-  vars.bim
-    = (struct bfd_in_memory *) bfd_malloc ((bfd_size_type) sizeof (*vars.bim));
-  if (vars.bim == NULL)
+  ptr = (bfd_byte *) bfd_zalloc (abfd, (bfd_size_type) ILF_DATA_SIZE);
+  if (ptr == NULL)
     return FALSE;
 
-  ptr = (bfd_byte *) bfd_zmalloc ((bfd_size_type) ILF_DATA_SIZE);
+  /* Create a bfd_in_memory structure.  */
+  vars.bim = (struct bfd_in_memory *) ptr;
   vars.bim->buffer = ptr;
   vars.bim->size   = ILF_DATA_SIZE;
-  if (ptr == NULL)
-    goto error_return;
+  ptr += sizeof (* vars.bim);
 
   /* Initialise the pointers to regions of the memory and the
      other contents of the pe_ILF_vars structure as well.  */
@@ -842,7 +842,7 @@ pe_ILF_build_a_bfd (bfd *           abfd,
   id4 = pe_ILF_make_a_section (& vars, ".idata$4", SIZEOF_IDATA4, 0);
   id5 = pe_ILF_make_a_section (& vars, ".idata$5", SIZEOF_IDATA5, 0);
   if (id4 == NULL || id5 == NULL)
-    goto error_return;
+    return FALSE;
 
   /* Fill in the contents of these sections.  */
   if (import_name_type == IMPORT_ORDINAL)
@@ -869,7 +869,7 @@ pe_ILF_build_a_bfd (bfd *           abfd,
       /* Create .idata$6 - the Hint Name Table.  */
       id6 = pe_ILF_make_a_section (& vars, ".idata$6", SIZEOF_IDATA6, 0);
       if (id6 == NULL)
-	goto error_return;
+	return FALSE;
 
       /* If necessary, trim the import symbol name.  */
       symbol = symbol_name;
@@ -884,11 +884,7 @@ pe_ILF_build_a_bfd (bfd *           abfd,
       if (import_name_type != IMPORT_NAME)
 	{
 	  char c = symbol[0];
-	  
-	  /* Check that we don't remove for targets with empty
-	     USER_LABEL_PREFIX the leading underscore.  */
-	  if ((c == '_' && abfd->xvec->symbol_leading_char != 0)
-	      || c == '@' || c == '?')
+	  if (c == '_' || c == '@' || c == '?')
 	    symbol++;
 	}
       
@@ -940,7 +936,7 @@ pe_ILF_build_a_bfd (bfd *           abfd,
       /* Create the .text section.  */
       text = pe_ILF_make_a_section (& vars, ".text", jtab[i].size, SEC_CODE);
       if (text == NULL)
-	goto error_return;
+	return FALSE;
 
       /* Copy in the jump code.  */
       memcpy (text->contents, jtab[i].data, jtab[i].size);
@@ -989,10 +985,10 @@ pe_ILF_build_a_bfd (bfd *           abfd,
 
   if (   ! bfd_set_start_address (abfd, (bfd_vma) 0)
       || ! bfd_coff_set_arch_mach_hook (abfd, & internal_f))
-    goto error_return;
+    return FALSE;
 
   if (bfd_coff_mkobject_hook (abfd, (void *) & internal_f, NULL) == NULL)
-    goto error_return;
+    return FALSE;
 
   coff_data (abfd)->pe = 1;
 #ifdef THUMBPEMAGIC
@@ -1006,9 +1002,7 @@ pe_ILF_build_a_bfd (bfd *           abfd,
 
   abfd->iostream = (void *) vars.bim;
   abfd->flags |= BFD_IN_MEMORY /* | HAS_LOCALS */;
-  abfd->iovec = &_bfd_memory_iovec;
   abfd->where = 0;
-  abfd->origin = 0;
   obj_sym_filepos (abfd) = 0;
 
   /* Now create a symbol describing the imported value.  */
@@ -1056,12 +1050,6 @@ pe_ILF_build_a_bfd (bfd *           abfd,
   abfd->flags |= HAS_SYMS;
 
   return TRUE;
-
- error_return:
-  if (vars.bim->buffer != NULL)
-    free (vars.bim->buffer);
-  free (vars.bim);
-  return FALSE;
 }
 
 /* We have detected a Image Library Format archive element.
