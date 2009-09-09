@@ -1,4 +1,4 @@
-# Linker script for MCore PE.
+# Linker script for PE.
 
 if test -z "${RELOCATEABLE_OUTPUT_FORMAT}"; then
   RELOCATEABLE_OUTPUT_FORMAT=${OUTPUT_FORMAT}
@@ -35,16 +35,10 @@ else
   R_RSRC=
 fi
 
-if test "$RELOCATING"; then
-  # Can't use ${RELOCATING+blah "blah" blah} for this,
-  # because bash 2.x will lose the doublequotes.
-  cat <<EOF
-OUTPUT_FORMAT("${OUTPUT_FORMAT}", "${BIG_OUTPUT_FORMAT}",
-	  	           "${LITTLE_OUTPUT_FORMAT}")
-EOF
-fi
-
 cat <<EOF
+${RELOCATING+OUTPUT_FORMAT(${OUTPUT_FORMAT})}
+${RELOCATING-OUTPUT_FORMAT(${RELOCATEABLE_OUTPUT_FORMAT})}
+
 ${LIB_SEARCH_DIRS}
 
 ${RELOCATING+ENTRY (_mainCRTStartup)}
@@ -56,9 +50,9 @@ SECTIONS
     ${RELOCATING+ *(.init)}
     *(.text)
     ${R_TEXT}
-    ${RELOCATING+ *(.text.*)}
     *(.glue_7t)
     *(.glue_7)
+    ${RELOCATING+ *(.text.*)}
     ${CONSTRUCTING+ ___CTOR_LIST__ = .; __CTOR_LIST__ = . ; 
 			LONG (-1); *(.ctors); *(.ctor); LONG (0); }
     ${CONSTRUCTING+ ___DTOR_LIST__ = .; __DTOR_LIST__ = . ; 
@@ -68,6 +62,12 @@ SECTIONS
     ${RELOCATING+ *(.gcc_exc)}
     ${RELOCATING+ etext = .;}
     *(.gcc_except_table)
+
+    /* For EPOC the read only data is located at the end of the .text
+    section */
+    *(.rdata)
+    ${R_RDATA}
+    *(.eh_frame)
   }
 
   /* The Cygwin32 library uses a section to avoid copying certain data
@@ -94,13 +94,6 @@ SECTIONS
     ${RELOCATING+__bss_end__ = . ;}
   }
 
-  .rdata ${RELOCATING+BLOCK(__section_alignment__)} :
-  {
-    *(.rdata)
-    ${R_RDATA}
-    *(.eh_frame)
-  }
-
   .edata ${RELOCATING+BLOCK(__section_alignment__)} :
   {
     *(.edata)
@@ -120,6 +113,7 @@ SECTIONS
 	See pe.em:sort_sections.  */
     ${R_IDATA}
   }
+  
   .CRT ${RELOCATING+BLOCK(__section_alignment__)} :
   { 					
     ${R_CRT}
@@ -154,10 +148,5 @@ SECTIONS
     [ .stabstr ]
   }
 
-  .stack 0x80000 :
-  {
-    _stack = .;
-    *(.stack)
-  }
 }
 EOF

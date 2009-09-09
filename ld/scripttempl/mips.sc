@@ -19,7 +19,7 @@ OUTPUT_FORMAT("${OUTPUT_FORMAT}", "${BIG_OUTPUT_FORMAT}",
 	      "${LITTLE_OUTPUT_FORMAT}")
 ${LIB_SEARCH_DIRS}
 
-ENTRY(${ENTRY})
+${RELOCATING+ENTRY (${ENTRY})}
 
 SECTIONS
 {
@@ -29,9 +29,6 @@ SECTIONS
     *(.init)
     ${RELOCATING+ eprol  =  .};
     *(.text)
-    ${RELOCATING+PROVIDE (__runtime_reloc_start = .);}
-    *(.rel.sdata)
-    ${RELOCATING+PROVIDE (__runtime_reloc_stop = .);}
     *(.fini)
     ${RELOCATING+ etext  =  .};
     ${RELOCATING+ _etext  =  .};

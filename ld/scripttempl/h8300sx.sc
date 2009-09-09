@@ -10,7 +10,7 @@ TORS=".tors :
 
 cat <<EOF
 OUTPUT_FORMAT("${OUTPUT_FORMAT}")
-OUTPUT_ARCH(h8300h)
+OUTPUT_ARCH(h8300sx)
 ${RELOCATING+ENTRY ("_start")}
 
 /* The memory size is 256KB to coincide with the simulator.
