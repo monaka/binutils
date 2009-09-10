@@ -122,7 +122,9 @@ THIS SOFTWARE.
 /* #include <fenv.h> */
 /* #endif */
 
+#ifdef USE_LOCALE
 #include "locale.h"
+#endif
 
 #ifdef IEEE_Arith
 #ifndef NO_IEEE_Scale
@@ -299,19 +301,20 @@ _DEFUN (_strtod_r, (ptr, s00, se),
 		}
 	s0 = s;
 	y = z = 0;
-	for(nd = nf = 0; (c = *s) >= '0' && c <= '9'; nd++, s++) {
-		if (nd < DBL_DIG + 1) {
-			if (nd < 9)
-				y = 10*y + c - '0';
-			else
-				z = 10*z + c - '0';
-		}
-        }
+	for(nd = nf = 0; (c = *s) >= '0' && c <= '9'; nd++, s++)
+		if (nd < 9)
+			y = 10*y + c - '0';
+		else if (nd < 16)
+			z = 10*z + c - '0';
 	nd0 = nd;
-	if (strncmp (s, _localeconv_r (ptr)->decimal_point,
-		     strlen (_localeconv_r (ptr)->decimal_point)) == 0) {
+#ifdef USE_LOCALE
+	if (c == *localeconv()->decimal_point)
+#else
+	if (c == '.')
+#endif
+		{
 		decpt = 1;
-		c = *(s += strlen (_localeconv_r (ptr)->decimal_point));
+		c = *++s;
 		if (!nd) {
 			for(; c == '0'; c = *++s)
 				nz++;
@@ -327,28 +330,20 @@ _DEFUN (_strtod_r, (ptr, s00, se),
  have_dig:
 			nz++;
 			if (c -= '0') {
-				for(i = 1; i < nz; i++) {
-					if (nd <= DBL_DIG + 1) {
-						if (nd + i < 10)
-							y *= 10;
-						else
-							z *= 10;
-					}
-				}
-				if (nd <= DBL_DIG + 1) {
-					if (nd + i < 10)
-						y = 10*y + c;
-					else
-						z = 10*z + c;
-				}
-				if (nd <= DBL_DIG + 1) {
-					nf += nz;
-					nd += nz;
-				}
+				nf += nz;
+				for(i = 1; i < nz; i++)
+					if (nd++ < 9)
+						y *= 10;
+					else if (nd <= DBL_DIG + 1)
+						z *= 10;
+				if (nd++ < 9)
+					y = 10*y + c;
+				else if (nd <= DBL_DIG + 1)
+					z = 10*z + c;
 				nz = 0;
+				}
 			}
 		}
-	}
  dig_done:
 	e = 0;
 	if (c == 'e' || c == 'E') {
@@ -1174,7 +1169,7 @@ _DEFUN (_strtod_r, (ptr, s00, se),
 	return sign ? -dval(rv) : dval(rv);
 }
 
-#ifndef _REENT_ONLY
+#ifndef NO_REENT
 
 double
 _DEFUN (strtod, (s00, se),
@@ -1189,9 +1184,21 @@ _DEFUN (strtof, (s00, se),
 	char **se)
 {
   double retval = _strtod_r (_REENT, s00, se);
+  float f_retval;
+
   if (isnan (retval))
     return nanf (NULL);
-  return (float)retval;
+  f_retval = (float)retval;
+#ifndef NO_ERRNO
+  if (f_retval == 0 && retval != 0)
+    _REENT->_errno = ERANGE;
+#ifdef __GNUC__
+  else if (f_retval == __builtin_huge_valf()
+	   || f_retval == -__builtin_huge_valf())
+    _REENT->_errno = ERANGE;
+#endif
+#endif /* NO_ERRNO */
+  return f_retval;
 }
 
 #endif

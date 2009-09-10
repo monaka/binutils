@@ -15,7 +15,6 @@ dnl references to libtool libraries from aclocal and tries to verify that
 dnl AM_PROG_LIBTOOL is being used.  This must be added after
 dnl the call to NEWLIB_CONFIGURE.
 _LT_DECL_SED
-_LT_PROG_ECHO_BACKSLASH
 if test "${use_libtool}" = "yes"; then
 AC_LIBTOOL_WIN32_DLL
 AM_PROG_LIBTOOL
@@ -24,9 +23,9 @@ fi
 if test -n "${machine_dir}"; then
   case ${machine_dir} in
 	a29k) AC_CONFIG_SUBDIRS(a29k) ;;
+	arc) AC_CONFIG_SUBDIRS(arc) ;;
 	arm) AC_CONFIG_SUBDIRS(arm) ;;
 	bfin) AC_CONFIG_SUBDIRS(bfin) ;;
-	cr16) AC_CONFIG_SUBDIRS(cr16) ;;
 	cris) AC_CONFIG_SUBDIRS(cris) ;;
 	crx) AC_CONFIG_SUBDIRS(crx) ;;
 	d10v) AC_CONFIG_SUBDIRS(d10v) ;;
@@ -46,26 +45,21 @@ if test -n "${machine_dir}"; then
 	m68k) AC_CONFIG_SUBDIRS(m68k) ;;
 	m88k) AC_CONFIG_SUBDIRS(m88k) ;;
 	mep ) AC_CONFIG_SUBDIRS(mep) ;;
-	microblaze ) AC_CONFIG_SUBDIRS(microblaze) ;;
 	mips) AC_CONFIG_SUBDIRS(mips) ;;
 	mn10200) AC_CONFIG_SUBDIRS(mn10200) ;;
 	mn10300) AC_CONFIG_SUBDIRS(mn10300) ;;
-	moxie) AC_CONFIG_SUBDIRS(moxie) ;;
 	mt) AC_CONFIG_SUBDIRS(mt) ;;
 	necv70) AC_CONFIG_SUBDIRS(necv70) ;;
 	powerpc) AC_CONFIG_SUBDIRS(powerpc) ;;
-	rl78) AC_CONFIG_SUBDIRS(rl78) ;;
-	rx) AC_CONFIG_SUBDIRS(rx) ;;
 	sh) AC_CONFIG_SUBDIRS(sh) ;;
 	sparc) AC_CONFIG_SUBDIRS(sparc) ;;
 	spu) AC_CONFIG_SUBDIRS(spu) ;;
 	tic4x) AC_CONFIG_SUBDIRS(tic4x) ;;
-	tic6x) AC_CONFIG_SUBDIRS(tic6x) ;;
 	tic80) AC_CONFIG_SUBDIRS(tic80) ;;
 	v850) AC_CONFIG_SUBDIRS(v850) ;;
 	w65) AC_CONFIG_SUBDIRS(w65) ;;
 	x86_64) AC_CONFIG_SUBDIRS(x86_64) ;;
-	xc16x) AC_CONFIG_SUBDIRS(xc16x) ;;
+	xscale) AC_CONFIG_SUBDIRS(xscale) ;;
 	xstormy16) AC_CONFIG_SUBDIRS(xstormy16) ;;
 	z8k) AC_CONFIG_SUBDIRS(z8k) ;;
   esac;

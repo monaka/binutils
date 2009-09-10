@@ -46,7 +46,6 @@
 #   crt1_dir            directory where crt1 object is found
 #   have_crt0		"yes"/"no" if crt0 is/isn't provided.
 #			"" if crt0 is provided when sys_dir is set
-#   noinclude		list of include files to not install
 
 newlib_cflags=
 libm_machine_dir=
@@ -56,10 +55,8 @@ posix_dir=
 signal_dir=signal
 stdio_dir=stdio
 stdio64_dir=
-xdr_dir=
 syscall_dir=
 unix_dir=
-noinclude=
 mach_add_setjmp=
 crt1=
 crt1_dir=
@@ -83,6 +80,7 @@ case "${target_optspace}:${host}" in
     newlib_cflags="${newlib_cflags} -Os"
     ;;
   no:* | :*)
+    newlib_cflags="${newlib_cflags} -O2"
     ;;
 esac
 
@@ -96,7 +94,7 @@ case "${host_cpu}" in
 	machine_dir=a29k
 	;;
   arc)
-	machine_dir=
+	machine_dir=arc
 	;;
   arm)
 	machine_dir=arm
@@ -107,9 +105,6 @@ case "${host_cpu}" in
   bfin)
 	machine_dir=bfin
 	;;
-  cr16*)
-	machine_dir=cr16
-       ;;
   cris | crisv32)
 	machine_dir=cris
 	;;
@@ -121,6 +116,9 @@ case "${host_cpu}" in
 	;;
   d30v*)
 	machine_dir=d30v
+	;;
+  ep9312)
+	machine_dir=arm
 	;;
   fido)
 	machine_dir=m68k
@@ -168,7 +166,7 @@ case "${host_cpu}" in
 	;;
   m32c)
 	machine_dir=m32c
-	newlib_cflags="${newlib_cflags} -DPREFER_SIZE_OVER_SPEED -DSMALL_MEMORY"
+	newlib_cflags="${newlib_cflags} -DPREFER_SIZE_OVER_SPEED -DABORT_PROVIDED -DSMALL_MEMORY"
 	;;
 
   m32r*)
@@ -195,9 +193,6 @@ case "${host_cpu}" in
 	;;
   mcore)
 	;;
-  microblaze)
-	machine_dir=microblaze
-	;;
   mep)
 	machine_dir=mep
 	;;
@@ -213,11 +208,10 @@ case "${host_cpu}" in
 	default_newlib_io_long_long="yes"
 	machine_dir=mn10300
 	;;
-  moxie)
-	machine_dir=moxie
-        ;;
   mt*)
 	machine_dir=mt
+	;;
+  mxp)
 	;;
   or16)
 	;;
@@ -225,15 +219,6 @@ case "${host_cpu}" in
 	;;
   powerpc*)
 	machine_dir=powerpc
-	;;
-  rl78)
-	machine_dir=rl78
-	newlib_cflags="${newlib_cflags} -DPREFER_SIZE_OVER_SPEED -DSMALL_MEMORY"
-	;;
-  rx)
-	machine_dir=rx
-	default_newlib_io_long_long="yes"
-	newlib_cflags="${newlib_cflags} -ffunction-sections -fdata-sections "
 	;;
   sh | sh64)
 	machine_dir=sh
@@ -243,11 +228,17 @@ case "${host_cpu}" in
 	# FIXME: Might wish to make MALLOC_ALIGNMENT more generic.
 	newlib_cflags="${newlib_cflags} -DMALLOC_ALIGNMENT=8"
 	;;
+  strongarm)
+	machine_dir=arm
+	;;
+  xscale)
+	machine_dir=xscale
+	;;
+  thumb)
+	machine_dir=arm
+	;;
   tic4x|c4x)
 	machine_dir=tic4x
-	;;
-  tic6x)
-	machine_dir=tic6x
 	;;
   tic80*)
 	machine_dir=tic80
@@ -256,7 +247,11 @@ case "${host_cpu}" in
 	;;
   v810)
 	;;
-  v850*)
+  v850)
+	machine_dir=v850
+	newlib_cflags="${newlib_cflags} -DPREFER_SIZE_OVER_SPEED -mv850 "
+	;;
+  v850e)
 	machine_dir=v850
 	newlib_cflags="${newlib_cflags} -DPREFER_SIZE_OVER_SPEED "
 	;;
@@ -266,9 +261,6 @@ case "${host_cpu}" in
   x86_64)
 	machine_dir=x86_64
 	;;
-  xc16x*)
-    machine_dir=xc16x
-    ;;
   xstormy16)
 	machine_dir=xstormy16
 	newlib_cflags="${newlib_cflags} -DMALLOC_PROVIDED"
@@ -346,7 +338,6 @@ case "${host}" in
   *-*-cygwin*)
 	posix_dir=posix
 	stdio64_dir=stdio64
-	xdr_dir=xdr
 	;;
   *-*-netware*)
 	signal_dir=
@@ -373,9 +364,6 @@ case "${host}" in
   bfin-*-*)
 	sys_dir=
 	;;
-  cr16-*-*)
-	sys_dir=
-	;;
   crx*)
 	sys_dir=
 	;;
@@ -384,6 +372,12 @@ case "${host}" in
 	;;
   d30v*)
 	sys_dir=
+	;;
+  ep9312-*-*)
+	sys_dir=arm
+	if [ "x${newlib_may_supply_syscalls}" = "xno" ] ; then
+	  have_crt0="no"
+	fi
 	;;
   frv*)
         sys_dir=
@@ -451,18 +445,12 @@ case "${host}" in
 	default_newlib_io_long_long="yes"
 	newlib_cflags="${newlib_cflags} -DMISSING_SYSCALL_NAMES"
 	;;
-  microblaze-*-*)
-	machine_dir=microblaze
-	;;
   mips*-dec-*)
 	sys_dir=decstation
 	;;
   mmix-knuth-mmixware)
 	sys_dir=mmixware
 	;;
-  moxie*)
-        sys_dir=
-        ;;
   powerpcle-*-pe)
 	posix_dir=posix
 	;;
@@ -481,9 +469,17 @@ case "${host}" in
 	default_newlib_io_long_long="yes"
 	default_newlib_atexit_dynamic_alloc="no"
 	;;
-  tic6x*)
-	newlib_cflags="${newlib_cflags} -DMISSING_SYSCALL_NAMES"
-	have_crt0="no"
+  strongarm-*-*)
+	sys_dir=arm
+	if [ "x${newlib_may_supply_syscalls}" = "xno" ] ; then
+	  have_crt0="no"
+	fi
+	;;
+  thumb-*-*)
+	sys_dir=arm
+	if [ "x${newlib_may_supply_syscalls}" = "xno" ] ; then
+	  have_crt0="no"
+	fi
 	;;
   tic80*)
 	sys_dir=tic80
@@ -494,14 +490,23 @@ case "${host}" in
   v810-*-*)
 	sys_dir=sysnec810
 	;;
-  v850*-*-*)
+  v850-*-*)
 	sys_dir=sysnecv850
-        if [ "x${newlib_may_supply_syscalls}" = "xno" ] ; then
-          have_crt0="no"
-        fi
+	;;
+  v850e-*-*)
+	sys_dir=sysnecv850
+	;;
+  v850ea-*-*)
+	sys_dir=sysnecv850
 	;;
   w65-*-*)
 	sys_dir=w65
+	;;
+  xscale-*-*)
+	sys_dir=arm
+	if [ "x${newlib_may_supply_syscalls}" = "xno" ] ; then
+	  have_crt0="no"
+	fi
 	;;
   z8k-*-coff)
 	sys_dir=z8ksim
@@ -534,10 +539,9 @@ case "${host}" in
   *-*-rtems*)
 	default_newlib_io_long_long="yes"
 	default_newlib_io_c99_formats="yes"
-	newlib_cflags="${newlib_cflags} -D_COMPILING_NEWLIB"
-	newlib_cflags="${newlib_cflags} -DMALLOC_PROVIDED -DEXIT_PROVIDED -DSIGNAL_PROVIDED -DREENTRANT_SYSCALLS_PROVIDED -DHAVE_NANOSLEEP -DHAVE_BLKSIZE -DHAVE_FCNTL -DHAVE_ASSERT_FUNC"
+	newlib_cflags="${newlib_cflags} -DMALLOC_PROVIDED -DEXIT_PROVIDED -DMISSING_SYSCALL_NAMES -DSIGNAL_PROVIDED -DREENTRANT_SYSCALLS_PROVIDED -DHAVE_NANOSLEEP -DHAVE_FCNTL"
         # turn off unsupported items in posix directory 
-	newlib_cflags="${newlib_cflags} -D_NO_GETLOGIN -D_NO_GETPWENT -D_NO_GETUT -D_NO_GETPASS -D_NO_SIGSET -D_NO_WORDEXP -D_NO_POPEN"
+	newlib_cflags="${newlib_cflags} -D_NO_GETLOGIN -D_NO_GETPWENT -D_NO_GETUT -D_NO_GETPASS -D_NO_SIGSET"
 	;;
 # VxWorks supplies its own version of malloc, and the newlib one
 # doesn't work because VxWorks does not have sbrk.
@@ -551,6 +555,7 @@ case "${host}" in
 	;;
   arc-*-*)
 	syscall_dir=syscalls
+	newlib_cflags="${newlib_cflags} -DREENTRANT_SYSCALLS_PROVIDED"
 	;;
   arm-*-pe)
 	syscall_dir=syscalls
@@ -564,6 +569,7 @@ case "${host}" in
 # to create the program's environment.
 # If --disable-newlib-supplied-syscalls is specified, then the end-user
 # may specify the protocol via gcc spec files supplied by libgloss.
+# See also thumb below.
 	if [ "x${newlib_may_supply_syscalls}" = "xyes" ] ; then
 #         newlib_cflags="${newlib_cflags} -DARM_RDP_MONITOR"
 	  newlib_cflags="${newlib_cflags} -DARM_RDI_MONITOR"
@@ -583,9 +589,6 @@ case "${host}" in
 	newlib_cflags="${newlib_cflags} -DHAVE_RENAME -D_USE_WRITE -DCOMPACT_CTYPE"
 	syscall_dir=syscalls
 	;;
-  cr16-*-*)
-	syscall_dir=syscalls
-	;;
   crx-*-*)
 	newlib_cflags="${newlib_cflags} -DHAVE_RENAME -DMISSING_SYSCALL_NAMES"
 	syscall_dir=
@@ -597,6 +600,12 @@ case "${host}" in
   d30v*)
 	newlib_cflags="${newlib_cflags} -DABORT_MESSAGE -DSMALL_MEMORY -DMISSING_SYSCALL_NAMES"
 	syscall_dir=
+	;;
+  ep9312-*-*)
+	syscall_dir=syscalls
+	if [ "x${newlib_may_supply_syscalls}" = "xyes" ] ; then
+	  newlib_cflags="${newlib_cflags} -DARM_RDI_MONITOR"
+	fi
 	;;
   fido-*-elf)
 	newlib_cflags="${newlib_cflags} -DHAVE_RENAME -DHAVE_SYSTEM -DMISSING_SYSCALL_NAMES"
@@ -634,11 +643,6 @@ case "${host}" in
   lm32-*-*)
 	syscall_dir=syscalls
 	;;
-  m32c-*-*)
-	default_newlib_io_long_long="yes"
-	newlib_cflags="${newlib_cflags} -DMISSING_SYSCALL_NAMES -DABORT_PROVIDED"
-	syscall_dir=
-  	;;
   m32r-*-*)
 	# Pass -msdata=sdata so _impure_ptr goes in .sdata.
 	# We don't generate sda relocs however for upward compatibility.
@@ -657,10 +661,6 @@ case "${host}" in
   mcore-*-*)
 	syscall_dir=syscalls
 	;;
-  microblaze-*-*)
-   	default_newlib_io_long_long="yes"
- 	newlib_cflags="${newlib_cflags} -DMISSING_SYSCALL_NAMES -DSMALL_MEMORY -D_REENT_SMALL"
-	;;
   mips64vr*-*-*)
 	default_newlib_io_long_long="yes"
 	newlib_cflags="${newlib_cflags} -DMISSING_SYSCALL_NAMES"
@@ -678,10 +678,6 @@ case "${host}" in
   mn10?00-*-*)
 	syscall_dir=syscalls
 	;;
-  moxie-*-*)
-        syscall_dir=syscalls
-	default_newlib_io_long_long="yes"
-        ;;
   powerpc*-*-eabialtivec*)
 	default_newlib_io_long_long="yes"
 	newlib_cflags="${newlib_cflags} -DMISSING_SYSCALL_NAMES"
@@ -721,23 +717,50 @@ case "${host}" in
 		newlib_cflags="${newlib_cflags} -DTARGET_PTR_SIZE=64" ;;
 	esac
 	;;
-  tic6x*)
-	syscall_dir=
-	newlib_cflags="${newlib_cflags} -DCLOCK_PROVIDED"
+  strongarm-*-*)
+	syscall_dir=syscalls
+	;;
+  thumb-*-pe)
+	syscall_dir=syscalls
+# Don't use the debugging protocols just yet.
+	;;
+  thumb-*-*)
+	syscall_dir=syscalls
+# If newlib is supplying syscalls, select which debug protocol is being used.
+# ARM_RDP_MONITOR selects the Demon monitor.
+# ARM_RDI_MONITOR selects the Angel monitor.
+# If neither are defined, then hard coded defaults will be used
+# to create the program's environment.
+# If --disable-newlib-supplied-syscalls is specified, then the end-user
+# may specify the protocol via gcc spec files supplied by libgloss.
+	if [ "x${newlib_may_supply_syscalls}" = "xyes" ] ; then
+#         newlib_cflags="${newlib_cflags} -DARM_RDP_MONITOR"
+	  newlib_cflags="${newlib_cflags} -DARM_RDI_MONITOR"
+	fi
 	;;
   tic80*)
 	syscall_dir=syscalls
 	;;
-  v850*-*-*)
+  v850-*-*)
+	syscall_dir=syscalls
+	;;
+  v850e-*-*)
+	syscall_dir=syscalls
+	;;
+  v850ea-*-*)
 	syscall_dir=syscalls
 	;;
   w65-*-*)
 	syscall_dir=syscalls	
 	newlib_cflags="${newlib_cflags} -DSMALL_DTOA -DSMALL_MEMORY"
+	;;	
+  xscale-*-*)
+	syscall_dir=syscalls
+	newlib_cflags="${newlib_cflags} -DHAVE_SYSTEM -DHAVE_RENAME"
+	if [ "x${newlib_may_supply_syscalls}" = "xyes" ] ; then
+	  newlib_cflags="${newlib_cflags} -DARM_RDI_MONITOR"
+	fi
 	;;
-  xc16x-*)
-          syscall_dir=syscalls
-        ;;
   xstormy16-*-*)
 	syscall_dir=syscalls
 	;;
@@ -785,11 +808,6 @@ if [ "x${newlib_atexit_dynamic_alloc}" = "x" ]; then
 	if [ ${default_newlib_atexit_dynamic_alloc} = "yes" ]; then
 		newlib_atexit_dynamic_alloc="yes"; 
 	fi
-fi
-
-# Remove rpc headers if xdr_dir not specified
-if [ "x${xdir_dir}" = "x" ]; then
-	noinclude="${noinclude} rpc/types.h rpc/xdr.h"
 fi
 
 if test -z "${have_crt0}" && test -n "${sys_dir}"; then
