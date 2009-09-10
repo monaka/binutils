@@ -1,7 +1,6 @@
 /* as.c - GAS main program.
    Copyright 1987, 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998,
-   1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-   2010, 2011, 2012
+   1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008
    Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
@@ -86,7 +85,7 @@ static enum debug_info_type (*md_debug_format_selector) (int *) = MD_DEBUG_FORMA
 int max_macro_nest = 100;
 
 /* argv[0]  */
-static char * myname;
+char * myname;
 
 /* The default obstack chunk size.  If we set this to zero, the
    obstack code will use whatever will fit in a 4096 byte block.  */
@@ -98,9 +97,6 @@ int debug_memory = 0;
 
 /* Enable verbose mode.  */
 int verbose = 0;
-
-/* Keep the output file.  */
-int keep_it = 0;
 
 segT reg_section;
 segT expr_section;
@@ -246,19 +242,10 @@ Options:\n\
 
   fprintf (stream, _("\
   --alternate             initially turn on alternate macro syntax\n"));
-#ifdef HAVE_ZLIB_H
-  fprintf (stream, _("\
-  --compress-debug-sections\n\
-                          compress DWARF debug sections using zlib\n"));
-  fprintf (stream, _("\
-  --nocompress-debug-sections\n\
-                          don't compress DWARF debug sections\n"));
-#endif /* HAVE_ZLIB_H */
   fprintf (stream, _("\
   -D                      produce assembler debugging messages\n"));
   fprintf (stream, _("\
-  --debug-prefix-map OLD=NEW\n\
-                          map OLD to NEW in debug information\n"));
+  --debug-prefix-map OLD=NEW  Map OLD to NEW in debug information\n"));
   fprintf (stream, _("\
   --defsym SYM=VAL        define symbol SYM to given value\n"));
 #ifdef USE_EMULATIONS
@@ -284,9 +271,6 @@ Options:\n\
   --execstack             require executable stack for this object\n"));
   fprintf (stream, _("\
   --noexecstack           don't require executable stack for this object\n"));
-  fprintf (stream, _("\
-  --size-check=[error|warning]\n\
-			  ELF .size directive check (default --size-check=error)\n"));
 #endif
   fprintf (stream, _("\
   -f                      skip whitespace and comment preprocessing\n"));
@@ -446,14 +430,11 @@ parse_args (int * pargc, char *** pargv)
       OPTION_TARGET_HELP,
       OPTION_EXECSTACK,
       OPTION_NOEXECSTACK,
-      OPTION_SIZE_CHECK,
       OPTION_ALTERNATE,
       OPTION_AL,
       OPTION_HASH_TABLE_SIZE,
       OPTION_REDUCE_MEMORY_OVERHEADS,
-      OPTION_WARN_FATAL,
-      OPTION_COMPRESS_DEBUG,
-      OPTION_NOCOMPRESS_DEBUG
+      OPTION_WARN_FATAL
     /* When you add options here, check that they do
        not collide with OPTION_MD_BASE.  See as.h.  */
     };
@@ -461,7 +442,7 @@ parse_args (int * pargc, char *** pargv)
   static const struct option std_longopts[] =
   {
     /* Note: commas are placed at the start of the line rather than
-       the end of the preceding line so that it is simpler to
+       the end of the preceeding line so that it is simpler to
        selectively add and remove lines from this list.  */
     {"alternate", no_argument, NULL, OPTION_ALTERNATE}
     /* The entry for "a" is here to prevent getopt_long_only() from
@@ -471,8 +452,6 @@ parse_args (int * pargc, char *** pargv)
     ,{"a", optional_argument, NULL, 'a'}
     /* Handle -al=<FILE>.  */
     ,{"al", optional_argument, NULL, OPTION_AL}
-    ,{"compress-debug-sections", no_argument, NULL, OPTION_COMPRESS_DEBUG}
-    ,{"nocompress-debug-sections", no_argument, NULL, OPTION_NOCOMPRESS_DEBUG}
     ,{"debug-prefix-map", required_argument, NULL, OPTION_DEBUG_PREFIX_MAP}
     ,{"defsym", required_argument, NULL, OPTION_DEFSYM}
     ,{"dump-config", no_argument, NULL, OPTION_DUMPCONFIG}
@@ -480,7 +459,6 @@ parse_args (int * pargc, char *** pargv)
 #if defined OBJ_ELF || defined OBJ_MAYBE_ELF
     ,{"execstack", no_argument, NULL, OPTION_EXECSTACK}
     ,{"noexecstack", no_argument, NULL, OPTION_NOEXECSTACK}
-    ,{"size-check", required_argument, NULL, OPTION_SIZE_CHECK}
 #endif
     ,{"fatal-warnings", no_argument, NULL, OPTION_WARN_FATAL}
     ,{"gdwarf-2", no_argument, NULL, OPTION_GDWARF2}
@@ -528,8 +506,7 @@ parse_args (int * pargc, char *** pargv)
      dependent list.  Include space for an extra NULL option and
      always NULL terminate.  */
   shortopts = concat (std_shortopts, md_shortopts, (char *) NULL);
-  longopts = (struct option *) xmalloc (sizeof (std_longopts)
-                                        + md_longopts_size + sizeof (struct option));
+  longopts = xmalloc (sizeof (std_longopts) + md_longopts_size + sizeof (struct option));
   memcpy (longopts, std_longopts, sizeof (std_longopts));
   memcpy (((char *) longopts) + sizeof (std_longopts), md_longopts, md_longopts_size);
   memset (((char *) longopts) + sizeof (std_longopts) + md_longopts_size,
@@ -540,7 +517,7 @@ parse_args (int * pargc, char *** pargv)
   old_argv = *pargv;
 
   /* Initialize a new argv that contains no options.  */
-  new_argv = (char **) xmalloc (sizeof (char *) * (old_argc + 1));
+  new_argv = xmalloc (sizeof (char *) * (old_argc + 1));
   new_argv[0] = old_argv[0];
   new_argc = 1;
   new_argv[new_argc] = NULL;
@@ -623,7 +600,7 @@ parse_args (int * pargc, char *** pargv)
 	case OPTION_VERSION:
 	  /* This output is intended to follow the GNU standards document.  */
 	  printf (_("GNU assembler %s\n"), BFD_VERSION_STRING);
-	  printf (_("Copyright 2012 Free Software Foundation, Inc.\n"));
+	  printf (_("Copyright 2007 Free Software Foundation, Inc.\n"));
 	  printf (_("\
 This program is free software; you may redistribute it under the terms of\n\
 the GNU General Public License version 3 or later.\n\
@@ -653,18 +630,6 @@ This program has absolutely no warranty.\n"));
 #endif
 	  exit (EXIT_SUCCESS);
 
-	case OPTION_COMPRESS_DEBUG:
-#ifdef HAVE_ZLIB_H
-	  flag_compress_debug = 1;
-#else
-	  as_warn (_("cannot compress debug sections (zlib not installed)"));
-#endif /* HAVE_ZLIB_H */
-	  break;
-
-	case OPTION_NOCOMPRESS_DEBUG:
-	  flag_compress_debug = 0;
-	  break;
-
 	case OPTION_DEBUG_PREFIX_MAP:
 	  add_debug_prefix_map (optarg);
 	  break;
@@ -681,7 +646,7 @@ This program has absolutely no warranty.\n"));
 	      as_fatal (_("bad defsym; format is --defsym name=value"));
 	    *s++ = '\0';
 	    i = bfd_scan_vma (s, (const char **) NULL, 0);
-	    n = (struct defsym_list *) xmalloc (sizeof *n);
+	    n = xmalloc (sizeof *n);
 	    n->next = defsyms;
 	    n->name = optarg;
 	    n->value = i;
@@ -817,15 +782,6 @@ This program has absolutely no warranty.\n"));
 	case OPTION_NOEXECSTACK:
 	  flag_noexecstack = 1;
 	  flag_execstack = 0;
-	  break;
-
-	case OPTION_SIZE_CHECK:
-	  if (strcasecmp (optarg, "error") == 0)
-	    flag_size_check = size_check_error;
-	  else if (strcasecmp (optarg, "warning") == 0)
-	    flag_size_check = size_check_warning;
-	  else
-	    as_fatal (_("Invalid --size-check= option: `%s'"), optarg);
 	  break;
 #endif
 	case 'Z':
@@ -992,13 +948,13 @@ dump_statistics (void)
 #endif
 }
 
+#ifndef OBJ_VMS
 static void
 close_output_file (void)
 {
   output_file_close (out_file_name);
-  if (!keep_it)
-    unlink_if_ordinary (out_file_name);
 }
+#endif
 
 /* The interface between the macro code and gas expression handling.  */
 
@@ -1037,13 +993,10 @@ static void
 perform_an_assembly_pass (int argc, char ** argv)
 {
   int saw_a_file = 0;
-#ifndef OBJ_MACH_O
   flagword applicable;
-#endif
 
   need_pass_2 = 0;
 
-#ifndef OBJ_MACH_O
   /* Create the standard sections, and those the assembler uses
      internally.  */
   text_section = subseg_new (TEXT_SECTION_NAME, 0);
@@ -1060,15 +1013,12 @@ perform_an_assembly_pass (int argc, char ** argv)
 				       | SEC_DATA));
   bfd_set_section_flags (stdoutput, bss_section, applicable & SEC_ALLOC);
   seg_info (bss_section)->bss = 1;
-#endif
   subseg_new (BFD_ABS_SECTION_NAME, 0);
   subseg_new (BFD_UND_SECTION_NAME, 0);
   reg_section = subseg_new ("*GAS `reg' section*", 0);
   expr_section = subseg_new ("*GAS `expr' section*", 0);
 
-#ifndef OBJ_MACH_O
   subseg_set (text_section, 0);
-#endif
 
   /* This may add symbol table entries, which requires having an open BFD,
      and sections already created.  */
@@ -1106,6 +1056,7 @@ create_obj_attrs_section (void)
 {
   segT s;
   char *p;
+  addressT addr;
   offsetT size;
   const char *name;
 
@@ -1119,7 +1070,7 @@ create_obj_attrs_section (void)
       elf_section_type (s)
 	= get_elf_backend_data (stdoutput)->obj_attrs_section_type;
       bfd_set_section_flags (stdoutput, s, SEC_READONLY | SEC_DATA);
-      frag_now_fix ();
+      addr = frag_now_fix ();
       p = frag_more (size);
       bfd_elf_set_obj_attr_contents (stdoutput, (bfd_byte *)p, size);
     }
@@ -1133,6 +1084,7 @@ main (int argc, char ** argv)
   char ** argv_orig = argv;
 
   int macro_strip_at;
+  int keep_it;
 
   start_time = get_run_time ();
 
@@ -1184,8 +1136,10 @@ main (int argc, char ** argv)
   input_scrub_begin ();
   expr_begin ();
 
+#ifndef OBJ_VMS /* Does its own file handling.  */
   /* It has to be called after dump_statistics ().  */
   xatexit (close_output_file);
+#endif
 
   if (flag_print_statistics)
     xatexit (dump_statistics);
@@ -1200,20 +1154,13 @@ main (int argc, char ** argv)
   PROGRESS (1);
 
   output_file_create (out_file_name);
-  gas_assert (stdoutput != 0);
-
-  dot_symbol_init ();
+  assert (stdoutput != 0);
 
 #ifdef tc_init_after_args
   tc_init_after_args ();
 #endif
 
   itbl_init ();
-
-  dwarf2_init ();
-
-  local_symbol_make (".gasversion.", absolute_section,
-		     BFD_VERSION / 10000UL, &predefined_address_frag);
 
   /* Now that we have fully initialized, and have created the output
      file, define any symbols requested by --defsym command line
@@ -1299,6 +1246,9 @@ main (int argc, char ** argv)
 
   if (had_errors () > 0 && ! flag_always_generate_output)
     keep_it = 0;
+
+  if (!keep_it)
+    unlink_if_ordinary (out_file_name);
 
   input_scrub_end ();
 
