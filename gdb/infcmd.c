@@ -273,9 +273,9 @@ static void
 notice_args_read (struct ui_file *file, int from_tty,
 		  struct cmd_list_element *c, const char *value)
 {
-  /* Note that we ignore the passed-in value in favor of computing it
-     directly.  */
-  deprecated_show_value_hack (file, from_tty, c, get_inferior_args ());
+  deprecated_show_value_hack (file, from_tty, c, value);
+  /* Might compute the value.  */
+  get_inferior_args ();
 }
 
 
@@ -444,15 +444,11 @@ post_create_inferior (struct target_ops *target, int from_tty)
    from the beginning.  Ask the user to confirm that he wants to restart
    the program being debugged when FROM_TTY is non-null.  */
 
-static void
+void
 kill_if_already_running (int from_tty)
 {
   if (! ptid_equal (inferior_ptid, null_ptid) && target_has_execution)
     {
-      /* Bail out before killing the program if we will not be able to
-	 restart it.  */
-      target_require_runnable ();
-
       if (from_tty
 	  && !query ("The program being debugged has been started already.\n\
 Start it from the beginning? "))
@@ -1607,15 +1603,25 @@ default_print_registers_info (struct gdbarch *gdbarch,
 	    continue;
 	}
 
-      /* If the register name is empty, it is undefined for this
-         processor, so don't display anything.  */
-      if (gdbarch_register_name (gdbarch, i) == NULL
-	  || *(gdbarch_register_name (gdbarch, i)) == '\0')
-	continue;
+      {
+        /* richards ARC 29/10/27 gdb bug: 9884
+           call the gdbarch_register_name once only!
+         */
+        const char* name = gdbarch_register_name (gdbarch, i);
 
-      fputs_filtered (gdbarch_register_name (gdbarch, i), file);
-      print_spaces_filtered (15 - strlen (gdbarch_register_name
-					  (gdbarch, i)), file);
+        /* If the register name is empty, it is undefined for this
+           processor, so don't display anything.  */
+        if (name == NULL || *name == '\0')
+	  continue;
+
+        fputs_filtered (name, file);
+
+        /* richards ARC 29/9/08 gdb bug: 9885
+           Some ARC register names are longer than 15 chars!
+           There should be a gdbarch_max_register_name_length function
+           which could be called here instead of using an integer literal.  */
+        print_spaces_filtered (22 - strlen (name), file);
+      }
 
       /* Get the data in raw format.  */
       if (! frame_register_read (frame, i, buffer))

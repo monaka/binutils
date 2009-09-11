@@ -27,6 +27,7 @@ itcl::class TargetSelection {
     variable saved_verb
     variable saved_portname
     variable saved_hostname
+    variable saved_filename
     variable saved_attach
     variable saved_load
     variable saved_run
@@ -44,10 +45,11 @@ itcl::class TargetSelection {
     # The Connection frame has three "sections"; the first contains
     # a combobox with all the targets. The second can either be
     # a combobox listing available baud rates or an entry for specifying
-    # the hostname of a TCP connection. The actual widget mapped onto the
-    # screen is saved in MAPPED1. The third section contains either a
-    # combobox for the serial port or an entry for the portnumber. The
-    # widget actually mapped onto the screen is saved in MAPPED2.
+    # the hostname of a TCP connection or a filename. The actual widget
+    # mapped onto the screen is saved in MAPPED1. The third section
+    # contains either a combobox for the serial port or an entry for the
+    # portnumber. The widget actually mapped onto the screen is saved
+    # in MAPPED2.
     variable mapped1
     variable mapped2
     

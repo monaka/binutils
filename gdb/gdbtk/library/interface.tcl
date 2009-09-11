@@ -962,7 +962,7 @@ proc _open_file {{file ""}} {
   }
   # Add the base dir for this file to the source search path.
   set root [file dirname $file]
-  if {$gdbtk_platform(platform) == "windows"} {
+  if {$gdbtk_platform(os) == "cygwin"} {
     set root [ide_cygwin_path to_posix $root]
     set file [ide_cygwin_path to_posix $file]
   }
@@ -1075,12 +1075,18 @@ proc set_target_name {{prompt 1}} {
       if {$hostname == ""} {
 	set hostname [pref getd gdb/load/default-hostname]
       }
+      set filename [pref getd gdb/load/$target-filename]
+      if {$filename == ""} {
+	set filename [pref getd gdb/load/default-filename]
+      }
       # replace "com1" with the real port name
       set targ [lrep $targ "com1" $port]
       # replace "tcpX" with hostname:portnum
       set targ [lrep $targ "tcpX" ${hostname}:${portnum}]
       # replace "ethX" with hostname
       set targ [lrep $targ "ethX" e=${hostname}]
+      # replace "fileX" with filename
+      set targ [lrep $targ "fileX" ${filename}]
     }
   }
   
@@ -1133,13 +1139,30 @@ proc set_target {} {
       update
       set dialog_title "GDB"
       set debugger_name "GDB"
-      tk_messageBox -icon error -title $dialog_title -type ok \
-	-message "$msg\n\n$debugger_name cannot connect to the target board\
-using [lindex $gdb_target_cmd 1].\nVerify that the board is securely connected and, if\
+# ARC 24/11/08
+# change 1 to 0 in lindex
+# check for target being simulator
+      set target [lindex $gdb_target_cmd 0]
+      if {$target == "arcjtag" } {
+           set message "$msg\n\n$debugger_name cannot connect to the target board\
+using $target.\nVerify that the board is securely connected and that\nyou have\
+the GPIO driver installed upon your machine."
+      } elseif {$target == "arcxiss" } {
+           set message "$msg\n\n$debugger_name cannot connect to the ARC Fast\
+Instruction Set Simulator (xISS) using $target.\nVerify that the xISS is\
+installed upon your machine."
+      } elseif {$target == "sim" } {
+        set message "$msg\n\n$debugger_name cannot connect to the simulator.\
+\nSelect an executable file to be debugged first."
+      } else {
+           set message "$msg\n\n$debugger_name cannot connect to the target board\
+using $target.\nVerify that the board is securely connected and, if\
 necessary,\nmodify the port setting with the debugger preferences."
+      }
+      tk_messageBox -icon error -title $dialog_title -type ok -message $message
       return ERROR
     }
-    
+
     if {![catch {pref get gdb/load/$gdb_target_name-after_attaching} aa] && $aa != ""} {
       if {[catch {gdb_cmd $aa} err]} {
 	catch {[ManagedWin::find Console] insert $err err_tag}

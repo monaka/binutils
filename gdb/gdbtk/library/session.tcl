@@ -173,6 +173,7 @@ namespace eval Session {
     set values(pwd) $gdb_current_directory
     set values(target) $gdb_target_name
     set values(hostname) [pref getd gdb/load/$gdb_target_name-hostname]
+    set values(filename) [pref getd gdb/load/$gdb_target_name-filename]
     set values(port) [pref getd gdb/load/$gdb_target_name-portname]
     set values(target_cmd) $::gdb_target_cmd
     set values(bg) $::gdb_bg_num
@@ -277,6 +278,11 @@ namespace eval Session {
       if {[info exists values(hostname)]} {
 	pref setd gdb/load/$gdb_target_name-hostname $values(hostname)
 	#debug "Restoring Hostname: $values(hostname)"
+      }
+
+      if {[info exists values(filename)]} {
+	pref setd gdb/load/$gdb_target_name-filename $values(filename)
+	#debug "Restoring Hostname: $values(filename)"
       }
 
       if {[info exists values(port)]} {

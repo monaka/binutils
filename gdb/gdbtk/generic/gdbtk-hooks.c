@@ -51,7 +51,9 @@
 
 #include <signal.h>
 #include <fcntl.h>
+#ifdef HAVE_SYS_IOCTL_H
 #include <sys/ioctl.h>
+#endif
 #include <sys/time.h>
 
 #include "gdb_string.h"
@@ -74,6 +76,9 @@ extern void gdbtk_delete_tracepoint (int);
 extern void gdbtk_modify_tracepoint (int);
 
 static void gdbtk_architecture_changed (void);
+// begin ARC
+static void gdbtk_reg_architecture_changed (void);
+// end ARC
 static void gdbtk_trace_find (char *arg, int from_tty);
 static void gdbtk_trace_start_stop (int, int);
 static void gdbtk_attach (void);
@@ -127,6 +132,9 @@ gdbtk_add_hooks (void)
   handlers.tracepoint_modify = gdbtk_modify_tracepoint;
   handlers.tracepoint_delete = gdbtk_delete_tracepoint;
   handlers.architecture_changed = gdbtk_architecture_changed;
+// begin ARC
+  handlers.reg_architecture_changed = gdbtk_reg_architecture_changed;
+// end ARC
   deprecated_set_gdb_event_hooks (&handlers);
 
   /* Hooks */
@@ -834,3 +842,13 @@ gdbtk_architecture_changed (void)
 {
   Tcl_Eval (gdbtk_interp, "gdbtk_tcl_architecture_changed");
 }
+
+
+// begin ARC
+/* Called from gdbarch_update_p whenever the register architecture changes. */
+static void
+gdbtk_reg_architecture_changed (void)
+{
+  Tcl_Eval (gdbtk_interp, "gdb_reg_arch_changed");
+}
+// end ARC

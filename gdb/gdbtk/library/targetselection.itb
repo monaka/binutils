@@ -103,6 +103,24 @@ itcl::body TargetSelection::init_target_db {} {
   set gdb_target(remotetcp,runlist) {1 1 0 1}
   set gdb_target(remotetcp,after_attaching) {}
 
+  # ARC-JTAG target
+  set gdb_target(arcjtag,pretty-name) "ARC-JTAG"
+  set gdb_target(arcjtag,defbaud) ""
+  set gdb_target(arcjtag,baud-rates) {}
+  set gdb_target(arcjtag,cmd) "arcjtag fileX"
+  set gdb_target(arcjtag,runlist) {1 1 1 0}
+  set gdb_target(arcjtag,options) ""
+  set gdb_target(arcjtag,after_attaching) {}
+
+  # ARC-XISS target
+  set gdb_target(arcxiss,pretty-name) "ARC-XISS"
+  set gdb_target(arcxiss,defbaud) ""
+  set gdb_target(arcxiss,baud-rates) {}
+  set gdb_target(arcxiss,cmd) "arcxiss fileX"
+  set gdb_target(arcxiss,runlist) {1 1 1 0}
+  set gdb_target(arcxiss,options) ""
+  set gdb_target(arcxiss,after_attaching) {}
+
   # ARM Angel
   set gdb_target(rdi,pretty-name) "ARM Angel/Serial"
   set gdb_target(rdi,defbaud) "9600"
@@ -280,7 +298,8 @@ itcl::body TargetSelection::init_target_db {} {
 itcl::body TargetSelection::default_port {} {
   global gdbtk_platform
   switch -regexp $gdbtk_platform(os) {
-    cygwin  { set port com1 }
+    cygwin  { set port /dev/com1 }
+    mingw   { set port COM1 }
     Linux   { set port /dev/ttyS0 }
     SunOS   { set port /dev/ttya }
     AIX     { set port /dev/foo1 }
@@ -321,6 +340,7 @@ itcl::body TargetSelection::_init_prefs {} {
   pref define gdb/load/default-verbose 0
   pref define gdb/load/default-port [default_port]
   pref define gdb/load/default-hostname ""
+  pref define gdb/load/default-filename ""
   pref define gdb/load/default-after_attaching {}
 }
 
@@ -343,6 +363,7 @@ itcl::body TargetSelection::_init_target {} {
   pref define gdb/load/$target-verbose [pref get gdb/load/default-verbose]
   pref define gdb/load/$target-portname 1000
   pref define gdb/load/$target-hostname [pref get gdb/load/default-hostname]
+  pref define gdb/load/$target-filename [pref get gdb/load/default-filename]
   
   set err [catch {pref get gdb/load/$target-runlist} run_list]
   if {$err} {
@@ -423,6 +444,10 @@ itcl::body TargetSelection::build_win {} {
 
   # host entry widget
   entry $fr.host -textvariable [pref varname gdb/load/$target-hostname] \
+    -width $Width
+
+  # file entry widget
+  entry $fr.file -textvariable [pref varname gdb/load/$target-filename] \
     -width $Width
 
   # port combobox
@@ -625,6 +650,7 @@ itcl::body TargetSelection::set_saved {} {
   set saved_verb [pref get gdb/load/$target-verbose]
   set saved_portname [pref get gdb/load/$target-portname]
   set saved_hostname [pref get gdb/load/$target-hostname]
+  set saved_filename [pref get gdb/load/$target-filename]
   set saved_attach [pref get gdb/src/run_attach]
   set saved_load   [pref get gdb/src/run_load]
   set saved_run    [pref get gdb/src/run_run]
@@ -648,6 +674,7 @@ itcl::body TargetSelection::write_saved {} {
   pref setd gdb/load/$target-verbose $saved_verb
   pref setd gdb/load/$target-portname $saved_portname
   pref setd gdb/load/$target-hostname $saved_hostname
+  pref setd gdb/load/$target-filename $saved_filename
   pref setd gdb/load/$target-runlist [list $saved_attach $saved_load $saved_run $saved_cont]
   if {[info exists gdb_target($target,options)]} {
     pref setd gdb/load/$target-opts $saved_options
@@ -698,7 +725,40 @@ itcl::body TargetSelection::config_dialog {t} {
   pref define gdb/load/$t-verbose [pref get gdb/load/verbose]
   $f.fr.verb config -variable [pref varname gdb/load/$t-verbose]
   # Map the correct entries and comboboxes onto the screen
-  if {$gdb_target($t,defbaud) == "TCP"} {
+
+  if {$t == "arcjtag"} {
+    # we have an ARC JTAG target
+    # map filename
+    if {$mapped1 != "$fr.file"} {
+      grid forget $mapped1
+      set mapped1 $fr.file
+      grid $mapped1 -row 1 -column 1 -sticky w -padx 5 -pady 5
+    }
+    $fr.cbl configure -text "XBF Filename:"
+    $fr.file config -textvariable [pref varname gdb/load/$t-filename]
+
+    $fr.portl configure -text ""
+
+    grid forget $mapped2
+    $mapped1 configure -state normal
+    $mapped2 configure -state disabled
+  } elseif {$t == "arcxiss"} {
+    # we have an ARC xISS target
+    # map filename
+    if {$mapped1 != "$fr.file"} {
+      grid forget $mapped1
+      set mapped1 $fr.file
+      grid $mapped1 -row 1 -column 1 -sticky w -padx 5 -pady 5
+    }
+    $fr.cbl configure -text "XISS Filename:"
+    $fr.file config -textvariable [pref varname gdb/load/$t-filename]
+
+    $fr.portl configure -text ""
+
+    grid forget $mapped2
+    $mapped1 configure -state normal
+    $mapped2 configure -state disabled
+  } elseif {$gdb_target($t,defbaud) == "TCP"} {
     # we have a tcp target
     # map host and porte
     if {$mapped1 != "$fr.host"} {
@@ -807,6 +867,7 @@ itcl::body TargetSelection::change_target {w {name ""}} {
   pref define gdb/load/$target-baud $defbaud
   pref define gdb/load/$target-portname 1000
   pref define gdb/load/$target-hostname [pref get gdb/load/default-hostname]
+  pref define gdb/load/$target-filename [pref get gdb/load/default-filename]
   if {$defbaud == ""} {
     pref define gdb/load/$target-port ""
   } else {
@@ -873,6 +934,12 @@ itcl::body TargetSelection::change_baud {w {baud ""}} {
 #  METHOD:  port_list - return a list of valid ports for Windows
 # ------------------------------------------------------------------
 itcl::body TargetSelection::port_list {} {
+  global gdbtk_platform
+  if {[string compare $gdbtk_platform(os) "cygwin"] == 0} {
+    set device "/dev/com"
+  } else {
+    set device "COM"
+  }
   set plist ""
   # Scan com1 - com8 trying to open each one.
   # If permission is denied that means it is in use,
@@ -885,7 +952,7 @@ itcl::body TargetSelection::port_list {} {
       # Failed.  Find out why.
       if {[string first "permission denied" $msg] != -1} {
 	# Port is there, but busy right now. That's OK.
-	lappend plist /dev/com$i
+	lappend plist $device$i
       } elseif {$i > 4} {
 	# if we've scanned the first 4 ports, then quit when we find no more 
 	set quit 1
@@ -893,7 +960,7 @@ itcl::body TargetSelection::port_list {} {
     } else {
       # We got it.  Now close it and add to list.
       close $fd
-      lappend plist /dev/com$i
+      lappend plist $device$i
     }
   }
   return $plist
