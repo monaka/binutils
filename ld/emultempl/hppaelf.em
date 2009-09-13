@@ -70,8 +70,7 @@ static void
 hppaelf_create_output_section_statements (void)
 {
   if (!(bfd_get_flavour (link_info.output_bfd) == bfd_target_elf_flavour
-	&& (elf_object_id (link_info.output_bfd) == HPPA32_ELF_DATA
-	    || elf_object_id (link_info.output_bfd) == HPPA64_ELF_DATA)))
+	&& elf_object_id (link_info.output_bfd) == HPPA_ELF_TDATA))
     return;
 
   stub_file = lang_add_input_file ("linker stubs",
