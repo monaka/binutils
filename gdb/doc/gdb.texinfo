@@ -517,9 +517,6 @@ Tensilica, Inc.@: contributed support for Xtensa processors.  Others
 who have worked on the Xtensa port of @value{GDBN} in the past include
 Steve Tjiang, John Newlin, and Scott Foehner.
 
-Michael Eager and staff of Xilinx, Inc., contributed support for the
-Xilinx MicroBlaze architecture.
-
 @node Sample Session
 @chapter A Sample @value{GDBN} Session
 
@@ -7822,10 +7819,8 @@ the program being debugged terminates.
 
 @item $_siginfo
 @vindex $_siginfo@r{, convenience variable}
-The variable @code{$_siginfo} contains extra signal information
-(@pxref{extra signal information}).  Note that @code{$_siginfo}
-could be empty, if the application has not yet received any signals.
-For example, it will be empty before you execute the @code{run} command.
+The variable @code{$_siginfo} is bound to extra signal information
+inspection (@pxref{extra signal information}).
 @end table
 
 On HP-UX systems, if you refer to a function or variable name that
@@ -14903,13 +14898,6 @@ Disable or enable general debugging messages.
 Disable or enable specific debugging messages associated with the remote
 protocol (@pxref{Remote Protocol}).
 
-@item monitor set libthread-db-search-path [PATH]
-@cindex gdbserver, search path for @code{libthread_db}
-When this command is issued, @var{path} is a colon-separated list of
-directories to search for @code{libthread_db} (@pxref{Threads,,set
-libthread-db-search-path}).  If you omit @var{path},
-@samp{libthread-db-search-path} will be reset to an empty list.
-
 @item monitor exit
 Tell gdbserver to exit immediately.  This command should be followed by
 @code{disconnect} to close the debugging session.  @code{gdbserver} will
@@ -15910,20 +15898,10 @@ counts of various errors encountered so far.
 @cindex Cygwin-specific commands
 
 @value{GDBN} supports native debugging of MS Windows programs, including
-DLLs with and without symbolic debugging information.
-
-@cindex Ctrl-BREAK, MS-Windows
-@cindex interrupt debuggee on MS-Windows
-MS-Windows programs that call @code{SetConsoleMode} to switch off the
-special meaning of the @samp{Ctrl-C} keystroke cannot be interrupted
-by typing @kbd{C-c}.  For this reason, @value{GDBN} on MS-Windows
-supports @kbd{C-@key{BREAK}} as an alternative interrupt key
-sequence, which can be used to interrupt the debuggee even if it
-ignores @kbd{C-c}.
-
-There are various additional Cygwin-specific commands, described in
-this section.  Working with DLLs that have no debugging symbols is
-described in @ref{Non-debug DLL Symbols}.
+DLLs with and without symbolic debugging information.  There are various
+additional Cygwin-specific commands, described in this section.
+Working with DLLs that have no debugging symbols is described in
+@ref{Non-debug DLL Symbols}.
 
 @table @code
 @kindex info w32
@@ -16580,7 +16558,6 @@ acceptable commands.
 * ARM::                         ARM RDI
 * M32R/D::                      Renesas M32R/D
 * M68K::                        Motorola M68K
-* MicroBlaze::			Xilinx MicroBlaze
 * MIPS Embedded::               MIPS Embedded
 * OpenRISC 1000::               OpenRisc 1000
 * PA::                          HP PA Embedded
@@ -16830,44 +16807,6 @@ target command for the following ROM monitor.
 @item target dbug @var{dev}
 dBUG ROM monitor for Motorola ColdFire.
 
-@end table
-
-@node MicroBlaze
-@subsection MicroBlaze
-@cindex Xilinx MicroBlaze
-@cindex XMD, Xilinx Microprocessor Debugger
-
-The MicroBlaze is a soft-core processor supported on various Xilinx
-FPGAs, such as Spartan or Virtex series.  Boards with these processors
-usually have JTAG ports which connect to a host system running the Xilinx
-Embedded Development Kit (EDK) or Software Development Kit (SDK).
-This host system is used to download the configuration bitstream to
-the target FPGA.  The Xilinx Microprocessor Debugger (XMD) program
-communicates with the target board using the JTAG interface and
-presents a @code{gdbserver} interface to the board.  By default
-@code{xmd} uses port @code{1234}.  (While it is possible to change 
-this default port, it requires the use of undocumented @code{xmd} 
-commands.  Contact Xilinx support if you need to do this.)
-
-Use these GDB commands to connect to the MicroBlaze target processor.
-
-@table @code
-@item target remote :1234
-Use this command to connect to the target if you are running @value{GDBN}
-on the same system as @code{xmd}.
-
-@item target remote @var{xmd-host}:1234
-Use this command to connect to the target if it is connected to @code{xmd}
-running on a different system named @var{xmd-host}.
-
-@item load
-Use this command to download a program to the MicroBlaze target.
-
-@item set debug microblaze @var{n}
-Enable MicroBlaze-specific debugging messages if non-zero.
-
-@item show debug microblaze @var{n}
-Show MicroBlaze-specific debugging level.
 @end table
 
 @node MIPS Embedded
@@ -23189,9 +23128,6 @@ The @var{show-values} argument must have a value of 0 or 1.  A value of
 0 means that only the names of the arguments are listed, a value of 1
 means that both names and values of the arguments are printed.
 
-Use of this command to obtain arguments in a single frame is
-deprecated in favor of the @samp{-stack-list-variables} command.
-
 @subsubheading @value{GDBN} Command
 
 @value{GDBN} does not have an equivalent command.  @code{gdbtk} has a
@@ -23376,9 +23312,6 @@ display the value of simple data types and create variable objects for
 other data types when the user wishes to explore their values in
 more detail.
 
-This command is deprecated in favor of the
-@samp{-stack-list-variables} command.
-
 @subsubheading @value{GDBN} Command
 
 @samp{info locals} in @value{GDBN}, @samp{gdb_get_locals} in @code{gdbtk}.
@@ -23396,31 +23329,6 @@ This command is deprecated in favor of the
 -stack-list-locals --simple-values
 ^done,locals=[@{name="A",type="int",value="1"@},
   @{name="B",type="int",value="2"@},@{name="C",type="int [3]"@}]
-(gdb)
-@end smallexample
-
-@subheading The @code{-stack-list-variables} Command
-@findex -stack-list-variables
-
-@subsubheading Synopsis
-
-@smallexample
- -stack-list-variables @var{print-values}
-@end smallexample
-
-Display the names of local variables and function arguments for the selected frame.  If
-@var{print-values} is 0 or @code{--no-values}, print only the names of
-the variables; if it is 1 or @code{--all-values}, print also their
-values; and if it is 2 or @code{--simple-values}, print the name,
-type and value for simple data types and the name and type for arrays,
-structures and unions.  
-
-@subsubheading Example
-
-@smallexample
-(gdb)
--stack-list-variables --thread 1 --frame 0 --all-values
-^done,variables=[@{name="x",value="11"@},@{name="s",value="@{a = 1, b = 2@}"@}]
 (gdb)
 @end smallexample
 
@@ -28269,14 +28177,16 @@ Step.
 Step with signal @var{sig}.  The signal @var{sig} should be two hex digits.
 @item t
 Stop.
+@item T @var{sig}
+Stop with signal @var{sig}.  The signal @var{sig} should be two hex digits.
 @end table
 
 The optional argument @var{addr} normally associated with the 
 @samp{c}, @samp{C}, @samp{s}, and @samp{S} packets is
 not supported in @samp{vCont}.
 
-The @samp{t} action is only relevant in non-stop mode
-(@pxref{Remote Non-Stop}) and may be ignored by the stub otherwise.
+The @samp{t} and @samp{T} actions are only relevant in non-stop mode
+(@pxref{Remote Non-Stop}) and may be ignored by the stub otherwise.  
 A stop reply should be generated for any affected thread not already stopped.
 When a thread is stopped by means of a @samp{t} action,
 the corresponding stop reply should indicate that the thread has stopped with
