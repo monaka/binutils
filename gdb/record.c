@@ -496,8 +496,12 @@ record_open (char *name, int from_tty)
 
   /* Check if record target is already running.  */
   if (current_target.to_stratum == record_stratum)
-    error (_("Process record target already running.  Use \"record stop\" to "
-             "stop record target first."));
+    {
+      if (!nquery
+	  (_("Process record target already running, do you want to delete "
+	     "the old record log?")))
+	return;
+    }
 
   /*Reset the beneath function pointers.  */
   record_beneath_to_resume = NULL;
@@ -1025,15 +1029,15 @@ record_store_registers (struct target_ops *ops, struct regcache *regcache,
 	  /* Let user choose if he wants to write register or not.  */
 	  if (regno < 0)
 	    n =
-	      query (_("Because GDB is in replay mode, changing the "
-		       "value of a register will make the execution "
-		       "log unusable from this point onward.  "
-		       "Change all registers?"));
+	      nquery (_("Because GDB is in replay mode, changing the "
+			"value of a register will make the execution "
+			"log unusable from this point onward.  "
+			"Change all registers?"));
 	  else
 	    n =
-	      query (_("Because GDB is in replay mode, changing the value "
-		       "of a register will make the execution log unusable "
-		       "from this point onward.  Change register %s?"),
+	      nquery (_("Because GDB is in replay mode, changing the value "
+			"of a register will make the execution log unusable "
+			"from this point onward.  Change register %s?"),
 		      gdbarch_register_name (get_regcache_arch (regcache),
 					       regno));
 
@@ -1081,9 +1085,9 @@ record_xfer_partial (struct target_ops *ops, enum target_object object,
       if (RECORD_IS_REPLAY)
 	{
 	  /* Let user choose if he wants to write memory or not.  */
-	  if (!query (_("Because GDB is in replay mode, writing to memory "
-		        "will make the execution log unusable from this "
-		        "point onward.  Write memory at address %s?"),
+	  if (!nquery (_("Because GDB is in replay mode, writing to memory "
+		         "will make the execution log unusable from this "
+		         "point onward.  Write memory at address %s?"),
 		       paddress (target_gdbarch, offset)))
 	    error (_("Process record canceled the operation."));
 
@@ -1245,9 +1249,9 @@ cmd_record_stop (char *args, int from_tty)
 {
   if (current_target.to_stratum == record_stratum)
     {
-      unpush_target (&record_ops);
-      printf_unfiltered (_("Process record is stoped and all execution "
-                           "log is deleted.\n"));
+      if (!record_list || !from_tty || query (_("Delete recorded log and "
+	                                        "stop recording?")))
+	unpush_target (&record_ops);
     }
   else
     printf_unfiltered (_("Process record is not started.\n"));
