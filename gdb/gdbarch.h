@@ -2,8 +2,8 @@
 
 /* Dynamic architecture support for GDB, the GNU debugger.
 
-   Copyright (C) 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009 Free Software Foundation, Inc.
+   Copyright (C) 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007
+   Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -30,7 +30,7 @@
    If editing this file, please also run gdbarch.sh and merge any
    changes into that script. Conversely, when making sweeping changes
    to this file, modifying gdbarch.sh and using its output may prove
-   easier.  */
+   easier. */
 
 #ifndef GDBARCH_H
 #define GDBARCH_H
@@ -53,8 +53,6 @@ struct target_desc;
 struct displaced_step_closure;
 struct core_regset_section;
 struct syscall;
-struct agent_expr;
-struct axs_value;
 
 /* The architecture associated with the connection to the target.
  
@@ -69,25 +67,25 @@ struct axs_value;
 extern struct gdbarch *target_gdbarch;
 
 
-/* The following are pre-initialized by GDBARCH.  */
+/* The following are pre-initialized by GDBARCH. */
 
 extern const struct bfd_arch_info * gdbarch_bfd_arch_info (struct gdbarch *gdbarch);
-/* set_gdbarch_bfd_arch_info() - not applicable - pre-initialized.  */
+/* set_gdbarch_bfd_arch_info() - not applicable - pre-initialized. */
 
 extern int gdbarch_byte_order (struct gdbarch *gdbarch);
-/* set_gdbarch_byte_order() - not applicable - pre-initialized.  */
+/* set_gdbarch_byte_order() - not applicable - pre-initialized. */
 
 extern int gdbarch_byte_order_for_code (struct gdbarch *gdbarch);
-/* set_gdbarch_byte_order_for_code() - not applicable - pre-initialized.  */
+/* set_gdbarch_byte_order_for_code() - not applicable - pre-initialized. */
 
 extern enum gdb_osabi gdbarch_osabi (struct gdbarch *gdbarch);
-/* set_gdbarch_osabi() - not applicable - pre-initialized.  */
+/* set_gdbarch_osabi() - not applicable - pre-initialized. */
 
 extern const struct target_desc * gdbarch_target_desc (struct gdbarch *gdbarch);
-/* set_gdbarch_target_desc() - not applicable - pre-initialized.  */
+/* set_gdbarch_target_desc() - not applicable - pre-initialized. */
 
 
-/* The following are initialized by the target dependent code.  */
+/* The following are initialized by the target dependent code. */
 
 /* The bit byte-order has to do just with numbering of bits in debugging symbols
    and such.  Conceptually, it's quite separate from byte/word byte order. */
@@ -120,23 +118,11 @@ extern void set_gdbarch_long_bit (struct gdbarch *gdbarch, int long_bit);
 extern int gdbarch_long_long_bit (struct gdbarch *gdbarch);
 extern void set_gdbarch_long_long_bit (struct gdbarch *gdbarch, int long_long_bit);
 
-/* Alignment of a long long or unsigned long long for the target
-   machine. */
-
-extern int gdbarch_long_long_align_bit (struct gdbarch *gdbarch);
-extern void set_gdbarch_long_long_align_bit (struct gdbarch *gdbarch, int long_long_align_bit);
-
-/* The ABI default bit-size and format for "half", "float", "double", and
-   "long double".  These bit/format pairs should eventually be combined
-   into a single object.  For the moment, just initialize them as a pair.
+/* The ABI default bit-size and format for "float", "double", and "long
+   double".  These bit/format pairs should eventually be combined into
+   a single object.  For the moment, just initialize them as a pair.
    Each format describes both the big and little endian layouts (if
    useful). */
-
-extern int gdbarch_half_bit (struct gdbarch *gdbarch);
-extern void set_gdbarch_half_bit (struct gdbarch *gdbarch, int half_bit);
-
-extern const struct floatformat ** gdbarch_half_format (struct gdbarch *gdbarch);
-extern void set_gdbarch_half_format (struct gdbarch *gdbarch, const struct floatformat ** half_format);
 
 extern int gdbarch_float_bit (struct gdbarch *gdbarch);
 extern void set_gdbarch_float_bit (struct gdbarch *gdbarch, int float_bit);
@@ -162,8 +148,8 @@ extern void set_gdbarch_long_double_format (struct gdbarch *gdbarch, const struc
    / addr_bit will be set from it.
   
    If gdbarch_ptr_bit and gdbarch_addr_bit are different, you'll probably
-   also need to set gdbarch_dwarf2_addr_size, gdbarch_pointer_to_address and
-   gdbarch_address_to_pointer as well.
+   also need to set gdbarch_pointer_to_address and gdbarch_address_to_pointer
+   as well.
   
    ptr_bit is the size of a pointer on the target */
 
@@ -174,23 +160,6 @@ extern void set_gdbarch_ptr_bit (struct gdbarch *gdbarch, int ptr_bit);
 
 extern int gdbarch_addr_bit (struct gdbarch *gdbarch);
 extern void set_gdbarch_addr_bit (struct gdbarch *gdbarch, int addr_bit);
-
-/* dwarf2_addr_size is the target address size as used in the Dwarf debug
-   info.  For .debug_frame FDEs, this is supposed to be the target address
-   size from the associated CU header, and which is equivalent to the
-   DWARF2_ADDR_SIZE as defined by the target specific GCC back-end.
-   Unfortunately there is no good way to determine this value.  Therefore
-   dwarf2_addr_size simply defaults to the target pointer size.
-  
-   dwarf2_addr_size is not used for .eh_frame FDEs, which are generally
-   defined using the target's pointer size so far.
-  
-   Note that dwarf2_addr_size only needs to be redefined by a target if the
-   GCC back-end defines a DWARF2_ADDR_SIZE other than the target pointer size,
-   and if Dwarf versions < 4 need to be supported. */
-
-extern int gdbarch_dwarf2_addr_size (struct gdbarch *gdbarch);
-extern void set_gdbarch_dwarf2_addr_size (struct gdbarch *gdbarch, int dwarf2_addr_size);
 
 /* One if `char' acts like `signed char', zero if `unsigned char'. */
 
@@ -219,20 +188,9 @@ extern void set_gdbarch_virtual_frame_pointer (struct gdbarch *gdbarch, gdbarch_
 
 extern int gdbarch_pseudo_register_read_p (struct gdbarch *gdbarch);
 
-typedef enum register_status (gdbarch_pseudo_register_read_ftype) (struct gdbarch *gdbarch, struct regcache *regcache, int cookednum, gdb_byte *buf);
-extern enum register_status gdbarch_pseudo_register_read (struct gdbarch *gdbarch, struct regcache *regcache, int cookednum, gdb_byte *buf);
+typedef void (gdbarch_pseudo_register_read_ftype) (struct gdbarch *gdbarch, struct regcache *regcache, int cookednum, gdb_byte *buf);
+extern void gdbarch_pseudo_register_read (struct gdbarch *gdbarch, struct regcache *regcache, int cookednum, gdb_byte *buf);
 extern void set_gdbarch_pseudo_register_read (struct gdbarch *gdbarch, gdbarch_pseudo_register_read_ftype *pseudo_register_read);
-
-/* Read a register into a new struct value.  If the register is wholly
-   or partly unavailable, this should call mark_value_bytes_unavailable
-   as appropriate.  If this is defined, then pseudo_register_read will
-   never be called. */
-
-extern int gdbarch_pseudo_register_read_value_p (struct gdbarch *gdbarch);
-
-typedef struct value * (gdbarch_pseudo_register_read_value_ftype) (struct gdbarch *gdbarch, struct regcache *regcache, int cookednum);
-extern struct value * gdbarch_pseudo_register_read_value (struct gdbarch *gdbarch, struct regcache *regcache, int cookednum);
-extern void set_gdbarch_pseudo_register_read_value (struct gdbarch *gdbarch, gdbarch_pseudo_register_read_value_ftype *pseudo_register_read_value);
 
 extern int gdbarch_pseudo_register_write_p (struct gdbarch *gdbarch);
 
@@ -250,25 +208,6 @@ extern void set_gdbarch_num_regs (struct gdbarch *gdbarch, int num_regs);
 
 extern int gdbarch_num_pseudo_regs (struct gdbarch *gdbarch);
 extern void set_gdbarch_num_pseudo_regs (struct gdbarch *gdbarch, int num_pseudo_regs);
-
-/* Assemble agent expression bytecode to collect pseudo-register REG.
-   Return -1 if something goes wrong, 0 otherwise. */
-
-extern int gdbarch_ax_pseudo_register_collect_p (struct gdbarch *gdbarch);
-
-typedef int (gdbarch_ax_pseudo_register_collect_ftype) (struct gdbarch *gdbarch, struct agent_expr *ax, int reg);
-extern int gdbarch_ax_pseudo_register_collect (struct gdbarch *gdbarch, struct agent_expr *ax, int reg);
-extern void set_gdbarch_ax_pseudo_register_collect (struct gdbarch *gdbarch, gdbarch_ax_pseudo_register_collect_ftype *ax_pseudo_register_collect);
-
-/* Assemble agent expression bytecode to push the value of pseudo-register
-   REG on the interpreter stack.
-   Return -1 if something goes wrong, 0 otherwise. */
-
-extern int gdbarch_ax_pseudo_register_push_stack_p (struct gdbarch *gdbarch);
-
-typedef int (gdbarch_ax_pseudo_register_push_stack_ftype) (struct gdbarch *gdbarch, struct agent_expr *ax, int reg);
-extern int gdbarch_ax_pseudo_register_push_stack (struct gdbarch *gdbarch, struct agent_expr *ax, int reg);
-extern void set_gdbarch_ax_pseudo_register_push_stack (struct gdbarch *gdbarch, gdbarch_ax_pseudo_register_push_stack_ftype *ax_pseudo_register_push_stack);
 
 /* GDB's standard (or well known) register numbers.  These can map onto
    a real register or a pseudo (computed) register or not be defined at
@@ -402,8 +341,8 @@ typedef int (gdbarch_convert_register_p_ftype) (struct gdbarch *gdbarch, int reg
 extern int gdbarch_convert_register_p (struct gdbarch *gdbarch, int regnum, struct type *type);
 extern void set_gdbarch_convert_register_p (struct gdbarch *gdbarch, gdbarch_convert_register_p_ftype *convert_register_p);
 
-typedef int (gdbarch_register_to_value_ftype) (struct frame_info *frame, int regnum, struct type *type, gdb_byte *buf, int *optimizedp, int *unavailablep);
-extern int gdbarch_register_to_value (struct gdbarch *gdbarch, struct frame_info *frame, int regnum, struct type *type, gdb_byte *buf, int *optimizedp, int *unavailablep);
+typedef void (gdbarch_register_to_value_ftype) (struct frame_info *frame, int regnum, struct type *type, gdb_byte *buf);
+extern void gdbarch_register_to_value (struct gdbarch *gdbarch, struct frame_info *frame, int regnum, struct type *type, gdb_byte *buf);
 extern void set_gdbarch_register_to_value (struct gdbarch *gdbarch, gdbarch_register_to_value_ftype *register_to_value);
 
 typedef void (gdbarch_value_to_register_ftype) (struct frame_info *frame, int regnum, struct type *type, const gdb_byte *buf);
@@ -467,14 +406,6 @@ extern void set_gdbarch_inner_than (struct gdbarch *gdbarch, gdbarch_inner_than_
 typedef const gdb_byte * (gdbarch_breakpoint_from_pc_ftype) (struct gdbarch *gdbarch, CORE_ADDR *pcptr, int *lenptr);
 extern const gdb_byte * gdbarch_breakpoint_from_pc (struct gdbarch *gdbarch, CORE_ADDR *pcptr, int *lenptr);
 extern void set_gdbarch_breakpoint_from_pc (struct gdbarch *gdbarch, gdbarch_breakpoint_from_pc_ftype *breakpoint_from_pc);
-
-/* Return the adjusted address and kind to use for Z0/Z1 packets.
-   KIND is usually the memory length of the breakpoint, but may have a
-   different target-specific meaning. */
-
-typedef void (gdbarch_remote_breakpoint_from_pc_ftype) (struct gdbarch *gdbarch, CORE_ADDR *pcptr, int *kindptr);
-extern void gdbarch_remote_breakpoint_from_pc (struct gdbarch *gdbarch, CORE_ADDR *pcptr, int *kindptr);
-extern void set_gdbarch_remote_breakpoint_from_pc (struct gdbarch *gdbarch, gdbarch_remote_breakpoint_from_pc_ftype *remote_breakpoint_from_pc);
 
 extern int gdbarch_adjust_breakpoint_address_p (struct gdbarch *gdbarch);
 
@@ -704,26 +635,19 @@ typedef const struct regset * (gdbarch_regset_from_core_section_ftype) (struct g
 extern const struct regset * gdbarch_regset_from_core_section (struct gdbarch *gdbarch, const char *sect_name, size_t sect_size);
 extern void set_gdbarch_regset_from_core_section (struct gdbarch *gdbarch, gdbarch_regset_from_core_section_ftype *regset_from_core_section);
 
+/* When creating core dumps, some systems encode the PID in addition
+   to the LWP id in core file register section names.  In those cases, the
+   "XXX" in ".reg/XXX" is encoded as [LWPID << 16 | PID].  This setting
+   is set to true for such architectures; false if "XXX" represents an LWP
+   or thread id with no special encoding. */
+
+extern int gdbarch_core_reg_section_encodes_pid (struct gdbarch *gdbarch);
+extern void set_gdbarch_core_reg_section_encodes_pid (struct gdbarch *gdbarch, int core_reg_section_encodes_pid);
+
 /* Supported register notes in a core file. */
 
 extern struct core_regset_section * gdbarch_core_regset_sections (struct gdbarch *gdbarch);
 extern void set_gdbarch_core_regset_sections (struct gdbarch *gdbarch, struct core_regset_section * core_regset_sections);
-
-/* Create core file notes */
-
-extern int gdbarch_make_corefile_notes_p (struct gdbarch *gdbarch);
-
-typedef char * (gdbarch_make_corefile_notes_ftype) (struct gdbarch *gdbarch, bfd *obfd, int *note_size);
-extern char * gdbarch_make_corefile_notes (struct gdbarch *gdbarch, bfd *obfd, int *note_size);
-extern void set_gdbarch_make_corefile_notes (struct gdbarch *gdbarch, gdbarch_make_corefile_notes_ftype *make_corefile_notes);
-
-/* Find core file memory regions */
-
-extern int gdbarch_find_memory_regions_p (struct gdbarch *gdbarch);
-
-typedef int (gdbarch_find_memory_regions_ftype) (struct gdbarch *gdbarch, find_memory_region_ftype func, void *data);
-extern int gdbarch_find_memory_regions (struct gdbarch *gdbarch, find_memory_region_ftype func, void *data);
-extern void set_gdbarch_find_memory_regions (struct gdbarch *gdbarch, gdbarch_find_memory_regions_ftype *find_memory_regions);
 
 /* Read offset OFFSET of TARGET_OBJECT_LIBRARIES formatted shared libraries list from
    core file into buffer READBUF with length LEN. */
@@ -734,7 +658,8 @@ typedef LONGEST (gdbarch_core_xfer_shared_libraries_ftype) (struct gdbarch *gdba
 extern LONGEST gdbarch_core_xfer_shared_libraries (struct gdbarch *gdbarch, gdb_byte *readbuf, ULONGEST offset, LONGEST len);
 extern void set_gdbarch_core_xfer_shared_libraries (struct gdbarch *gdbarch, gdbarch_core_xfer_shared_libraries_ftype *core_xfer_shared_libraries);
 
-/* How the core target converts a PTID from a core file to a string. */
+/* How the core_stratum layer converts a PTID from a core file to a
+   string. */
 
 extern int gdbarch_core_pid_to_str_p (struct gdbarch *gdbarch);
 
@@ -770,7 +695,7 @@ typedef void (gdbarch_skip_permanent_breakpoint_ftype) (struct regcache *regcach
 extern void gdbarch_skip_permanent_breakpoint (struct gdbarch *gdbarch, struct regcache *regcache);
 extern void set_gdbarch_skip_permanent_breakpoint (struct gdbarch *gdbarch, gdbarch_skip_permanent_breakpoint_ftype *skip_permanent_breakpoint);
 
-/* The maximum length of an instruction on this architecture in bytes. */
+/* The maximum length of an instruction on this architecture. */
 
 extern int gdbarch_max_insn_length_p (struct gdbarch *gdbarch);
 
@@ -808,20 +733,6 @@ extern int gdbarch_displaced_step_copy_insn_p (struct gdbarch *gdbarch);
 typedef struct displaced_step_closure * (gdbarch_displaced_step_copy_insn_ftype) (struct gdbarch *gdbarch, CORE_ADDR from, CORE_ADDR to, struct regcache *regs);
 extern struct displaced_step_closure * gdbarch_displaced_step_copy_insn (struct gdbarch *gdbarch, CORE_ADDR from, CORE_ADDR to, struct regcache *regs);
 extern void set_gdbarch_displaced_step_copy_insn (struct gdbarch *gdbarch, gdbarch_displaced_step_copy_insn_ftype *displaced_step_copy_insn);
-
-/* Return true if GDB should use hardware single-stepping to execute
-   the displaced instruction identified by CLOSURE.  If false,
-   GDB will simply restart execution at the displaced instruction
-   location, and it is up to the target to ensure GDB will receive
-   control again (e.g. by placing a software breakpoint instruction
-   into the displaced instruction buffer).
-  
-   The default implementation returns false on all targets that
-   provide a gdbarch_software_single_step routine, and true otherwise. */
-
-typedef int (gdbarch_displaced_step_hw_singlestep_ftype) (struct gdbarch *gdbarch, struct displaced_step_closure *closure);
-extern int gdbarch_displaced_step_hw_singlestep (struct gdbarch *gdbarch, struct displaced_step_closure *closure);
-extern void set_gdbarch_displaced_step_hw_singlestep (struct gdbarch *gdbarch, gdbarch_displaced_step_hw_singlestep_ftype *displaced_step_hw_singlestep);
 
 /* Fix up the state resulting from successfully single-stepping a
    displaced instruction, to give the result we would have gotten from
@@ -872,24 +783,6 @@ extern void set_gdbarch_displaced_step_free_closure (struct gdbarch *gdbarch, gd
 typedef CORE_ADDR (gdbarch_displaced_step_location_ftype) (struct gdbarch *gdbarch);
 extern CORE_ADDR gdbarch_displaced_step_location (struct gdbarch *gdbarch);
 extern void set_gdbarch_displaced_step_location (struct gdbarch *gdbarch, gdbarch_displaced_step_location_ftype *displaced_step_location);
-
-/* Relocate an instruction to execute at a different address.  OLDLOC
-   is the address in the inferior memory where the instruction to
-   relocate is currently at.  On input, TO points to the destination
-   where we want the instruction to be copied (and possibly adjusted)
-   to.  On output, it points to one past the end of the resulting
-   instruction(s).  The effect of executing the instruction at TO shall
-   be the same as if executing it at FROM.  For example, call
-   instructions that implicitly push the return address on the stack
-   should be adjusted to return to the instruction after OLDLOC;
-   relative branches, and other PC-relative instructions need the
-   offset adjusted; etc. */
-
-extern int gdbarch_relocate_instruction_p (struct gdbarch *gdbarch);
-
-typedef void (gdbarch_relocate_instruction_ftype) (struct gdbarch *gdbarch, CORE_ADDR *to, CORE_ADDR from);
-extern void gdbarch_relocate_instruction (struct gdbarch *gdbarch, CORE_ADDR *to, CORE_ADDR from);
-extern void set_gdbarch_relocate_instruction (struct gdbarch *gdbarch, gdbarch_relocate_instruction_ftype *relocate_instruction);
 
 /* Refresh overlay mapped state for section OSECT. */
 
@@ -996,65 +889,6 @@ extern void set_gdbarch_has_global_solist (struct gdbarch *gdbarch, int has_glob
 extern int gdbarch_has_global_breakpoints (struct gdbarch *gdbarch);
 extern void set_gdbarch_has_global_breakpoints (struct gdbarch *gdbarch, int has_global_breakpoints);
 
-/* True if inferiors share an address space (e.g., uClinux). */
-
-typedef int (gdbarch_has_shared_address_space_ftype) (struct gdbarch *gdbarch);
-extern int gdbarch_has_shared_address_space (struct gdbarch *gdbarch);
-extern void set_gdbarch_has_shared_address_space (struct gdbarch *gdbarch, gdbarch_has_shared_address_space_ftype *has_shared_address_space);
-
-/* True if a fast tracepoint can be set at an address. */
-
-typedef int (gdbarch_fast_tracepoint_valid_at_ftype) (struct gdbarch *gdbarch, CORE_ADDR addr, int *isize, char **msg);
-extern int gdbarch_fast_tracepoint_valid_at (struct gdbarch *gdbarch, CORE_ADDR addr, int *isize, char **msg);
-extern void set_gdbarch_fast_tracepoint_valid_at (struct gdbarch *gdbarch, gdbarch_fast_tracepoint_valid_at_ftype *fast_tracepoint_valid_at);
-
-/* Return the "auto" target charset. */
-
-typedef const char * (gdbarch_auto_charset_ftype) (void);
-extern const char * gdbarch_auto_charset (struct gdbarch *gdbarch);
-extern void set_gdbarch_auto_charset (struct gdbarch *gdbarch, gdbarch_auto_charset_ftype *auto_charset);
-
-/* Return the "auto" target wide charset. */
-
-typedef const char * (gdbarch_auto_wide_charset_ftype) (void);
-extern const char * gdbarch_auto_wide_charset (struct gdbarch *gdbarch);
-extern void set_gdbarch_auto_wide_charset (struct gdbarch *gdbarch, gdbarch_auto_wide_charset_ftype *auto_wide_charset);
-
-/* If non-empty, this is a file extension that will be opened in place
-   of the file extension reported by the shared library list.
-  
-   This is most useful for toolchains that use a post-linker tool,
-   where the names of the files run on the target differ in extension
-   compared to the names of the files GDB should load for debug info. */
-
-extern const char * gdbarch_solib_symbols_extension (struct gdbarch *gdbarch);
-extern void set_gdbarch_solib_symbols_extension (struct gdbarch *gdbarch, const char * solib_symbols_extension);
-
-/* If true, the target OS has DOS-based file system semantics.  That
-   is, absolute paths include a drive name, and the backslash is
-   considered a directory separator. */
-
-extern int gdbarch_has_dos_based_file_system (struct gdbarch *gdbarch);
-extern void set_gdbarch_has_dos_based_file_system (struct gdbarch *gdbarch, int has_dos_based_file_system);
-
-/* Generate bytecodes to collect the return address in a frame.
-   Since the bytecodes run on the target, possibly with GDB not even
-   connected, the full unwinding machinery is not available, and
-   typically this function will issue bytecodes for one or more likely
-   places that the return address may be found. */
-
-typedef void (gdbarch_gen_return_address_ftype) (struct gdbarch *gdbarch, struct agent_expr *ax, struct axs_value *value, CORE_ADDR scope);
-extern void gdbarch_gen_return_address (struct gdbarch *gdbarch, struct agent_expr *ax, struct axs_value *value, CORE_ADDR scope);
-extern void set_gdbarch_gen_return_address (struct gdbarch *gdbarch, gdbarch_gen_return_address_ftype *gen_return_address);
-
-/* Implement the "info proc" command. */
-
-extern int gdbarch_info_proc_p (struct gdbarch *gdbarch);
-
-typedef void (gdbarch_info_proc_ftype) (struct gdbarch *gdbarch, char *args, enum info_proc_what what);
-extern void gdbarch_info_proc (struct gdbarch *gdbarch, char *args, enum info_proc_what what);
-extern void set_gdbarch_info_proc (struct gdbarch *gdbarch, gdbarch_info_proc_ftype *info_proc);
-
 /* Definition for an unknown syscall, used basically in error-cases.  */
 #define UNKNOWN_SYSCALL (-1)
 
@@ -1082,7 +916,7 @@ extern struct gdbarch_tdep *gdbarch_tdep (struct gdbarch *gdbarch);
    data for all the various GDB components was also considered.  Since
    GDB is built from a variable number of (fairly independent)
    components it was determined that the global aproach was not
-   applicable.  */
+   applicable. */
 
 
 /* Register a new architectural family with GDB.
@@ -1116,7 +950,7 @@ extern struct gdbarch_tdep *gdbarch_tdep (struct gdbarch *gdbarch);
 
    The DUMP_TDEP function shall print out all target specific values.
    Care should be taken to ensure that the function works in both the
-   multi-arch and non- multi-arch cases.  */
+   multi-arch and non- multi-arch cases. */
 
 struct gdbarch_list
 {
@@ -1126,7 +960,7 @@ struct gdbarch_list
 
 struct gdbarch_info
 {
-  /* Use default: NULL (ZERO).  */
+  /* Use default: NULL (ZERO). */
   const struct bfd_arch_info *bfd_arch_info;
 
   /* Use default: BFD_ENDIAN_UNKNOWN (NB: is not ZERO).  */
@@ -1134,10 +968,10 @@ struct gdbarch_info
 
   int byte_order_for_code;
 
-  /* Use default: NULL (ZERO).  */
+  /* Use default: NULL (ZERO). */
   bfd *abfd;
 
-  /* Use default: NULL (ZERO).  */
+  /* Use default: NULL (ZERO). */
   struct gdbarch_tdep_info *tdep_info;
 
   /* Use default: GDB_OSABI_UNINITIALIZED (-1).  */
@@ -1161,13 +995,13 @@ extern void gdbarch_register (enum bfd_architecture architecture,
 /* Return a freshly allocated, NULL terminated, array of the valid
    architecture names.  Since architectures are registered during the
    _initialize phase this function only returns useful information
-   once initialization has been completed.  */
+   once initialization has been completed. */
 
 extern const char **gdbarch_printable_names (void);
 
 
 /* Helper function.  Search the list of ARCHES for a GDBARCH that
-   matches the information provided by INFO.  */
+   matches the information provided by INFO. */
 
 extern struct gdbarch_list *gdbarch_list_lookup_by_info (struct gdbarch_list *arches, const struct gdbarch_info *info);
 
@@ -1175,14 +1009,14 @@ extern struct gdbarch_list *gdbarch_list_lookup_by_info (struct gdbarch_list *ar
 /* Helper function.  Create a preliminary ``struct gdbarch''.  Perform
    basic initialization using values obtained from the INFO and TDEP
    parameters.  set_gdbarch_*() functions are called to complete the
-   initialization of the object.  */
+   initialization of the object. */
 
 extern struct gdbarch *gdbarch_alloc (const struct gdbarch_info *info, struct gdbarch_tdep *tdep);
 
 
 /* Helper function.  Free a partially-constructed ``struct gdbarch''.
    It is assumed that the caller freeds the ``struct
-   gdbarch_tdep''.  */
+   gdbarch_tdep''. */
 
 extern void gdbarch_free (struct gdbarch *);
 
@@ -1196,14 +1030,14 @@ extern void *gdbarch_obstack_zalloc (struct gdbarch *gdbarch, long size);
 #define GDBARCH_OBSTACK_ZALLOC(GDBARCH, TYPE) ((TYPE *) gdbarch_obstack_zalloc ((GDBARCH), sizeof (TYPE)))
 
 
-/* Helper function.  Force an update of the current architecture.
+/* Helper function. Force an update of the current architecture.
 
    The actual architecture selected is determined by INFO, ``(gdb) set
    architecture'' et.al., the existing architecture and BFD's default
    architecture.  INFO should be initialized to zero and then selected
    fields should be updated.
 
-   Returns non-zero if the update succeeds.  */
+   Returns non-zero if the update succeeds */
 
 extern int gdbarch_update_p (struct gdbarch_info info);
 
@@ -1261,7 +1095,7 @@ extern void *gdbarch_data (struct gdbarch *gdbarch, struct gdbarch_data *);
 
 
 /* Set the dynamic target-system-dependent parameters (architecture,
-   byte-order, ...) using information found in the BFD.  */
+   byte-order, ...) using information found in the BFD */
 
 extern void set_gdbarch_from_file (bfd *);
 
