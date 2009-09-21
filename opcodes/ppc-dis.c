@@ -1,6 +1,6 @@
 /* ppc-dis.c -- Disassemble PowerPC instructions
    Copyright 1994, 1995, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007,
-   2008, 2009, 2010 Free Software Foundation, Inc.
+   2008, 2009 Free Software Foundation, Inc.
    Written by Ian Lance Taylor, Cygnus Support
 
    This file is part of the GNU opcodes library.
@@ -50,126 +50,112 @@ struct ppc_mopt {
 };
 
 struct ppc_mopt ppc_opts[] = {
-  { "403",     (PPC_OPCODE_PPC | PPC_OPCODE_403),
+  { "403",     (PPC_OPCODE_PPC | PPC_OPCODE_CLASSIC | PPC_OPCODE_403
+		| PPC_OPCODE_32),
     0 },
-  { "405",     (PPC_OPCODE_PPC | PPC_OPCODE_403 | PPC_OPCODE_405),
+  { "405",     (PPC_OPCODE_PPC | PPC_OPCODE_CLASSIC | PPC_OPCODE_403
+		| PPC_OPCODE_405 | PPC_OPCODE_32),
     0 },
-  { "440",     (PPC_OPCODE_PPC | PPC_OPCODE_BOOKE | PPC_OPCODE_440
-		| PPC_OPCODE_ISEL | PPC_OPCODE_RFMCI),
+  { "440",     (PPC_OPCODE_PPC | PPC_OPCODE_BOOKE | PPC_OPCODE_32
+		| PPC_OPCODE_440 | PPC_OPCODE_ISEL | PPC_OPCODE_RFMCI),
     0 },
-  { "464",     (PPC_OPCODE_PPC | PPC_OPCODE_BOOKE | PPC_OPCODE_440
-		| PPC_OPCODE_ISEL | PPC_OPCODE_RFMCI),
+  { "464",     (PPC_OPCODE_PPC | PPC_OPCODE_BOOKE | PPC_OPCODE_32
+		| PPC_OPCODE_440 | PPC_OPCODE_ISEL | PPC_OPCODE_RFMCI),
     0 },
-  { "476",     (PPC_OPCODE_PPC | PPC_OPCODE_ISEL | PPC_OPCODE_440
-		| PPC_OPCODE_476 | PPC_OPCODE_POWER4 | PPC_OPCODE_POWER5),
+  { "601",     (PPC_OPCODE_PPC | PPC_OPCODE_CLASSIC | PPC_OPCODE_601
+		| PPC_OPCODE_32),
     0 },
-  { "601",     (PPC_OPCODE_PPC | PPC_OPCODE_601),
+  { "603",     (PPC_OPCODE_PPC | PPC_OPCODE_CLASSIC | PPC_OPCODE_32),
     0 },
-  { "603",     (PPC_OPCODE_PPC),
+  { "604",     (PPC_OPCODE_PPC | PPC_OPCODE_CLASSIC | PPC_OPCODE_32),
     0 },
-  { "604",     (PPC_OPCODE_PPC),
+  { "620",     (PPC_OPCODE_PPC | PPC_OPCODE_CLASSIC | PPC_OPCODE_64),
     0 },
-  { "620",     (PPC_OPCODE_PPC | PPC_OPCODE_64),
+  { "7400",    (PPC_OPCODE_PPC | PPC_OPCODE_CLASSIC | PPC_OPCODE_ALTIVEC
+		| PPC_OPCODE_32),
     0 },
-  { "7400",    (PPC_OPCODE_PPC | PPC_OPCODE_ALTIVEC),
+  { "7410",    (PPC_OPCODE_PPC | PPC_OPCODE_CLASSIC | PPC_OPCODE_ALTIVEC
+		| PPC_OPCODE_32),
     0 },
-  { "7410",    (PPC_OPCODE_PPC | PPC_OPCODE_ALTIVEC),
+  { "7450",    (PPC_OPCODE_PPC | PPC_OPCODE_CLASSIC | PPC_OPCODE_ALTIVEC
+		| PPC_OPCODE_32),
     0 },
-  { "7450",    (PPC_OPCODE_PPC | PPC_OPCODE_ALTIVEC),
-    0 },
-  { "7455",    (PPC_OPCODE_PPC | PPC_OPCODE_ALTIVEC),
+  { "7455",    (PPC_OPCODE_PPC | PPC_OPCODE_CLASSIC | PPC_OPCODE_ALTIVEC
+		| PPC_OPCODE_32),
     0 },
   { "750cl",   (PPC_OPCODE_PPC | PPC_OPCODE_PPCPS)
     , 0 },
-  { "a2",      (PPC_OPCODE_PPC | PPC_OPCODE_ISEL | PPC_OPCODE_POWER4
-		| PPC_OPCODE_POWER5 | PPC_OPCODE_CACHELCK | PPC_OPCODE_64
-		| PPC_OPCODE_A2),
-    0 },
-  { "altivec", (PPC_OPCODE_PPC),
+  { "altivec", (PPC_OPCODE_PPC | PPC_OPCODE_CLASSIC),
     PPC_OPCODE_ALTIVEC },
   { "any",     0,
     PPC_OPCODE_ANY },
-  { "booke",   (PPC_OPCODE_PPC | PPC_OPCODE_BOOKE),
+  { "booke",   (PPC_OPCODE_PPC | PPC_OPCODE_BOOKE | PPC_OPCODE_32),
     0 },
-  { "booke32", (PPC_OPCODE_PPC | PPC_OPCODE_BOOKE),
+  { "booke32", (PPC_OPCODE_PPC | PPC_OPCODE_BOOKE | PPC_OPCODE_32),
     0 },
-  { "cell",    (PPC_OPCODE_PPC | PPC_OPCODE_64 | PPC_OPCODE_POWER4
-		| PPC_OPCODE_CELL | PPC_OPCODE_ALTIVEC),
+  { "cell",    (PPC_OPCODE_PPC | PPC_OPCODE_CLASSIC | PPC_OPCODE_64
+		| PPC_OPCODE_POWER4 | PPC_OPCODE_CELL | PPC_OPCODE_ALTIVEC),
     0 },
-  { "com",     (PPC_OPCODE_COMMON),
+  { "com",     (PPC_OPCODE_COMMON | PPC_OPCODE_32),
     0 },
-  { "e300",    (PPC_OPCODE_PPC | PPC_OPCODE_E300),
+  { "e300",    (PPC_OPCODE_PPC | PPC_OPCODE_CLASSIC | PPC_OPCODE_32
+		| PPC_OPCODE_E300),
     0 },
   { "e500",    (PPC_OPCODE_PPC | PPC_OPCODE_BOOKE | PPC_OPCODE_SPE
 		| PPC_OPCODE_ISEL | PPC_OPCODE_EFS | PPC_OPCODE_BRLOCK
 		| PPC_OPCODE_PMR | PPC_OPCODE_CACHELCK | PPC_OPCODE_RFMCI
-		| PPC_OPCODE_E500),
+		| PPC_OPCODE_E500MC),
     0 },
   { "e500mc",  (PPC_OPCODE_PPC | PPC_OPCODE_BOOKE | PPC_OPCODE_ISEL
 		| PPC_OPCODE_PMR | PPC_OPCODE_CACHELCK | PPC_OPCODE_RFMCI
 		| PPC_OPCODE_E500MC),
     0 },
-  { "e500mc64",  (PPC_OPCODE_PPC | PPC_OPCODE_BOOKE | PPC_OPCODE_ISEL
-		| PPC_OPCODE_PMR | PPC_OPCODE_CACHELCK | PPC_OPCODE_RFMCI
-		| PPC_OPCODE_E500MC | PPC_OPCODE_64 | PPC_OPCODE_POWER5
-		| PPC_OPCODE_POWER6 | PPC_OPCODE_POWER7),
-    0 },
   { "e500x2",  (PPC_OPCODE_PPC | PPC_OPCODE_BOOKE | PPC_OPCODE_SPE
 		| PPC_OPCODE_ISEL | PPC_OPCODE_EFS | PPC_OPCODE_BRLOCK
 		| PPC_OPCODE_PMR | PPC_OPCODE_CACHELCK | PPC_OPCODE_RFMCI
-		| PPC_OPCODE_E500),
+		| PPC_OPCODE_E500MC),
     0 },
   { "efs",     (PPC_OPCODE_PPC | PPC_OPCODE_EFS),
     0 },
-  { "power4",  (PPC_OPCODE_PPC | PPC_OPCODE_64 | PPC_OPCODE_POWER4),
+  { "power4",  (PPC_OPCODE_PPC | PPC_OPCODE_CLASSIC | PPC_OPCODE_64
+		| PPC_OPCODE_POWER4),
     0 },
-  { "power5",  (PPC_OPCODE_PPC | PPC_OPCODE_64 | PPC_OPCODE_POWER4
-		| PPC_OPCODE_POWER5),
+  { "power5",  (PPC_OPCODE_PPC | PPC_OPCODE_CLASSIC | PPC_OPCODE_64
+		| PPC_OPCODE_POWER4 | PPC_OPCODE_POWER5),
     0 },
-  { "power6",  (PPC_OPCODE_PPC | PPC_OPCODE_64 | PPC_OPCODE_POWER4
-		| PPC_OPCODE_POWER5 | PPC_OPCODE_POWER6 | PPC_OPCODE_ALTIVEC),
-    0 },
-  { "power7",  (PPC_OPCODE_PPC | PPC_OPCODE_ISEL | PPC_OPCODE_64
+  { "power6",  (PPC_OPCODE_PPC | PPC_OPCODE_CLASSIC | PPC_OPCODE_64
 		| PPC_OPCODE_POWER4 | PPC_OPCODE_POWER5 | PPC_OPCODE_POWER6
-		| PPC_OPCODE_POWER7 | PPC_OPCODE_ALTIVEC | PPC_OPCODE_VSX),
+		| PPC_OPCODE_ALTIVEC),
     0 },
-  { "ppc",     (PPC_OPCODE_PPC),
+  { "power7",  (PPC_OPCODE_PPC | PPC_OPCODE_CLASSIC | PPC_OPCODE_ISEL
+		| PPC_OPCODE_64 | PPC_OPCODE_POWER4 | PPC_OPCODE_POWER5
+		| PPC_OPCODE_POWER6 | PPC_OPCODE_POWER7 | PPC_OPCODE_ALTIVEC
+		| PPC_OPCODE_VSX),
     0 },
-  { "ppc32",   (PPC_OPCODE_PPC),
+  { "ppc",     (PPC_OPCODE_PPC | PPC_OPCODE_CLASSIC | PPC_OPCODE_32),
     0 },
-  { "ppc64",   (PPC_OPCODE_PPC | PPC_OPCODE_64),
+  { "ppc32",   (PPC_OPCODE_PPC | PPC_OPCODE_CLASSIC | PPC_OPCODE_32),
     0 },
-  { "ppc64bridge", (PPC_OPCODE_PPC | PPC_OPCODE_64_BRIDGE),
+  { "ppc64",   (PPC_OPCODE_PPC | PPC_OPCODE_CLASSIC | PPC_OPCODE_64),
+    0 },
+  { "ppc64bridge", (PPC_OPCODE_PPC | PPC_OPCODE_CLASSIC | PPC_OPCODE_64_BRIDGE
+		    | PPC_OPCODE_64),
+    0 },
+  { "ppca2",   (PPC_OPCODE_PPC | PPC_OPCODE_CLASSIC | PPC_OPCODE_ISEL
+		| PPC_OPCODE_POWER4 | PPC_OPCODE_POWER5 | PPC_OPCODE_CACHELCK
+		| PPC_OPCODE_64 | PPC_OPCODE_PPCA2),
     0 },
   { "ppcps",   (PPC_OPCODE_PPC | PPC_OPCODE_PPCPS),
     0 },
-  { "pwr",     (PPC_OPCODE_POWER),
+  { "pwr",     (PPC_OPCODE_POWER | PPC_OPCODE_32),
     0 },
-  { "pwr2",    (PPC_OPCODE_POWER | PPC_OPCODE_POWER2),
+  { "pwr2",    (PPC_OPCODE_POWER | PPC_OPCODE_POWER2 | PPC_OPCODE_32),
     0 },
-  { "pwr4",    (PPC_OPCODE_PPC | PPC_OPCODE_64 | PPC_OPCODE_POWER4),
-    0 },
-  { "pwr5",    (PPC_OPCODE_PPC | PPC_OPCODE_64 | PPC_OPCODE_POWER4
-		| PPC_OPCODE_POWER5),
-    0 },
-  { "pwr5x",   (PPC_OPCODE_PPC | PPC_OPCODE_64 | PPC_OPCODE_POWER4
-		| PPC_OPCODE_POWER5),
-    0 },
-  { "pwr6",    (PPC_OPCODE_PPC | PPC_OPCODE_64 | PPC_OPCODE_POWER4
-		| PPC_OPCODE_POWER5 | PPC_OPCODE_POWER6 | PPC_OPCODE_ALTIVEC),
-    0 },
-  { "pwr7",    (PPC_OPCODE_PPC | PPC_OPCODE_ISEL | PPC_OPCODE_64
-		| PPC_OPCODE_POWER4 | PPC_OPCODE_POWER5 | PPC_OPCODE_POWER6
-		| PPC_OPCODE_POWER7 | PPC_OPCODE_ALTIVEC | PPC_OPCODE_VSX),
-    0 },
-  { "pwrx",    (PPC_OPCODE_POWER | PPC_OPCODE_POWER2),
+  { "pwrx",    (PPC_OPCODE_POWER | PPC_OPCODE_POWER2 | PPC_OPCODE_32),
     0 },
   { "spe",     (PPC_OPCODE_PPC | PPC_OPCODE_EFS),
     PPC_OPCODE_SPE },
-  { "titan",   (PPC_OPCODE_PPC | PPC_OPCODE_BOOKE | PPC_OPCODE_PMR
-		| PPC_OPCODE_RFMCI | PPC_OPCODE_TITAN),
-    0 },
-  { "vsx",     (PPC_OPCODE_PPC),
+  { "vsx",     (PPC_OPCODE_PPC | PPC_OPCODE_CLASSIC),
     PPC_OPCODE_VSX },
 };
 
@@ -189,8 +175,8 @@ ppc_parse_cpu (ppc_cpu_t ppc_cpu, const char *arg)
 	if (ppc_opts[i].sticky)
 	  {
 	    retain_flags |= ppc_opts[i].sticky;
-	    if ((ppc_cpu & ~(ppc_cpu_t) (PPC_OPCODE_ALTIVEC | PPC_OPCODE_VSX
-					 | PPC_OPCODE_SPE | PPC_OPCODE_ANY)) != 0)
+	    if ((ppc_cpu & ~(PPC_OPCODE_ALTIVEC | PPC_OPCODE_VSX
+			     | PPC_OPCODE_SPE | PPC_OPCODE_ANY)) != 0)
 	      break;
 	  }
 	ppc_cpu = ppc_opts[i].cpu;
@@ -227,9 +213,15 @@ powerpc_init_dialect (struct disassemble_info *info)
       if ((new_cpu = ppc_parse_cpu (dialect, arg)) != 0)
 	dialect = new_cpu;
       else if (strcmp (arg, "32") == 0)
-	dialect &= ~(ppc_cpu_t) PPC_OPCODE_64;
+	{
+	  dialect &= ~PPC_OPCODE_64;
+	  dialect |= PPC_OPCODE_32;
+	}
       else if (strcmp (arg, "64") == 0)
-	dialect |= PPC_OPCODE_64;
+	{
+	  dialect |= PPC_OPCODE_64;
+	  dialect &= ~PPC_OPCODE_32;
+	}
       else
 	fprintf (stderr, _("warning: ignoring unknown -M%s option\n"), arg);
 
@@ -238,15 +230,15 @@ powerpc_init_dialect (struct disassemble_info *info)
       arg = end;
     }
 
-  if ((dialect & ~(ppc_cpu_t) PPC_OPCODE_64) == 0)
+  if ((dialect & ~(PPC_OPCODE_32 | PPC_OPCODE_64)) == 0)
     {
       if (info->mach == bfd_mach_ppc64)
 	dialect |= PPC_OPCODE_64;
       else
-	dialect &= ~(ppc_cpu_t) PPC_OPCODE_64;
+	dialect |= PPC_OPCODE_32;
       /* Choose a reasonable default.  */
-      dialect |= (PPC_OPCODE_PPC | PPC_OPCODE_COMMON | PPC_OPCODE_601
-		  | PPC_OPCODE_ALTIVEC);
+      dialect |= (PPC_OPCODE_PPC | PPC_OPCODE_COMMON | PPC_OPCODE_CLASSIC
+		  | PPC_OPCODE_601 | PPC_OPCODE_ALTIVEC);
     }
 
   info->private_data = priv;
@@ -347,6 +339,7 @@ print_insn_powerpc (bfd_vma memaddr,
   const struct powerpc_opcode *opcode;
   const struct powerpc_opcode *opcode_end;
   unsigned long op;
+  ppc_cpu_t dialect_orig = dialect;
 
   status = (*info->read_memory_func) (memaddr, buffer, 4, info);
   if (status != 0)
@@ -385,8 +378,7 @@ print_insn_powerpc (bfd_vma memaddr,
 
       if ((insn & opcode->mask) != opcode->opcode
 	  || (opcode->flags & dialect) == 0
-	  || (dialect != ~(ppc_cpu_t) PPC_OPCODE_ANY
-	      && (opcode->deprecated & dialect) != 0))
+	  || (opcode->deprecated & dialect_orig) != 0)
 	continue;
 
       /* Make two passes over the operands.  First see if any of them
@@ -505,7 +497,7 @@ print_insn_powerpc (bfd_vma memaddr,
 
   if ((dialect & PPC_OPCODE_ANY) != 0)
     {
-      dialect = ~(ppc_cpu_t) PPC_OPCODE_ANY;
+      dialect = ~PPC_OPCODE_ANY;
       goto again;
     }
 
