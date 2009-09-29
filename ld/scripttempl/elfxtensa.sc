@@ -87,16 +87,29 @@
 #  .ldata	.gnu.linkonce.l.foo
 #  .lbss	.gnu.linkonce.lb.foo
 #
+# plus exception-handling information for Tensilica's XCC compiler:
+#  .xt_except_table .gnu.linkonce.e.foo
+#  .xt_except_desc  .gnu.linkonce.h.foo
+#
+# plus Xtensa-specific literal sections:
+#  .literal	.gnu.linkonce.literal.foo
+#  .lit4   	.gnu.linkonce.lit4.foo
+#
+# plus Xtensa-specific "property table" sections:
+#  .xt.lit      .gnu.linkonce.p.foo
+#  .xt.insn     .gnu.linkonce.x.foo (obsolete)
+#  .xt.prop     .gnu.linkonce.prop.foo
+#
 #  Each of these can also have corresponding .rel.* and .rela.* sections.
 
-test -z "$ENTRY" && ENTRY=${USER_LABEL_PREFIX}_start
+test -z "$ENTRY" && ENTRY=_start
 test -z "${BIG_OUTPUT_FORMAT}" && BIG_OUTPUT_FORMAT=${OUTPUT_FORMAT}
 test -z "${LITTLE_OUTPUT_FORMAT}" && LITTLE_OUTPUT_FORMAT=${OUTPUT_FORMAT}
 if [ -z "$MACHINE" ]; then OUTPUT_ARCH=${ARCH}; else OUTPUT_ARCH=${ARCH}:${MACHINE}; fi
 test -z "${ELFSIZE}" && ELFSIZE=32
 test -z "${ALIGNMENT}" && ALIGNMENT="${ELFSIZE} / 8"
 test "$LD_FLAG" = "N" && DATA_ADDR=.
-test -z "${ETEXT_NAME}" && ETEXT_NAME=${USER_LABEL_PREFIX}etext
+test -z "${ETEXT_NAME}" && ETEXT_NAME=etext
 test -n "$CREATE_SHLIB$CREATE_PIE" && test -n "$SHLIB_DATA_ADDR" && COMMONPAGESIZE=""
 test -z "$CREATE_SHLIB$CREATE_PIE" && test -n "$DATA_ADDR" && COMMONPAGESIZE=""
 test -n "$RELRO_NOW" && unset SEPARATE_GOTPLT
@@ -113,37 +126,25 @@ if test -z "${INITIAL_READONLY_SECTIONS}${CREATE_SHLIB}"; then
   INITIAL_READONLY_SECTIONS=".interp        : { *(.interp) }"
 fi
 if test -z "$PLT"; then
-  IPLT=".iplt          : { *(.iplt) }"
-  PLT=".plt           : { *(.plt)${IREL_IN_PLT+ *(.iplt)} }
-  ${IREL_IN_PLT-$IPLT}"
+  PLT=".plt           : { *(.plt) }"
 fi
 test -n "${DATA_PLT-${BSS_PLT-text}}" && TEXT_PLT=yes
 if test -z "$GOT"; then
   if test -z "$SEPARATE_GOTPLT"; then
-    GOT=".got           : { *(.got.plt) *(.igot.plt) *(.got) *(.igot) }"
+    GOT=".got           : { *(.got.plt) *(.got) }"
   else
-    GOT=".got           : { *(.got) *(.igot) }"
-    GOTPLT=".got.plt       : { *(.got.plt)  *(.igot.plt) }"
+    GOT=".got           : { *(.got) }"
+    GOTPLT=".got.plt       : { *(.got.plt) }"
   fi
 fi
-REL_IFUNC=".rel.ifunc     : { *(.rel.ifunc) }"
-RELA_IFUNC=".rela.ifunc    : { *(.rela.ifunc) }"
-REL_IPLT=".rel.iplt      :
-    {
-      ${RELOCATING+${CREATE_SHLIB-PROVIDE_HIDDEN (${USER_LABEL_PREFIX}__rel_iplt_start = .);}}
-      *(.rel.iplt)
-      ${RELOCATING+${CREATE_SHLIB-PROVIDE_HIDDEN (${USER_LABEL_PREFIX}__rel_iplt_end = .);}}
-    }"
-RELA_IPLT=".rela.iplt     :
-    {
-      ${RELOCATING+${CREATE_SHLIB-PROVIDE_HIDDEN (${USER_LABEL_PREFIX}__rela_iplt_start = .);}}
-      *(.rela.iplt)
-      ${RELOCATING+${CREATE_SHLIB-PROVIDE_HIDDEN (${USER_LABEL_PREFIX}__rela_iplt_end = .);}}
-    }"
 DYNAMIC=".dynamic       : { *(.dynamic) }"
 RODATA=".rodata        : { *(.rodata${RELOCATING+ .rodata.* .gnu.linkonce.r.*}) }"
 DATARELRO=".data.rel.ro : { *(.data.rel.ro.local* .gnu.linkonce.d.rel.ro.local.*) *(.data.rel.ro* .gnu.linkonce.d.rel.ro.*) }"
-DISCARDED="/DISCARD/ : { *(.note.GNU-stack) *(.gnu_debuglink) *(.gnu.lto_*) }"
+DISCARDED="/DISCARD/ : { *(.note.GNU-stack) *(.gnu_debuglink)  *(.gnu.lto_*) }"
+INIT_LIT=".init.literal  : { *(.init.literal)	}"
+INIT=".init          : { *(.init)		}"
+FINI_LIT=".fini.literal  : { *(.fini.literal)	}"
+FINI=".fini          : { *(.fini)		}"
 if test -z "${NO_SMALL_DATA}"; then
   SBSS=".sbss          :
   {
@@ -254,12 +255,9 @@ DTOR=".dtors         :
   }"
 STACK="  .stack        ${RELOCATING+${STACK_ADDR}} :
   {
-    ${RELOCATING+${USER_LABEL_PREFIX}_stack = .;}
+    ${RELOCATING+_stack = .;}
     *(.stack)
   }"
-
-TEXT_START_ADDR="SEGMENT_START(\"text-segment\", ${TEXT_START_ADDR})"
-SHLIB_TEXT_START_ADDR="SEGMENT_START(\"text-segment\", ${SHLIB_TEXT_START_ADDR:-0})"
 
 # if this is for an embedded system, don't add SIZEOF_HEADERS.
 if [ -z "$EMBEDDED" ]; then
@@ -269,9 +267,6 @@ else
 fi
 
 cat <<EOF
-OUTPUT_FORMAT("${OUTPUT_FORMAT}", "${BIG_OUTPUT_FORMAT}",
-	      "${LITTLE_OUTPUT_FORMAT}")
-OUTPUT_ARCH(${OUTPUT_ARCH})
 ${RELOCATING+ENTRY(${ENTRY})}
 
 ${RELOCATING+${LIB_SEARCH_DIRS}}
@@ -282,8 +277,8 @@ SECTIONS
 {
   /* Read-only sections, merged into text segment: */
   ${CREATE_SHLIB-${CREATE_PIE-${RELOCATING+PROVIDE (__executable_start = ${TEXT_START_ADDR}); . = ${TEXT_BASE_ADDRESS};}}}
-  ${CREATE_SHLIB+${RELOCATING+. = ${SHLIB_TEXT_START_ADDR} + SIZEOF_HEADERS;}}
-  ${CREATE_PIE+${RELOCATING+. = ${SHLIB_TEXT_START_ADDR} + SIZEOF_HEADERS;}}
+  ${CREATE_SHLIB+${RELOCATING+. = ${SHLIB_TEXT_START_ADDR:-0} + SIZEOF_HEADERS;}}
+  ${CREATE_PIE+${RELOCATING+. = ${SHLIB_TEXT_START_ADDR:-0} + SIZEOF_HEADERS;}}
   ${INITIAL_READONLY_SECTIONS}
   .note.gnu.build-id : { *(.note.gnu.build-id) }
 EOF
@@ -338,10 +333,6 @@ eval $COMBRELOCCAT <<EOF
   .rel.bss       : { *(.rel.bss${RELOCATING+ .rel.bss.* .rel.gnu.linkonce.b.*}) }
   .rela.bss      : { *(.rela.bss${RELOCATING+ .rela.bss.* .rela.gnu.linkonce.b.*}) }
   ${REL_LARGE}
-  ${IREL_IN_PLT+$REL_IFUNC}
-  ${IREL_IN_PLT+$RELA_IFUNC}
-  ${IREL_IN_PLT-$REL_IPLT}
-  ${IREL_IN_PLT-$RELA_IPLT}
 EOF
 
 if [ -n "$COMBRELOC" ]; then
@@ -362,20 +353,8 @@ EOF
 fi
 
 cat >> ldscripts/dyntmp.$$ <<EOF
-  .rel.plt       :
-    {
-      *(.rel.plt)
-      ${IREL_IN_PLT+${RELOCATING+${CREATE_SHLIB-PROVIDE_HIDDEN (${USER_LABEL_PREFIX}__rel_iplt_start = .);}}}
-      ${IREL_IN_PLT+${RELOCATING+*(.rel.iplt)}}
-      ${IREL_IN_PLT+${RELOCATING+${CREATE_SHLIB-PROVIDE_HIDDEN (${USER_LABEL_PREFIX}__rel_iplt_end = .);}}}
-    }
-  .rela.plt      :
-    {
-      *(.rela.plt)
-      ${IREL_IN_PLT+${RELOCATING+${CREATE_SHLIB-PROVIDE_HIDDEN (${USER_LABEL_PREFIX}__rela_iplt_start = .);}}}
-      ${IREL_IN_PLT+${RELOCATING+*(.rela.iplt)}}
-      ${IREL_IN_PLT+${RELOCATING+${CREATE_SHLIB-PROVIDE_HIDDEN (${USER_LABEL_PREFIX}__rela_iplt_end = .);}}}
-    }
+  .rel.plt       : { *(.rel.plt) }
+  .rela.plt      : { *(.rela.plt) }
   ${OTHER_PLT_RELOC_SECTIONS}
 EOF
 
@@ -394,30 +373,35 @@ if test -z "${NON_ALLOC_DYN}"; then
 fi
 
 cat <<EOF
-  .init          : 
-  { 
-    ${RELOCATING+${INIT_START}}
-    KEEP (*(.init))
-    ${RELOCATING+${INIT_END}}
-  } =${NOP-0}
+  ${RELOCATING-$INIT_LIT}
+  ${RELOCATING-$INIT}
 
   ${TEXT_PLT+${PLT}}
   ${TINY_READONLY_SECTION}
   .text          :
   {
+    *(.got.plt* .plt*)
+
+    ${RELOCATING+${INIT_START}}
+    ${RELOCATING+KEEP (*(.init.literal))}
+    ${RELOCATING+KEEP (*(.init))}
+    ${RELOCATING+${INIT_END}}
+
     ${RELOCATING+${TEXT_START_SYMBOLS}}
-    ${RELOCATING+*(.text.unlikely .text.*_unlikely)}
-    *(.text .stub${RELOCATING+ .text.* .gnu.linkonce.t.*})
+    *(.literal .text .stub${RELOCATING+ .literal.* .text.* .gnu.linkonce.literal.* .gnu.linkonce.t.*.literal .gnu.linkonce.t.*})
     /* .gnu.warning sections are handled specially by elf32.em.  */
     *(.gnu.warning)
     ${RELOCATING+${OTHER_TEXT_SECTIONS}}
-  } =${NOP-0}
-  .fini          :
-  {
+
     ${RELOCATING+${FINI_START}}
-    KEEP (*(.fini))
+    ${RELOCATING+KEEP (*(.fini.literal))}
+    ${RELOCATING+KEEP (*(.fini))}
     ${RELOCATING+${FINI_END}}
   } =${NOP-0}
+
+  ${RELOCATING-$FINI_LIT}
+  ${RELOCATING-$FINI}
+
   ${RELOCATING+PROVIDE (__${ETEXT_NAME} = .);}
   ${RELOCATING+PROVIDE (_${ETEXT_NAME} = .);}
   ${RELOCATING+PROVIDE (${ETEXT_NAME} = .);}
@@ -498,7 +482,7 @@ cat <<EOF
   ${SDATA}
   ${OTHER_SDATA_SECTIONS}
   ${RELOCATING+${DATA_END_SYMBOLS-${USER_LABEL_PREFIX}_edata = .; PROVIDE (${USER_LABEL_PREFIX}edata = .);}}
-  ${RELOCATING+${USER_LABEL_PREFIX}__bss_start = .;}
+  ${RELOCATING+__bss_start = .;}
   ${RELOCATING+${OTHER_BSS_SYMBOLS}}
   ${SBSS}
   ${BSS_PLT+${PLT}}
