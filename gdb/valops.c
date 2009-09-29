@@ -1,6 +1,8 @@
 /* Perform non-arithmetic operations on values, for GDB.
 
-   Copyright (C) 1986-2012 Free Software Foundation, Inc.
+   Copyright (C) 1986, 1987, 1988, 1989, 1990, 1991, 1992, 1993, 1994, 1995,
+   1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007,
+   2008, 2009 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -36,7 +38,7 @@
 #include "cp-support.h"
 #include "dfp.h"
 #include "user-regs.h"
-#include "tracepoint.h"
+
 #include <errno.h>
 #include "gdb_string.h"
 #include "gdb_assert.h"
@@ -44,7 +46,6 @@
 #include "observer.h"
 #include "objfiles.h"
 #include "symtab.h"
-#include "exceptions.h"
 
 extern int overload_debug;
 /* Local functions.  */
@@ -52,27 +53,25 @@ extern int overload_debug;
 static int typecmp (int staticp, int varargs, int nargs,
 		    struct field t1[], struct value *t2[]);
 
-static struct value *search_struct_field (const char *, struct value *, 
+static struct value *search_struct_field (char *, struct value *, 
 					  int, struct type *, int);
 
-static struct value *search_struct_method (const char *, struct value **,
-					   struct value **,
-					   int, int *, struct type *);
+static struct value *search_struct_method (char *, struct value **,
+				       struct value **,
+				       int, int *, struct type *);
 
-static int find_oload_champ_namespace (struct value **, int,
+static int find_oload_champ_namespace (struct type **, int,
 				       const char *, const char *,
 				       struct symbol ***,
-				       struct badness_vector **,
-				       const int no_adl);
+				       struct badness_vector **);
 
 static
-int find_oload_champ_namespace_loop (struct value **, int,
+int find_oload_champ_namespace_loop (struct type **, int,
 				     const char *, const char *,
 				     int, struct symbol ***,
-				     struct badness_vector **, int *,
-				     const int no_adl);
+				     struct badness_vector **, int *);
 
-static int find_oload_champ (struct value **, int, int, int,
+static int find_oload_champ (struct type **, int, int, int,
 			     struct fn_field *, struct symbol **,
 			     struct badness_vector **);
 
@@ -101,7 +100,7 @@ static CORE_ADDR allocate_space_in_inferior (int);
 
 static struct value *cast_into_complex (struct type *, struct value *);
 
-static struct fn_field *find_method_list (struct value **, const char *,
+static struct fn_field *find_method_list (struct value **, char *,
 					  int, struct type *, int *,
 					  struct type **, int *);
 
@@ -120,8 +119,8 @@ show_overload_resolution (struct ui_file *file, int from_tty,
 			  struct cmd_list_element *c, 
 			  const char *value)
 {
-  fprintf_filtered (file, _("Overload resolution in evaluating "
-			    "C++ functions is %s.\n"),
+  fprintf_filtered (file, _("\
+Overload resolution in evaluating C++ functions is %s.\n"),
 		    value);
 }
 
@@ -133,7 +132,6 @@ struct value *
 find_function_in_inferior (const char *name, struct objfile **objf_p)
 {
   struct symbol *sym;
-
   sym = lookup_symbol (name, 0, VAR_DOMAIN, 0);
   if (sym != NULL)
     {
@@ -152,7 +150,6 @@ find_function_in_inferior (const char *name, struct objfile **objf_p)
     {
       struct minimal_symbol *msymbol = 
 	lookup_minimal_symbol (name, NULL, NULL);
-
       if (msymbol != NULL)
 	{
 	  struct objfile *objfile = msymbol_objfile (msymbol);
@@ -173,12 +170,9 @@ find_function_in_inferior (const char *name, struct objfile **objf_p)
       else
 	{
 	  if (!target_has_execution)
-	    error (_("evaluation of this expression "
-		     "requires the target program to be active"));
+	    error (_("evaluation of this expression requires the target program to be active"));
 	  else
-	    error (_("evaluation of this expression requires the "
-		     "program to have a function \"%s\"."),
-		   name);
+	    error (_("evaluation of this expression requires the program to have a function \"%s\"."), name);
 	}
     }
 }
@@ -200,8 +194,7 @@ value_allocate_space_in_inferior (int len)
   if (value_logical_not (val))
     {
       if (!target_has_execution)
-	error (_("No memory available to program now: "
-		 "you need to start the target first"));
+	error (_("No memory available to program now: you need to start the target first"));
       else
 	error (_("No memory available to program: call to malloc failed"));
     }
@@ -239,11 +232,6 @@ value_cast_structs (struct type *type, struct value *v2)
 	       || TYPE_CODE (t2) == TYPE_CODE_UNION)
 	      && !!"Precondition is that value is of STRUCT or UNION kind");
 
-  if (TYPE_NAME (t1) != NULL
-      && TYPE_NAME (t2) != NULL
-      && !strcmp (TYPE_NAME (t1), TYPE_NAME (t2)))
-    return NULL;
-
   /* Upcasting: look in the type of the source to see if it contains the
      type of the target as a superclass.  If so, we'll need to
      offset the pointer rather than just change its type.  */
@@ -257,40 +245,16 @@ value_cast_structs (struct type *type, struct value *v2)
 
   /* Downcasting: look in the type of the target to see if it contains the
      type of the source as a superclass.  If so, we'll need to
-     offset the pointer rather than just change its type.  */
+     offset the pointer rather than just change its type.
+     FIXME: This fails silently with virtual inheritance.  */
   if (TYPE_NAME (t2) != NULL)
     {
-      /* Try downcasting using the run-time type of the value.  */
-      int full, top, using_enc;
-      struct type *real_type;
-
-      real_type = value_rtti_type (v2, &full, &top, &using_enc);
-      if (real_type)
-	{
-	  v = value_full_object (v2, real_type, full, top, using_enc);
-	  v = value_at_lazy (real_type, value_address (v));
-
-	  /* We might be trying to cast to the outermost enclosing
-	     type, in which case search_struct_field won't work.  */
-	  if (TYPE_NAME (real_type) != NULL
-	      && !strcmp (TYPE_NAME (real_type), TYPE_NAME (t1)))
-	    return v;
-
-	  v = search_struct_field (type_name_no_tag (t2), v, 0, real_type, 1);
-	  if (v)
-	    return v;
-	}
-
-      /* Try downcasting using information from the destination type
-	 T2.  This wouldn't work properly for classes with virtual
-	 bases, but those were handled above.  */
       v = search_struct_field (type_name_no_tag (t2),
 			       value_zero (t1, not_lval), 0, t1, 1);
       if (v)
 	{
 	  /* Downcasting is possible (t1 is superclass of v2).  */
 	  CORE_ADDR addr2 = value_address (v2);
-
 	  addr2 -= value_address (v) + value_embedded_offset (v);
 	  return value_at (type, addr2);
 	}
@@ -308,7 +272,7 @@ value_cast_pointers (struct type *type, struct value *arg2)
 {
   struct type *type1 = check_typedef (type);
   struct type *type2 = check_typedef (value_type (arg2));
-  struct type *t1 = check_typedef (TYPE_TARGET_TYPE (type1));
+  struct type *t1 = check_typedef (TYPE_TARGET_TYPE (type));
   struct type *t2 = check_typedef (TYPE_TARGET_TYPE (type2));
 
   if (TYPE_CODE (t1) == TYPE_CODE_STRUCT
@@ -321,14 +285,13 @@ value_cast_pointers (struct type *type, struct value *arg2)
 	v2 = coerce_ref (arg2);
       else
 	v2 = value_ind (arg2);
-      gdb_assert (TYPE_CODE (check_typedef (value_type (v2)))
-		  == TYPE_CODE_STRUCT && !!"Why did coercion fail?");
+      gdb_assert (TYPE_CODE (check_typedef (value_type (v2))) == TYPE_CODE_STRUCT
+		  && !!"Why did coercion fail?");
       v2 = value_cast_structs (t1, v2);
       /* At this point we have what we can have, un-dereference if needed.  */
       if (v2)
 	{
 	  struct value *v = value_addr (v2);
-
 	  deprecated_set_value_type (v, type);
 	  return v;
 	}
@@ -337,7 +300,7 @@ value_cast_pointers (struct type *type, struct value *arg2)
   /* No superclass found, just change the pointer type.  */
   arg2 = value_copy (arg2);
   deprecated_set_value_type (arg2, type);
-  set_value_enclosing_type (arg2, type);
+  arg2 = value_change_enclosing_type (arg2, type);
   set_value_pointed_to_offset (arg2, 0);	/* pai: chk_val */
   return arg2;
 }
@@ -366,12 +329,11 @@ value_cast (struct type *type, struct value *arg2)
   if (code1 == TYPE_CODE_REF)
     {
       /* We dereference type; then we recurse and finally
-         we generate value of the given reference.  Nothing wrong with 
+         we generate value of the given reference. Nothing wrong with 
 	 that.  */
       struct type *t1 = check_typedef (type);
       struct type *dereftype = check_typedef (TYPE_TARGET_TYPE (t1));
       struct value *val =  value_cast (dereftype, arg2);
-
       return value_ref (val); 
     }
 
@@ -397,19 +359,16 @@ value_cast (struct type *type, struct value *arg2)
     {
       struct type *element_type = TYPE_TARGET_TYPE (type);
       unsigned element_length = TYPE_LENGTH (check_typedef (element_type));
-
       if (element_length > 0 && TYPE_ARRAY_UPPER_BOUND_IS_UNDEFINED (type))
 	{
 	  struct type *range_type = TYPE_INDEX_TYPE (type);
 	  int val_length = TYPE_LENGTH (type2);
 	  LONGEST low_bound, high_bound, new_length;
-
 	  if (get_discrete_bounds (range_type, &low_bound, &high_bound) < 0)
 	    low_bound = 0, high_bound = 0;
 	  new_length = val_length / element_length;
 	  if (val_length % element_length != 0)
-	    warning (_("array element type size does not "
-		       "divide object size in cast"));
+	    warning (_("array element type size does not divide object size in cast"));
 	  /* FIXME-type-allocation: need a way to free this type when
 	     we are done with it.  */
 	  range_type = create_range_type ((struct type *) NULL,
@@ -425,8 +384,7 @@ value_cast (struct type *type, struct value *arg2)
     }
 
   if (current_language->c_style_arrays
-      && TYPE_CODE (type2) == TYPE_CODE_ARRAY
-      && !TYPE_VECTOR (type2))
+      && TYPE_CODE (type2) == TYPE_CODE_ARRAY)
     arg2 = value_coerce_array (arg2);
 
   if (TYPE_CODE (type2) == TYPE_CODE_FUNC)
@@ -456,7 +414,6 @@ value_cast (struct type *type, struct value *arg2)
       && TYPE_NAME (type) != 0)
     {
       struct value *v = value_cast_structs (type, arg2);
-
       if (v)
 	return v;
     }
@@ -517,8 +474,8 @@ value_cast (struct type *type, struct value *arg2)
 	 pointers and four byte addresses.  */
 
       int addr_bit = gdbarch_addr_bit (get_type_arch (type2));
-      LONGEST longest = value_as_long (arg2);
 
+      LONGEST longest = value_as_long (arg2);
       if (addr_bit < sizeof (LONGEST) * HOST_CHAR_BIT)
 	{
 	  if (longest >= ((LONGEST) 1 << addr_bit)
@@ -531,7 +488,6 @@ value_cast (struct type *type, struct value *arg2)
 	   && value_as_long (arg2) == 0)
     {
       struct value *result = allocate_value (type);
-
       cplus_make_method_ptr (type, value_contents_writeable (result), 0, 0);
       return result;
     }
@@ -542,29 +498,6 @@ value_cast (struct type *type, struct value *arg2)
 	 minus one, instead of biasing the normal case.  */
       return value_from_longest (type, -1);
     }
-  else if (code1 == TYPE_CODE_ARRAY && TYPE_VECTOR (type) && scalar)
-    {
-      /* Widen the scalar to a vector.  */
-      struct type *eltype;
-      struct value *val;
-      LONGEST low_bound, high_bound;
-      int i;
-
-      if (!get_array_bounds (type, &low_bound, &high_bound))
-	error (_("Could not determine the vector bounds"));
-
-      eltype = check_typedef (TYPE_TARGET_TYPE (type));
-      arg2 = value_cast (eltype, arg2);
-      val = allocate_value (type);
-
-      for (i = 0; i < high_bound - low_bound + 1; i++)
-	{
-	  /* Duplicate the contents of arg2 into the destination vector.  */
-	  memcpy (value_contents_writeable (val) + (i * TYPE_LENGTH (eltype)),
-		  value_contents_all (arg2), TYPE_LENGTH (eltype));
-	}
-      return val;
-    }
   else if (TYPE_LENGTH (type) == TYPE_LENGTH (type2))
     {
       if (code1 == TYPE_CODE_PTR && code2 == TYPE_CODE_PTR)
@@ -572,7 +505,7 @@ value_cast (struct type *type, struct value *arg2)
 
       arg2 = value_copy (arg2);
       deprecated_set_value_type (arg2, type);
-      set_value_enclosing_type (arg2, type);
+      arg2 = value_change_enclosing_type (arg2, type);
       set_value_pointed_to_offset (arg2, 0);	/* pai: chk_val */
       return arg2;
     }
@@ -589,283 +522,21 @@ value_cast (struct type *type, struct value *arg2)
     }
 }
 
-/* The C++ reinterpret_cast operator.  */
-
-struct value *
-value_reinterpret_cast (struct type *type, struct value *arg)
-{
-  struct value *result;
-  struct type *real_type = check_typedef (type);
-  struct type *arg_type, *dest_type;
-  int is_ref = 0;
-  enum type_code dest_code, arg_code;
-
-  /* Do reference, function, and array conversion.  */
-  arg = coerce_array (arg);
-
-  /* Attempt to preserve the type the user asked for.  */
-  dest_type = type;
-
-  /* If we are casting to a reference type, transform
-     reinterpret_cast<T&>(V) to *reinterpret_cast<T*>(&V).  */
-  if (TYPE_CODE (real_type) == TYPE_CODE_REF)
-    {
-      is_ref = 1;
-      arg = value_addr (arg);
-      dest_type = lookup_pointer_type (TYPE_TARGET_TYPE (dest_type));
-      real_type = lookup_pointer_type (real_type);
-    }
-
-  arg_type = value_type (arg);
-
-  dest_code = TYPE_CODE (real_type);
-  arg_code = TYPE_CODE (arg_type);
-
-  /* We can convert pointer types, or any pointer type to int, or int
-     type to pointer.  */
-  if ((dest_code == TYPE_CODE_PTR && arg_code == TYPE_CODE_INT)
-      || (dest_code == TYPE_CODE_INT && arg_code == TYPE_CODE_PTR)
-      || (dest_code == TYPE_CODE_METHODPTR && arg_code == TYPE_CODE_INT)
-      || (dest_code == TYPE_CODE_INT && arg_code == TYPE_CODE_METHODPTR)
-      || (dest_code == TYPE_CODE_MEMBERPTR && arg_code == TYPE_CODE_INT)
-      || (dest_code == TYPE_CODE_INT && arg_code == TYPE_CODE_MEMBERPTR)
-      || (dest_code == arg_code
-	  && (dest_code == TYPE_CODE_PTR
-	      || dest_code == TYPE_CODE_METHODPTR
-	      || dest_code == TYPE_CODE_MEMBERPTR)))
-    result = value_cast (dest_type, arg);
-  else
-    error (_("Invalid reinterpret_cast"));
-
-  if (is_ref)
-    result = value_cast (type, value_ref (value_ind (result)));
-
-  return result;
-}
-
-/* A helper for value_dynamic_cast.  This implements the first of two
-   runtime checks: we iterate over all the base classes of the value's
-   class which are equal to the desired class; if only one of these
-   holds the value, then it is the answer.  */
-
-static int
-dynamic_cast_check_1 (struct type *desired_type,
-		      const gdb_byte *valaddr,
-		      int embedded_offset,
-		      CORE_ADDR address,
-		      struct value *val,
-		      struct type *search_type,
-		      CORE_ADDR arg_addr,
-		      struct type *arg_type,
-		      struct value **result)
-{
-  int i, result_count = 0;
-
-  for (i = 0; i < TYPE_N_BASECLASSES (search_type) && result_count < 2; ++i)
-    {
-      int offset = baseclass_offset (search_type, i, valaddr, embedded_offset,
-				     address, val);
-
-      if (class_types_same_p (desired_type, TYPE_BASECLASS (search_type, i)))
-	{
-	  if (address + embedded_offset + offset >= arg_addr
-	      && address + embedded_offset + offset < arg_addr + TYPE_LENGTH (arg_type))
-	    {
-	      ++result_count;
-	      if (!*result)
-		*result = value_at_lazy (TYPE_BASECLASS (search_type, i),
-					 address + embedded_offset + offset);
-	    }
-	}
-      else
-	result_count += dynamic_cast_check_1 (desired_type,
-					      valaddr,
-					      embedded_offset + offset,
-					      address, val,
-					      TYPE_BASECLASS (search_type, i),
-					      arg_addr,
-					      arg_type,
-					      result);
-    }
-
-  return result_count;
-}
-
-/* A helper for value_dynamic_cast.  This implements the second of two
-   runtime checks: we look for a unique public sibling class of the
-   argument's declared class.  */
-
-static int
-dynamic_cast_check_2 (struct type *desired_type,
-		      const gdb_byte *valaddr,
-		      int embedded_offset,
-		      CORE_ADDR address,
-		      struct value *val,
-		      struct type *search_type,
-		      struct value **result)
-{
-  int i, result_count = 0;
-
-  for (i = 0; i < TYPE_N_BASECLASSES (search_type) && result_count < 2; ++i)
-    {
-      int offset;
-
-      if (! BASETYPE_VIA_PUBLIC (search_type, i))
-	continue;
-
-      offset = baseclass_offset (search_type, i, valaddr, embedded_offset,
-				 address, val);
-      if (class_types_same_p (desired_type, TYPE_BASECLASS (search_type, i)))
-	{
-	  ++result_count;
-	  if (*result == NULL)
-	    *result = value_at_lazy (TYPE_BASECLASS (search_type, i),
-				     address + embedded_offset + offset);
-	}
-      else
-	result_count += dynamic_cast_check_2 (desired_type,
-					      valaddr,
-					      embedded_offset + offset,
-					      address, val,
-					      TYPE_BASECLASS (search_type, i),
-					      result);
-    }
-
-  return result_count;
-}
-
-/* The C++ dynamic_cast operator.  */
-
-struct value *
-value_dynamic_cast (struct type *type, struct value *arg)
-{
-  int full, top, using_enc;
-  struct type *resolved_type = check_typedef (type);
-  struct type *arg_type = check_typedef (value_type (arg));
-  struct type *class_type, *rtti_type;
-  struct value *result, *tem, *original_arg = arg;
-  CORE_ADDR addr;
-  int is_ref = TYPE_CODE (resolved_type) == TYPE_CODE_REF;
-
-  if (TYPE_CODE (resolved_type) != TYPE_CODE_PTR
-      && TYPE_CODE (resolved_type) != TYPE_CODE_REF)
-    error (_("Argument to dynamic_cast must be a pointer or reference type"));
-  if (TYPE_CODE (TYPE_TARGET_TYPE (resolved_type)) != TYPE_CODE_VOID
-      && TYPE_CODE (TYPE_TARGET_TYPE (resolved_type)) != TYPE_CODE_CLASS)
-    error (_("Argument to dynamic_cast must be pointer to class or `void *'"));
-
-  class_type = check_typedef (TYPE_TARGET_TYPE (resolved_type));
-  if (TYPE_CODE (resolved_type) == TYPE_CODE_PTR)
-    {
-      if (TYPE_CODE (arg_type) != TYPE_CODE_PTR
-	  && ! (TYPE_CODE (arg_type) == TYPE_CODE_INT
-		&& value_as_long (arg) == 0))
-	error (_("Argument to dynamic_cast does not have pointer type"));
-      if (TYPE_CODE (arg_type) == TYPE_CODE_PTR)
-	{
-	  arg_type = check_typedef (TYPE_TARGET_TYPE (arg_type));
-	  if (TYPE_CODE (arg_type) != TYPE_CODE_CLASS)
-	    error (_("Argument to dynamic_cast does "
-		     "not have pointer to class type"));
-	}
-
-      /* Handle NULL pointers.  */
-      if (value_as_long (arg) == 0)
-	return value_zero (type, not_lval);
-
-      arg = value_ind (arg);
-    }
-  else
-    {
-      if (TYPE_CODE (arg_type) != TYPE_CODE_CLASS)
-	error (_("Argument to dynamic_cast does not have class type"));
-    }
-
-  /* If the classes are the same, just return the argument.  */
-  if (class_types_same_p (class_type, arg_type))
-    return value_cast (type, arg);
-
-  /* If the target type is a unique base class of the argument's
-     declared type, just cast it.  */
-  if (is_ancestor (class_type, arg_type))
-    {
-      if (is_unique_ancestor (class_type, arg))
-	return value_cast (type, original_arg);
-      error (_("Ambiguous dynamic_cast"));
-    }
-
-  rtti_type = value_rtti_type (arg, &full, &top, &using_enc);
-  if (! rtti_type)
-    error (_("Couldn't determine value's most derived type for dynamic_cast"));
-
-  /* Compute the most derived object's address.  */
-  addr = value_address (arg);
-  if (full)
-    {
-      /* Done.  */
-    }
-  else if (using_enc)
-    addr += top;
-  else
-    addr += top + value_embedded_offset (arg);
-
-  /* dynamic_cast<void *> means to return a pointer to the
-     most-derived object.  */
-  if (TYPE_CODE (resolved_type) == TYPE_CODE_PTR
-      && TYPE_CODE (TYPE_TARGET_TYPE (resolved_type)) == TYPE_CODE_VOID)
-    return value_at_lazy (type, addr);
-
-  tem = value_at (type, addr);
-
-  /* The first dynamic check specified in 5.2.7.  */
-  if (is_public_ancestor (arg_type, TYPE_TARGET_TYPE (resolved_type)))
-    {
-      if (class_types_same_p (rtti_type, TYPE_TARGET_TYPE (resolved_type)))
-	return tem;
-      result = NULL;
-      if (dynamic_cast_check_1 (TYPE_TARGET_TYPE (resolved_type),
-				value_contents_for_printing (tem),
-				value_embedded_offset (tem),
-				value_address (tem), tem,
-				rtti_type, addr,
-				arg_type,
-				&result) == 1)
-	return value_cast (type,
-			   is_ref ? value_ref (result) : value_addr (result));
-    }
-
-  /* The second dynamic check specified in 5.2.7.  */
-  result = NULL;
-  if (is_public_ancestor (arg_type, rtti_type)
-      && dynamic_cast_check_2 (TYPE_TARGET_TYPE (resolved_type),
-			       value_contents_for_printing (tem),
-			       value_embedded_offset (tem),
-			       value_address (tem), tem,
-			       rtti_type, &result) == 1)
-    return value_cast (type,
-		       is_ref ? value_ref (result) : value_addr (result));
-
-  if (TYPE_CODE (resolved_type) == TYPE_CODE_PTR)
-    return value_zero (type, not_lval);
-
-  error (_("dynamic_cast failed"));
-}
-
 /* Create a value of type TYPE that is zero, and return it.  */
 
 struct value *
 value_zero (struct type *type, enum lval_type lv)
 {
   struct value *val = allocate_value (type);
+  VALUE_LVAL (val) = lv;
 
-  VALUE_LVAL (val) = (lv == lval_computed ? not_lval : lv);
   return val;
 }
 
-/* Create a not_lval value of numeric type TYPE that is one, and return it.  */
+/* Create a value of numeric type TYPE that is one, and return it.  */
 
 struct value *
-value_one (struct type *type)
+value_one (struct type *type, enum lval_type lv)
 {
   struct type *type1 = check_typedef (type);
   struct value *val;
@@ -874,7 +545,6 @@ value_one (struct type *type)
     {
       enum bfd_endian byte_order = gdbarch_byte_order (get_type_arch (type));
       gdb_byte v[16];
-
       decimal_from_string (v, TYPE_LENGTH (type), byte_order, "1");
       val = value_from_decfloat (type, v);
     }
@@ -886,32 +556,12 @@ value_one (struct type *type)
     {
       val = value_from_longest (type, (LONGEST) 1);
     }
-  else if (TYPE_CODE (type1) == TYPE_CODE_ARRAY && TYPE_VECTOR (type1))
-    {
-      struct type *eltype = check_typedef (TYPE_TARGET_TYPE (type1));
-      int i;
-      LONGEST low_bound, high_bound;
-      struct value *tmp;
-
-      if (!get_array_bounds (type1, &low_bound, &high_bound))
-	error (_("Could not determine the vector bounds"));
-
-      val = allocate_value (type);
-      for (i = 0; i < high_bound - low_bound + 1; i++)
-	{
-	  tmp = value_one (eltype);
-	  memcpy (value_contents_writeable (val) + i * TYPE_LENGTH (eltype),
-		  value_contents_all (tmp), TYPE_LENGTH (eltype));
-	}
-    }
   else
     {
       error (_("Not a numeric type."));
     }
 
-  /* value_one result is never used for assignments to.  */
-  gdb_assert (VALUE_LVAL (val) == not_lval);
-
+  VALUE_LVAL (val) = lv;
   return val;
 }
 
@@ -925,10 +575,18 @@ get_value_at (struct type *type, CORE_ADDR addr, int lazy)
   if (TYPE_CODE (check_typedef (type)) == TYPE_CODE_VOID)
     error (_("Attempt to dereference a generic pointer."));
 
-  val = value_from_contents_and_address (type, NULL, addr);
+  if (lazy)
+    {
+      val = allocate_value_lazy (type);
+    }
+  else
+    {
+      val = allocate_value (type);
+      read_memory (addr, value_contents_all_raw (val), TYPE_LENGTH (type));
+    }
 
-  if (!lazy)
-    value_fetch_lazy (val);
+  VALUE_LVAL (val) = lval_memory;
+  set_value_address (val, addr);
 
   return val;
 }
@@ -989,25 +647,12 @@ value_fetch_lazy (struct value *val)
       enum bfd_endian byte_order = gdbarch_byte_order (get_type_arch (type));
       struct value *parent = value_parent (val);
       LONGEST offset = value_offset (val);
-      LONGEST num;
+      LONGEST num = unpack_bits_as_long (value_type (val),
+					 value_contents (parent) + offset,
+					 value_bitpos (val),
+					 value_bitsize (val));
       int length = TYPE_LENGTH (type);
-
-      if (!value_bits_valid (val,
-			     TARGET_CHAR_BIT * offset + value_bitpos (val),
-			     value_bitsize (val)))
-	error (_("value has been optimized out"));
-
-      if (!unpack_value_bits_as_long (value_type (val),
-				      value_contents_for_printing (parent),
-				      offset,
-				      value_bitpos (val),
-				      value_bitsize (val), parent, &num))
-	mark_value_bytes_unavailable (val,
-				      value_embedded_offset (val),
-				      length);
-      else
-	store_signed_integer (value_contents_raw (val), length,
-			      byte_order, num);
+      store_signed_integer (value_contents_raw (val), length, byte_order, num);
     }
   else if (VALUE_LVAL (val) == lval_memory)
     {
@@ -1015,8 +660,12 @@ value_fetch_lazy (struct value *val)
       int length = TYPE_LENGTH (check_typedef (value_enclosing_type (val)));
 
       if (length)
-	read_value_memory (val, 0, value_stack (val),
-			   addr, value_contents_all_raw (val), length);
+	{
+	  if (value_stack (val))
+	    read_stack (addr, value_contents_all_raw (val), length);
+	  else
+	    read_memory (addr, value_contents_all_raw (val), length);
+	}
     }
   else if (VALUE_LVAL (val) == lval_register)
     {
@@ -1052,16 +701,12 @@ value_fetch_lazy (struct value *val)
       if (value_lazy (new_val))
 	value_fetch_lazy (new_val);
 
-      /* If the register was not saved, mark it optimized out.  */
+      /* If the register was not saved, mark it unavailable.  */
       if (value_optimized_out (new_val))
 	set_value_optimized_out (val, 1);
       else
-	{
-	  set_value_lazy (val, 0);
-	  value_contents_copy (val, value_embedded_offset (val),
-			       new_val, value_embedded_offset (new_val),
-			       TYPE_LENGTH (type));
-	}
+	memcpy (value_contents_raw (val), value_contents (new_val),
+		TYPE_LENGTH (type));
 
       if (frame_debug)
 	{
@@ -1070,9 +715,8 @@ value_fetch_lazy (struct value *val)
 	  regnum = VALUE_REGNUM (val);
 	  gdbarch = get_frame_arch (frame);
 
-	  fprintf_unfiltered (gdb_stdlog,
-			      "{ value_fetch_lazy "
-			      "(frame=%d,regnum=%d(%s),...) ",
+	  fprintf_unfiltered (gdb_stdlog, "\
+{ value_fetch_lazy (frame=%d,regnum=%d(%s),...) ",
 			      frame_relative_level (frame), regnum,
 			      user_reg_map_regnum_to_name (gdbarch, regnum));
 
@@ -1108,101 +752,15 @@ value_fetch_lazy (struct value *val)
 	 watchpoints from trying to watch the saved frame pointer.  */
       value_free_to_mark (mark);
     }
-  else if (VALUE_LVAL (val) == lval_computed
-	   && value_computed_funcs (val)->read != NULL)
+  else if (VALUE_LVAL (val) == lval_computed)
     value_computed_funcs (val)->read (val);
-  else if (value_optimized_out (val))
-    /* Keep it optimized out.  */;
   else
-    internal_error (__FILE__, __LINE__, _("Unexpected lazy value type."));
+    internal_error (__FILE__, __LINE__, "Unexpected lazy value type.");
 
   set_value_lazy (val, 0);
   return 0;
 }
 
-void
-read_value_memory (struct value *val, int embedded_offset,
-		   int stack, CORE_ADDR memaddr,
-		   gdb_byte *buffer, size_t length)
-{
-  if (length)
-    {
-      VEC(mem_range_s) *available_memory;
-
-      if (get_traceframe_number () < 0
-	  || !traceframe_available_memory (&available_memory, memaddr, length))
-	{
-	  if (stack)
-	    read_stack (memaddr, buffer, length);
-	  else
-	    read_memory (memaddr, buffer, length);
-	}
-      else
-	{
-	  struct target_section_table *table;
-	  struct cleanup *old_chain;
-	  CORE_ADDR unavail;
-	  mem_range_s *r;
-	  int i;
-
-	  /* Fallback to reading from read-only sections.  */
-	  table = target_get_section_table (&exec_ops);
-	  available_memory =
-	    section_table_available_memory (available_memory,
-					    memaddr, length,
-					    table->sections,
-					    table->sections_end);
-
-	  old_chain = make_cleanup (VEC_cleanup(mem_range_s),
-				    &available_memory);
-
-	  normalize_mem_ranges (available_memory);
-
-	  /* Mark which bytes are unavailable, and read those which
-	     are available.  */
-
-	  unavail = memaddr;
-
-	  for (i = 0;
-	       VEC_iterate (mem_range_s, available_memory, i, r);
-	       i++)
-	    {
-	      if (mem_ranges_overlap (r->start, r->length,
-				      memaddr, length))
-		{
-		  CORE_ADDR lo1, hi1, lo2, hi2;
-		  CORE_ADDR start, end;
-
-		  /* Get the intersection window.  */
-		  lo1 = memaddr;
-		  hi1 = memaddr + length;
-		  lo2 = r->start;
-		  hi2 = r->start + r->length;
-		  start = max (lo1, lo2);
-		  end = min (hi1, hi2);
-
-		  gdb_assert (end - memaddr <= length);
-
-		  if (start > unavail)
-		    mark_value_bytes_unavailable (val,
-						  (embedded_offset
-						   + unavail - memaddr),
-						  start - unavail);
-		  unavail = end;
-
-		  read_memory (start, buffer + start - memaddr, end - start);
-		}
-	    }
-
-	  if (unavail != memaddr + length)
-	    mark_value_bytes_unavailable (val,
-					  embedded_offset + unavail - memaddr,
-					  (memaddr + length) - unavail);
-
-	  do_cleanups (old_chain);
-	}
-    }
-}
 
 /* Store the contents of FROMVAL into the location of TOVAL.
    Return a new value with the location of TOVAL and contents of FROMVAL.  */
@@ -1221,7 +779,10 @@ value_assign (struct value *toval, struct value *fromval)
 
   type = value_type (toval);
   if (VALUE_LVAL (toval) != lval_internalvar)
-    fromval = value_cast (type, fromval);
+    {
+      toval = value_coerce_to_target (toval);
+      fromval = value_cast (type, fromval);
+    }
   else
     {
       /* Coerce arrays and functions to pointers, except for arrays
@@ -1241,8 +802,13 @@ value_assign (struct value *toval, struct value *fromval)
     {
     case lval_internalvar:
       set_internalvar (VALUE_INTERNALVAR (toval), fromval);
-      return value_of_internalvar (get_type_arch (type),
-				   VALUE_INTERNALVAR (toval));
+      val = value_copy (fromval);
+      val = value_change_enclosing_type (val, 
+					 value_enclosing_type (fromval));
+      set_value_embedded_offset (val, value_embedded_offset (fromval));
+      set_value_pointed_to_offset (val, 
+				   value_pointed_to_offset (fromval));
+      return val;
 
     case lval_internalvar_component:
       set_internalvar_component (VALUE_INTERNALVAR (toval),
@@ -1262,8 +828,8 @@ value_assign (struct value *toval, struct value *fromval)
 	if (value_bitsize (toval))
 	  {
 	    struct value *parent = value_parent (toval);
-
 	    changed_addr = value_address (parent) + value_offset (toval);
+
 	    changed_len = (value_bitpos (toval)
 			   + value_bitsize (toval)
 			   + HOST_CHAR_BIT - 1)
@@ -1279,8 +845,7 @@ value_assign (struct value *toval, struct value *fromval)
 	      changed_len = TYPE_LENGTH (type);
 
 	    if (changed_len > (int) sizeof (LONGEST))
-	      error (_("Can't handle bitfields which "
-		       "don't fit in a %d bit word."),
+	      error (_("Can't handle bitfields which don't fit in a %d bit word."),
 		     (int) sizeof (LONGEST) * HOST_CHAR_BIT);
 
 	    read_memory (changed_addr, buffer, changed_len);
@@ -1296,8 +861,8 @@ value_assign (struct value *toval, struct value *fromval)
 	  }
 
 	write_memory (changed_addr, dest_buffer, changed_len);
-	observer_notify_memory_changed (changed_addr, changed_len,
-					dest_buffer);
+	if (deprecated_memory_changed_hook)
+	  deprecated_memory_changed_hook (changed_addr, changed_len);
       }
       break;
 
@@ -1332,7 +897,6 @@ value_assign (struct value *toval, struct value *fromval)
 		int offset = value_offset (parent) + value_offset (toval);
 		int changed_len;
 		gdb_byte buffer[sizeof (LONGEST)];
-		int optim, unavail;
 
 		changed_len = (value_bitpos (toval)
 			       + value_bitsize (toval)
@@ -1340,20 +904,11 @@ value_assign (struct value *toval, struct value *fromval)
 		  / HOST_CHAR_BIT;
 
 		if (changed_len > (int) sizeof (LONGEST))
-		  error (_("Can't handle bitfields which "
-			   "don't fit in a %d bit word."),
+		  error (_("Can't handle bitfields which don't fit in a %d bit word."),
 			 (int) sizeof (LONGEST) * HOST_CHAR_BIT);
 
-		if (!get_frame_register_bytes (frame, value_reg, offset,
-					       changed_len, buffer,
-					       &optim, &unavail))
-		  {
-		    if (optim)
-		      error (_("value has been optimized out"));
-		    if (unavail)
-		      throw_error (NOT_AVAILABLE_ERROR,
-				   _("value is not available"));
-		  }
+		get_frame_register_bytes (frame, value_reg, offset,
+					  changed_len, buffer);
 
 		modify_field (type, buffer, value_as_long (fromval),
 			      value_bitpos (toval), value_bitsize (toval));
@@ -1378,15 +933,11 @@ value_assign (struct value *toval, struct value *fromval)
 
     case lval_computed:
       {
-	const struct lval_funcs *funcs = value_computed_funcs (toval);
+	struct lval_funcs *funcs = value_computed_funcs (toval);
 
-	if (funcs->write != NULL)
-	  {
-	    funcs->write (toval, fromval);
-	    break;
-	  }
+	funcs->write (toval, fromval);
       }
-      /* Fall through.  */
+      break;
 
     default:
       error (_("Left operand of assignment is not an lvalue."));
@@ -1401,7 +952,6 @@ value_assign (struct value *toval, struct value *fromval)
     {
     case lval_memory:
     case lval_register:
-    case lval_computed:
 
       reinit_frame_cache ();
 
@@ -1416,7 +966,6 @@ value_assign (struct value *toval, struct value *fromval)
 
       {
 	struct frame_info *fi = frame_find_by_id (old_frame);
-
 	if (fi != NULL)
 	  select_frame (fi);
       }
@@ -1443,23 +992,14 @@ value_assign (struct value *toval, struct value *fromval)
       fromval = value_from_longest (type, fieldval);
     }
 
-  /* The return value is a copy of TOVAL so it shares its location
-     information, but its contents are updated from FROMVAL.  This
-     implies the returned value is not lazy, even if TOVAL was.  */
   val = value_copy (toval);
-  set_value_lazy (val, 0);
   memcpy (value_contents_raw (val), value_contents (fromval),
 	  TYPE_LENGTH (type));
-
-  /* We copy over the enclosing type and pointed-to offset from FROMVAL
-     in the case of pointer types.  For object types, the enclosing type
-     and embedded offset must *not* be copied: the target object refered
-     to by TOVAL retains its original dynamic type after assignment.  */
-  if (TYPE_CODE (type) == TYPE_CODE_PTR)
-    {
-      set_value_enclosing_type (val, value_enclosing_type (fromval));
-      set_value_pointed_to_offset (val, value_pointed_to_offset (fromval));
-    }
+  deprecated_set_value_type (val, type);
+  val = value_change_enclosing_type (val, 
+				     value_enclosing_type (fromval));
+  set_value_embedded_offset (val, value_embedded_offset (fromval));
+  set_value_pointed_to_offset (val, value_pointed_to_offset (fromval));
 
   return val;
 }
@@ -1478,19 +1018,19 @@ value_repeat (struct value *arg1, int count)
 
   val = allocate_repeat_value (value_enclosing_type (arg1), count);
 
+  read_memory (value_address (arg1),
+	       value_contents_all_raw (val),
+	       TYPE_LENGTH (value_enclosing_type (val)));
   VALUE_LVAL (val) = lval_memory;
   set_value_address (val, value_address (arg1));
-
-  read_value_memory (val, 0, value_stack (val), value_address (val),
-		     value_contents_all_raw (val),
-		     TYPE_LENGTH (value_enclosing_type (val)));
 
   return val;
 }
 
 struct value *
-value_of_variable (struct symbol *var, const struct block *b)
+value_of_variable (struct symbol *var, struct block *b)
 {
+  struct value *val;
   struct frame_info *frame;
 
   if (!symbol_read_needs_frame (var))
@@ -1511,7 +1051,11 @@ value_of_variable (struct symbol *var, const struct block *b)
 	}
     }
 
-  return read_var_value (var, frame);
+  val = read_var_value (var, frame);
+  if (!val)
+    error (_("Address of symbol \"%s\" is unknown."), SYMBOL_PRINT_NAME (var));
+
+  return val;
 }
 
 struct value *
@@ -1521,7 +1065,7 @@ address_of_variable (struct symbol *var, struct block *b)
   struct value *val;
 
   /* Evaluate it first; if the result is a memory address, we're fine.
-     Lazy evaluation pays off here.  */
+     Lazy evaluation pays off here. */
 
   val = value_of_variable (var, b);
 
@@ -1529,7 +1073,6 @@ address_of_variable (struct symbol *var, struct block *b)
       || TYPE_CODE (type) == TYPE_CODE_FUNC)
     {
       CORE_ADDR addr = value_address (val);
-
       return value_from_pointer (lookup_pointer_type (type), addr);
     }
 
@@ -1581,7 +1124,6 @@ value_must_coerce_to_target (struct value *val)
   switch (TYPE_CODE (valtype))
     {
     case TYPE_CODE_ARRAY:
-      return TYPE_VECTOR (valtype) ? 0 : 1;
     case TYPE_CODE_STRING:
       return 1;
     default:
@@ -1589,9 +1131,9 @@ value_must_coerce_to_target (struct value *val)
     }
 }
 
-/* Make sure that VAL lives in target memory if it's supposed to.  For
-   instance, strings are constructed as character arrays in GDB's
-   storage, and this function copies them to the target.  */
+/* Make sure that VAL lives in target memory if it's supposed to.  For instance,
+   strings are constructed as character arrays in GDB's storage, and this
+   function copies them to the target.  */
 
 struct value *
 value_coerce_to_target (struct value *val)
@@ -1629,7 +1171,8 @@ value_coerce_to_target (struct value *val)
    other than array subscripting, where the caller would get back a
    value that had an address somewhere before the actual first element
    of the array, and the information about the lower bound would be
-   lost because of the coercion to pointer type.  */
+   lost because of the coercion to pointer type.
+ */
 
 struct value *
 value_coerce_array (struct value *arg1)
@@ -1671,8 +1214,8 @@ struct value *
 value_addr (struct value *arg1)
 {
   struct value *arg2;
-  struct type *type = check_typedef (value_type (arg1));
 
+  struct type *type = check_typedef (value_type (arg1));
   if (TYPE_CODE (type) == TYPE_CODE_REF)
     {
       /* Copy the value, but change the type from (T&) to (T*).  We
@@ -1693,15 +1236,14 @@ value_addr (struct value *arg1)
   if (VALUE_LVAL (arg1) != lval_memory)
     error (_("Attempt to take address of value not located in memory."));
 
-  /* Get target memory address.  */
+  /* Get target memory address */
   arg2 = value_from_pointer (lookup_pointer_type (value_type (arg1)),
 			     (value_address (arg1)
 			      + value_embedded_offset (arg1)));
 
   /* This may be a pointer to a base subobject; so remember the
      full derived object's type ...  */
-  set_value_enclosing_type (arg2,
-			    lookup_pointer_type (value_enclosing_type (arg1)));
+  arg2 = value_change_enclosing_type (arg2, lookup_pointer_type (value_enclosing_type (arg1)));
   /* ... and also the relative position of the subobject in the full
      object.  */
   set_value_pointed_to_offset (arg2, value_embedded_offset (arg1));
@@ -1715,8 +1257,8 @@ struct value *
 value_ref (struct value *arg1)
 {
   struct value *arg2;
-  struct type *type = check_typedef (value_type (arg1));
 
+  struct type *type = check_typedef (value_type (arg1));
   if (TYPE_CODE (type) == TYPE_CODE_REF)
     return arg1;
 
@@ -1738,23 +1280,9 @@ value_ind (struct value *arg1)
 
   base_type = check_typedef (value_type (arg1));
 
-  if (VALUE_LVAL (arg1) == lval_computed)
-    {
-      const struct lval_funcs *funcs = value_computed_funcs (arg1);
-
-      if (funcs->indirect)
-	{
-	  struct value *result = funcs->indirect (arg1);
-
-	  if (result)
-	    return result;
-	}
-    }
-
   if (TYPE_CODE (base_type) == TYPE_CODE_PTR)
     {
       struct type *enc_type;
-
       /* We may be pointing to something embedded in a larger object.
          Get the real type of the enclosing object.  */
       enc_type = check_typedef (value_enclosing_type (arg1));
@@ -1767,7 +1295,7 @@ value_ind (struct value *arg1)
 	arg2 = value_at_lazy (enc_type, 
 			      find_function_addr (arg1, NULL));
       else
-	/* Retrieve the enclosing object pointed to.  */
+	/* Retrieve the enclosing object pointed to */
 	arg2 = value_at_lazy (enc_type, 
 			      (value_as_address (arg1)
 			       - value_pointed_to_offset (arg1)));
@@ -1775,7 +1303,7 @@ value_ind (struct value *arg1)
       /* Re-adjust type.  */
       deprecated_set_value_type (arg2, TYPE_TARGET_TYPE (base_type));
       /* Add embedding info.  */
-      set_value_enclosing_type (arg2, enc_type);
+      arg2 = value_change_enclosing_type (arg2, enc_type);
       set_value_embedded_offset (arg2, value_pointed_to_offset (arg1));
 
       /* We may be pointing to an object of some derived type.  */
@@ -1787,8 +1315,9 @@ value_ind (struct value *arg1)
   return 0;			/* For lint -- never reached.  */
 }
 
-/* Create a value for an array by allocating space in GDB, copying the
-   data into that space, and then setting up an array value.
+/* Create a value for an array by allocating space in GDB, copying
+   copying the data into that space, and then setting up an array
+   value.
 
    The array bounds are set from LOWBOUND and HIGHBOUND, and the array
    is populated from the values passed in ELEMVEC.
@@ -1805,6 +1334,7 @@ value_array (int lowbound, int highbound, struct value **elemvec)
   unsigned int typelength;
   struct value *val;
   struct type *arraytype;
+  CORE_ADDR addr;
 
   /* Validate that the bounds are reasonable and that each of the
      elements have the same size.  */
@@ -1830,8 +1360,11 @@ value_array (int lowbound, int highbound, struct value **elemvec)
     {
       val = allocate_value (arraytype);
       for (idx = 0; idx < nelem; idx++)
-	value_contents_copy (val, idx * typelength, elemvec[idx], 0,
-			     typelength);
+	{
+	  memcpy (value_contents_all_raw (val) + (idx * typelength),
+		  value_contents_all (elemvec[idx]),
+		  typelength);
+	}
       return val;
     }
 
@@ -1840,7 +1373,9 @@ value_array (int lowbound, int highbound, struct value **elemvec)
 
   val = allocate_value (arraytype);
   for (idx = 0; idx < nelem; idx++)
-    value_contents_copy (val, idx * typelength, elemvec[idx], 0, typelength);
+    memcpy (value_contents_writeable (val) + (idx * typelength),
+	    value_contents_all (elemvec[idx]),
+	    typelength);
   return val;
 }
 
@@ -1888,7 +1423,6 @@ value_bitstring (char *ptr, int len, struct type *index_type)
   struct type *domain_type
     = create_range_type (NULL, index_type, 0, len - 1);
   struct type *type = create_set_type (NULL, domain_type);
-
   TYPE_CODE (type) = TYPE_CODE_BITSTRING;
   val = allocate_value (type);
   memcpy (value_contents_raw (val), ptr, TYPE_LENGTH (type));
@@ -1941,8 +1475,7 @@ typecmp (int staticp, int varargs, int nargs,
 
       if (TYPE_CODE (tt1) == TYPE_CODE_REF
       /* We should be doing hairy argument matching, as below.  */
-	  && (TYPE_CODE (check_typedef (TYPE_TARGET_TYPE (tt1)))
-	      == TYPE_CODE (tt2)))
+	  && (TYPE_CODE (check_typedef (TYPE_TARGET_TYPE (tt1))) == TYPE_CODE (tt2)))
 	{
 	  if (TYPE_CODE (tt2) == TYPE_CODE_ARRAY)
 	    t2[i] = value_coerce_array (t2[i]);
@@ -1985,7 +1518,7 @@ typecmp (int staticp, int varargs, int nargs,
 }
 
 /* Helper function used by value_struct_elt to recurse through
-   baseclasses.  Look for a field NAME in ARG1.  Adjust the address of
+   baseclasses.  Look for a field NAME in ARG1. Adjust the address of
    ARG1 by OFFSET bytes, and search in it assuming it has (class) type
    TYPE.  If found, return value, else return NULL.
 
@@ -1993,14 +1526,13 @@ typecmp (int staticp, int varargs, int nargs,
    fields, look for a baseclass named NAME.  */
 
 static struct value *
-search_struct_field (const char *name, struct value *arg1, int offset,
+search_struct_field (char *name, struct value *arg1, int offset,
 		     struct type *type, int looking_for_baseclass)
 {
   int i;
-  int nbases;
+  int nbases = TYPE_N_BASECLASSES (type);
 
   CHECK_TYPEDEF (type);
-  nbases = TYPE_N_BASECLASSES (type);
 
   if (!looking_for_baseclass)
     for (i = TYPE_NFIELDS (type) - 1; i >= nbases; i--)
@@ -2010,13 +1542,11 @@ search_struct_field (const char *name, struct value *arg1, int offset,
 	if (t_field_name && (strcmp_iw (t_field_name, name) == 0))
 	  {
 	    struct value *v;
-
 	    if (field_is_static (&TYPE_FIELD (type, i)))
 	      {
 		v = value_static_field (type, i);
 		if (v == 0)
-		  error (_("field %s is nonexistent or "
-			   "has been optimized out"),
+		  error (_("field %s is nonexistent or has been optimised out"),
 			 name);
 	      }
 	    else
@@ -2034,7 +1564,6 @@ search_struct_field (const char *name, struct value *arg1, int offset,
 		    && (strcmp_iw (t_field_name, "else") == 0))))
 	  {
 	    struct type *field_type = TYPE_FIELD_TYPE (type, i);
-
 	    if (TYPE_CODE (field_type) == TYPE_CODE_UNION
 		|| TYPE_CODE (field_type) == TYPE_CODE_STRUCT)
 	      {
@@ -2092,18 +1621,17 @@ search_struct_field (const char *name, struct value *arg1, int offset,
 	  struct value *v2;
 
 	  boffset = baseclass_offset (type, i,
-				      value_contents_for_printing (arg1),
-				      value_embedded_offset (arg1) + offset,
-				      value_address (arg1),
-				      arg1);
+				      value_contents (arg1) + offset,
+				      value_address (arg1) + offset);
+	  if (boffset == -1)
+	    error (_("virtual baseclass botch"));
 
 	  /* The virtual base class pointer might have been clobbered
-	     by the user program.  Make sure that it still points to a
+	     by the user program. Make sure that it still points to a
 	     valid memory location.  */
 
-	  boffset += value_embedded_offset (arg1) + offset;
-	  if (boffset < 0
-	      || boffset >= TYPE_LENGTH (value_enclosing_type (arg1)))
+	  boffset += offset;
+	  if (boffset < 0 || boffset >= TYPE_LENGTH (type))
 	    {
 	      CORE_ADDR base_addr;
 
@@ -2118,9 +1646,18 @@ search_struct_field (const char *name, struct value *arg1, int offset,
 	    }
 	  else
 	    {
-	      v2 = value_copy (arg1);
-	      deprecated_set_value_type (v2, basetype);
-	      set_value_embedded_offset (v2, boffset);
+	      if (VALUE_LVAL (arg1) == lval_memory && value_lazy (arg1))
+		v2  = allocate_value_lazy (basetype);
+	      else
+		{
+		  v2  = allocate_value (basetype);
+		  memcpy (value_contents_raw (v2),
+			  value_contents_raw (arg1) + boffset,
+			  TYPE_LENGTH (basetype));
+		}
+	      set_value_component_location (v2, arg1);
+	      VALUE_FRAME_ID (v2) = VALUE_FRAME_ID (arg1);
+	      set_value_offset (v2, value_offset (arg1) + boffset);
 	    }
 
 	  if (found_baseclass)
@@ -2143,7 +1680,7 @@ search_struct_field (const char *name, struct value *arg1, int offset,
 }
 
 /* Helper function used by value_struct_elt to recurse through
-   baseclasses.  Look for a field NAME in ARG1.  Adjust the address of
+   baseclasses.  Look for a field NAME in ARG1. Adjust the address of
    ARG1 by OFFSET bytes, and search in it assuming it has (class) type
    TYPE.
 
@@ -2151,7 +1688,7 @@ search_struct_field (const char *name, struct value *arg1, int offset,
    (value) -1, else return NULL.  */
 
 static struct value *
-search_struct_method (const char *name, struct value **arg1p,
+search_struct_method (char *name, struct value **arg1p,
 		      struct value **args, int offset,
 		      int *static_memfuncp, struct type *type)
 {
@@ -2164,8 +1701,7 @@ search_struct_method (const char *name, struct value **arg1p,
   for (i = TYPE_NFN_FIELDS (type) - 1; i >= 0; i--)
     {
       char *t_field_name = TYPE_FN_FIELDLIST_NAME (type, i);
-
-      /* FIXME!  May need to check for ARM demangling here.  */
+      /* FIXME!  May need to check for ARM demangling here */
       if (strncmp (t_field_name, "__", 2) == 0 ||
 	  strncmp (t_field_name, "op", 2) == 0 ||
 	  strncmp (t_field_name, "type", 4) == 0)
@@ -2179,12 +1715,11 @@ search_struct_method (const char *name, struct value **arg1p,
 	{
 	  int j = TYPE_FN_FIELDLIST_LENGTH (type, i) - 1;
 	  struct fn_field *f = TYPE_FN_FIELDLIST1 (type, i);
-
 	  name_matched = 1;
+
 	  check_stub_method_group (type, i);
 	  if (j > 0 && args == 0)
-	    error (_("cannot resolve overloaded method "
-		     "`%s': no arguments supplied"), name);
+	    error (_("cannot resolve overloaded method `%s': no arguments supplied"), name);
 	  else if (j == 0 && args == 0)
 	    {
 	      v = value_fn_field (arg1p, f, j, type, offset);
@@ -2217,44 +1752,31 @@ search_struct_method (const char *name, struct value **arg1p,
   for (i = TYPE_N_BASECLASSES (type) - 1; i >= 0; i--)
     {
       int base_offset;
-      int skip = 0;
-      int this_offset;
 
       if (BASETYPE_VIA_VIRTUAL (type, i))
 	{
 	  struct type *baseclass = check_typedef (TYPE_BASECLASS (type, i));
-	  struct value *base_val;
 	  const gdb_byte *base_valaddr;
 
 	  /* The virtual base class pointer might have been
-	     clobbered by the user program.  Make sure that it
+	     clobbered by the user program. Make sure that it
 	    still points to a valid memory location.  */
 
 	  if (offset < 0 || offset >= TYPE_LENGTH (type))
 	    {
 	      gdb_byte *tmp = alloca (TYPE_LENGTH (baseclass));
-	      CORE_ADDR address = value_address (*arg1p);
-
-	      if (target_read_memory (address + offset,
+	      if (target_read_memory (value_address (*arg1p) + offset,
 				      tmp, TYPE_LENGTH (baseclass)) != 0)
 		error (_("virtual baseclass botch"));
-
-	      base_val = value_from_contents_and_address (baseclass,
-							  tmp,
-							  address + offset);
-	      base_valaddr = value_contents_for_printing (base_val);
-	      this_offset = 0;
+	      base_valaddr = tmp;
 	    }
 	  else
-	    {
-	      base_val = *arg1p;
-	      base_valaddr = value_contents_for_printing (*arg1p);
-	      this_offset = offset;
-	    }
+	    base_valaddr = value_contents (*arg1p) + offset;
 
 	  base_offset = baseclass_offset (type, i, base_valaddr,
-					  this_offset, value_address (base_val),
-					  base_val);
+					  value_address (*arg1p) + offset);
+	  if (base_offset == -1)
+	    error (_("virtual baseclass botch"));
 	}
       else
 	{
@@ -2285,7 +1807,7 @@ search_struct_method (const char *name, struct value **arg1p,
    ERR is used in the error message if *ARGP's type is wrong.
 
    C++: ARGS is a list of argument types to aid in the selection of
-   an appropriate method.  Also, handle derived types.
+   an appropriate method. Also, handle derived types.
 
    STATIC_MEMFUNCP, if non-NULL, points to a caller-supplied location
    where the truthvalue of whether the function that was resolved was
@@ -2296,7 +1818,7 @@ search_struct_method (const char *name, struct value **arg1p,
 
 struct value *
 value_struct_elt (struct value **argp, struct value **args,
-		  const char *name, int *static_memfuncp, const char *err)
+		  char *name, int *static_memfuncp, char *err)
 {
   struct type *t;
   struct value *v;
@@ -2318,8 +1840,7 @@ value_struct_elt (struct value **argp, struct value **args,
 
   if (TYPE_CODE (t) != TYPE_CODE_STRUCT
       && TYPE_CODE (t) != TYPE_CODE_UNION)
-    error (_("Attempt to extract a component of a value that is not a %s."),
-	   err);
+    error (_("Attempt to extract a component of a value that is not a %s."), err);
 
   /* Assume it's not, unless we see that it is.  */
   if (static_memfuncp)
@@ -2357,8 +1878,7 @@ value_struct_elt (struct value **argp, struct value **args,
   
   if (v == (struct value *) - 1)
     {
-      error (_("One of the arguments you tried to pass to %s could not "
-	       "be converted to what the function wants."), name);
+      error (_("One of the arguments you tried to pass to %s could not be converted to what the function wants."), name);
     }
   else if (v == 0)
     {
@@ -2373,8 +1893,7 @@ value_struct_elt (struct value **argp, struct value **args,
     }
 
   if (!v)
-    throw_error (NOT_FOUND_ERROR,
-                 _("Structure has no component named %s."), name);
+    error (_("Structure has no component named %s."), name);
   return v;
 }
 
@@ -2390,10 +1909,11 @@ value_struct_elt (struct value **argp, struct value **args,
    NUM_FNS is the number of overloaded instances.
    BASETYPE is set to the actual type of the subobject where the
       method is found.
-   BOFFSET is the offset of the base subobject where the method is found.  */
+   BOFFSET is the offset of the base subobject where the method is found.
+*/
 
 static struct fn_field *
-find_method_list (struct value **argp, const char *method,
+find_method_list (struct value **argp, char *method,
 		  int offset, struct type *type, int *num_fns,
 		  struct type **basetype, int *boffset)
 {
@@ -2408,7 +1928,6 @@ find_method_list (struct value **argp, const char *method,
     {
       /* pai: FIXME What about operators and type conversions?  */
       char *fn_field_name = TYPE_FN_FIELDLIST_NAME (type, i);
-
       if (fn_field_name && (strcmp_iw (fn_field_name, method) == 0))
 	{
 	  int len = TYPE_FN_FIELDLIST_LENGTH (type, i);
@@ -2429,13 +1948,14 @@ find_method_list (struct value **argp, const char *method,
   for (i = TYPE_N_BASECLASSES (type) - 1; i >= 0; i--)
     {
       int base_offset;
-
       if (BASETYPE_VIA_VIRTUAL (type, i))
 	{
+	  base_offset = value_offset (*argp) + offset;
 	  base_offset = baseclass_offset (type, i,
-					  value_contents_for_printing (*argp),
-					  value_offset (*argp) + offset,
-					  value_address (*argp), *argp);
+					  value_contents (*argp) + base_offset,
+					  value_address (*argp) + base_offset);
+	  if (base_offset == -1)
+	    error (_("virtual baseclass botch"));
 	}
       else /* Non-virtual base, simply use bit position from debug
 	      info.  */
@@ -2459,10 +1979,11 @@ find_method_list (struct value **argp, const char *method,
    NUM_FNS is the number of overloaded instances.
    BASETYPE is set to the type of the base subobject that defines the
       method.
-   BOFFSET is the offset of the base subobject which defines the method.  */
+   BOFFSET is the offset of the base subobject which defines the method. 
+*/
 
 struct fn_field *
-value_find_oload_method_list (struct value **argp, const char *method,
+value_find_oload_method_list (struct value **argp, char *method, 
 			      int offset, int *num_fns, 
 			      struct type **basetype, int *boffset)
 {
@@ -2482,30 +2003,19 @@ value_find_oload_method_list (struct value **argp, const char *method,
 
   if (TYPE_CODE (t) != TYPE_CODE_STRUCT
       && TYPE_CODE (t) != TYPE_CODE_UNION)
-    error (_("Attempt to extract a component of a "
-	     "value that is not a struct or union"));
+    error (_("Attempt to extract a component of a value that is not a struct or union"));
 
   return find_method_list (argp, method, 0, t, num_fns, 
 			   basetype, boffset);
 }
 
-/* Given an array of arguments (ARGS) (which includes an
+/* Given an array of argument types (ARGTYPES) (which includes an
    entry for "this" in the case of C++ methods), the number of
    arguments NARGS, the NAME of a function whether it's a method or
    not (METHOD), and the degree of laxness (LAX) in conforming to
    overload resolution rules in ANSI C++, find the best function that
    matches on the argument types according to the overload resolution
    rules.
-
-   METHOD can be one of three values:
-     NON_METHOD for non-member functions.
-     METHOD: for member functions.
-     BOTH: used for overload resolution of operators where the
-       candidates are expected to be either member or non member
-       functions.  In this case the first argument ARGTYPES
-       (representing 'this') is expected to be a reference to the
-       target object, and will be dereferenced when attempting the
-       non-member search.
 
    In the case of class methods, the parameter OBJ is an object value
    in which to search for overloaded methods.
@@ -2523,31 +2033,23 @@ value_find_oload_method_list (struct value **argp, const char *method,
    If a method is being searched for, and it is a static method,
    then STATICP will point to a non-zero value.
 
-   If NO_ADL argument dependent lookup is disabled.  This is used to prevent
-   ADL overload candidates when performing overload resolution for a fully
-   qualified name.
-
    Note: This function does *not* check the value of
    overload_resolution.  Caller must check it to see whether overload
-   resolution is permitted.  */
+   resolution is permitted.
+*/
 
 int
-find_overload_match (struct value **args, int nargs,
-		     const char *name, enum oload_search_type method,
-		     int lax, struct value **objp, struct symbol *fsym,
+find_overload_match (struct type **arg_types, int nargs, 
+		     char *name, int method, int lax, 
+		     struct value **objp, struct symbol *fsym,
 		     struct value **valp, struct symbol **symp, 
-		     int *staticp, const int no_adl)
+		     int *staticp)
 {
   struct value *obj = (objp ? *objp : NULL);
-  struct type *obj_type = obj ? value_type (obj) : NULL;
   /* Index of best overloaded function.  */
-  int func_oload_champ = -1;
-  int method_oload_champ = -1;
-
+  int oload_champ;
   /* The measure for the current best match.  */
-  struct badness_vector *method_badness = NULL;
-  struct badness_vector *func_badness = NULL;
-
+  struct badness_vector *oload_champ_bv = NULL;
   struct value *temp = obj;
   /* For methods, the list of overloaded methods.  */
   struct fn_field *fns_ptr = NULL;
@@ -2557,47 +2059,29 @@ find_overload_match (struct value **args, int nargs,
   int num_fns = 0;
   struct type *basetype = NULL;
   int boffset;
-
-  struct cleanup *all_cleanups = make_cleanup (null_cleanup, NULL);
+  int ix;
+  int static_offset;
+  struct cleanup *old_cleanups = NULL;
 
   const char *obj_type_name = NULL;
-  const char *func_name = NULL;
+  char *func_name = NULL;
   enum oload_classification match_quality;
-  enum oload_classification method_match_quality = INCOMPATIBLE;
-  enum oload_classification func_match_quality = INCOMPATIBLE;
 
   /* Get the list of overloaded methods or functions.  */
-  if (method == METHOD || method == BOTH)
+  if (method)
     {
       gdb_assert (obj);
-
-      /* OBJ may be a pointer value rather than the object itself.  */
-      obj = coerce_ref (obj);
-      while (TYPE_CODE (check_typedef (value_type (obj))) == TYPE_CODE_PTR)
-	obj = coerce_ref (value_ind (obj));
       obj_type_name = TYPE_NAME (value_type (obj));
+      /* Hack: evaluate_subexp_standard often passes in a pointer
+         value rather than the object itself, so try again.  */
+      if ((!obj_type_name || !*obj_type_name) 
+	  && (TYPE_CODE (value_type (obj)) == TYPE_CODE_PTR))
+	obj_type_name = TYPE_NAME (TYPE_TARGET_TYPE (value_type (obj)));
 
-      /* First check whether this is a data member, e.g. a pointer to
-	 a function.  */
-      if (TYPE_CODE (check_typedef (value_type (obj))) == TYPE_CODE_STRUCT)
-	{
-	  *valp = search_struct_field (name, obj, 0,
-				       check_typedef (value_type (obj)), 0);
-	  if (*valp)
-	    {
-	      *staticp = 1;
-	      do_cleanups (all_cleanups);
-	      return 0;
-	    }
-	}
-
-      /* Retrieve the list of methods with the name NAME.  */
       fns_ptr = value_find_oload_method_list (&temp, name, 
 					      0, &num_fns, 
 					      &basetype, &boffset);
-      /* If this is a method only search, and no methods were found
-         the search has faild.  */
-      if (method == METHOD && (!fns_ptr || !num_fns))
+      if (!fns_ptr || !num_fns)
 	error (_("Couldn't find method %s%s%s"),
 	       obj_type_name,
 	       (obj_type_name && *obj_type_name) ? "::" : "",
@@ -2605,142 +2089,50 @@ find_overload_match (struct value **args, int nargs,
       /* If we are dealing with stub method types, they should have
 	 been resolved by find_method_list via
 	 value_find_oload_method_list above.  */
-      if (fns_ptr)
-	{
-	  gdb_assert (TYPE_DOMAIN_TYPE (fns_ptr[0].type) != NULL);
-	  method_oload_champ = find_oload_champ (args, nargs, method,
-	                                         num_fns, fns_ptr,
-	                                         oload_syms, &method_badness);
-
-	  method_match_quality =
-	      classify_oload_match (method_badness, nargs,
-	                            oload_method_static (method, fns_ptr,
-	                                                 method_oload_champ));
-
-	  make_cleanup (xfree, method_badness);
-	}
-
-    }
-
-  if (method == NON_METHOD || method == BOTH)
-    {
-      const char *qualified_name = NULL;
-
-      /* If the overload match is being search for both as a method
-         and non member function, the first argument must now be
-         dereferenced.  */
-      if (method == BOTH)
-	deprecated_set_value_type (args[0],
-				   TYPE_TARGET_TYPE (value_type (args[0])));
-
-      if (fsym)
-        {
-          qualified_name = SYMBOL_NATURAL_NAME (fsym);
-
-          /* If we have a function with a C++ name, try to extract just
-	     the function part.  Do not try this for non-functions (e.g.
-	     function pointers).  */
-          if (qualified_name
-              && TYPE_CODE (check_typedef (SYMBOL_TYPE (fsym)))
-	      == TYPE_CODE_FUNC)
-            {
-	      char *temp;
-
-	      temp = cp_func_name (qualified_name);
-
-	      /* If cp_func_name did not remove anything, the name of the
-	         symbol did not include scope or argument types - it was
-	         probably a C-style function.  */
-	      if (temp)
-		{
-		  make_cleanup (xfree, temp);
-		  if (strcmp (temp, qualified_name) == 0)
-		    func_name = NULL;
-		  else
-		    func_name = temp;
-		}
-            }
-        }
-      else
-	{
-	  func_name = name;
-	  qualified_name = name;
-	}
-
-      /* If there was no C++ name, this must be a C-style function or
-	 not a function at all.  Just return the same symbol.  Do the
-	 same if cp_func_name fails for some reason.  */
-      if (func_name == NULL)
-        {
-	  *symp = fsym;
-	  do_cleanups (all_cleanups);
-          return 0;
-        }
-
-      func_oload_champ = find_oload_champ_namespace (args, nargs,
-                                                     func_name,
-                                                     qualified_name,
-                                                     &oload_syms,
-                                                     &func_badness,
-                                                     no_adl);
-
-      if (func_oload_champ >= 0)
-	func_match_quality = classify_oload_match (func_badness, nargs, 0);
-
-      make_cleanup (xfree, oload_syms);
-      make_cleanup (xfree, func_badness);
-    }
-
-  /* Did we find a match ?  */
-  if (method_oload_champ == -1 && func_oload_champ == -1)
-    throw_error (NOT_FOUND_ERROR,
-                 _("No symbol \"%s\" in current context."),
-                 name);
-
-  /* If we have found both a method match and a function
-     match, find out which one is better, and calculate match
-     quality.  */
-  if (method_oload_champ >= 0 && func_oload_champ >= 0)
-    {
-      switch (compare_badness (func_badness, method_badness))
-        {
-	  case 0: /* Top two contenders are equally good.  */
-	    /* FIXME: GDB does not support the general ambiguous case.
-	     All candidates should be collected and presented the
-	     user.  */
-	    error (_("Ambiguous overload resolution"));
-	    break;
-	  case 1: /* Incomparable top contenders.  */
-	    /* This is an error incompatible candidates
-	       should not have been proposed.  */
-	    error (_("Internal error: incompatible "
-		     "overload candidates proposed"));
-	    break;
-	  case 2: /* Function champion.  */
-	    method_oload_champ = -1;
-	    match_quality = func_match_quality;
-	    break;
-	  case 3: /* Method champion.  */
-	    func_oload_champ = -1;
-	    match_quality = method_match_quality;
-	    break;
-	  default:
-	    error (_("Internal error: unexpected overload comparison result"));
-	    break;
-        }
+      gdb_assert (TYPE_DOMAIN_TYPE (fns_ptr[0].type) != NULL);
+      oload_champ = find_oload_champ (arg_types, nargs, method, 
+				      num_fns, fns_ptr, 
+				      oload_syms, &oload_champ_bv);
     }
   else
     {
-      /* We have either a method match or a function match.  */
-      if (method_oload_champ >= 0)
-	match_quality = method_match_quality;
-      else
-	match_quality = func_match_quality;
+      const char *qualified_name = SYMBOL_CPLUS_DEMANGLED_NAME (fsym);
+
+      /* If we have a C++ name, try to extract just the function
+	 part.  */
+      if (qualified_name)
+	func_name = cp_func_name (qualified_name);
+
+      /* If there was no C++ name, this must be a C-style function.
+	 Just return the same symbol.  Do the same if cp_func_name
+	 fails for some reason.  */
+      if (func_name == NULL)
+        {
+	  *symp = fsym;
+          return 0;
+        }
+
+      old_cleanups = make_cleanup (xfree, func_name);
+      make_cleanup (xfree, oload_syms);
+      make_cleanup (xfree, oload_champ_bv);
+
+      oload_champ = find_oload_champ_namespace (arg_types, nargs,
+						func_name,
+						qualified_name,
+						&oload_syms,
+						&oload_champ_bv);
     }
+
+  /* Check how bad the best match is.  */
+
+  match_quality =
+    classify_oload_match (oload_champ_bv, nargs,
+			  oload_method_static (method, fns_ptr,
+					       oload_champ));
 
   if (match_quality == INCOMPATIBLE)
     {
-      if (method == METHOD)
+      if (method)
 	error (_("Cannot resolve method %s%s%s to any overloaded instance"),
 	       obj_type_name,
 	       (obj_type_name && *obj_type_name) ? "::" : "",
@@ -2751,48 +2143,46 @@ find_overload_match (struct value **args, int nargs,
     }
   else if (match_quality == NON_STANDARD)
     {
-      if (method == METHOD)
-	warning (_("Using non-standard conversion to match "
-		   "method %s%s%s to supplied arguments"),
+      if (method)
+	warning (_("Using non-standard conversion to match method %s%s%s to supplied arguments"),
 		 obj_type_name,
 		 (obj_type_name && *obj_type_name) ? "::" : "",
 		 name);
       else
-	warning (_("Using non-standard conversion to match "
-		   "function %s to supplied arguments"),
+	warning (_("Using non-standard conversion to match function %s to supplied arguments"),
 		 func_name);
     }
 
-  if (staticp != NULL)
-    *staticp = oload_method_static (method, fns_ptr, method_oload_champ);
-
-  if (method_oload_champ >= 0)
+  if (method)
     {
-      if (TYPE_FN_FIELD_VIRTUAL_P (fns_ptr, method_oload_champ))
-	*valp = value_virtual_fn_field (&temp, fns_ptr, method_oload_champ,
+      if (staticp != NULL)
+	*staticp = oload_method_static (method, fns_ptr, oload_champ);
+      if (TYPE_FN_FIELD_VIRTUAL_P (fns_ptr, oload_champ))
+	*valp = value_virtual_fn_field (&temp, fns_ptr, oload_champ, 
 					basetype, boffset);
       else
-	*valp = value_fn_field (&temp, fns_ptr, method_oload_champ,
+	*valp = value_fn_field (&temp, fns_ptr, oload_champ, 
 				basetype, boffset);
     }
   else
-    *symp = oload_syms[func_oload_champ];
+    {
+      *symp = oload_syms[oload_champ];
+    }
 
   if (objp)
     {
       struct type *temp_type = check_typedef (value_type (temp));
-      struct type *objtype = check_typedef (obj_type);
-
+      struct type *obj_type = check_typedef (value_type (*objp));
       if (TYPE_CODE (temp_type) != TYPE_CODE_PTR
-	  && (TYPE_CODE (objtype) == TYPE_CODE_PTR
-	      || TYPE_CODE (objtype) == TYPE_CODE_REF))
+	  && (TYPE_CODE (obj_type) == TYPE_CODE_PTR
+	      || TYPE_CODE (obj_type) == TYPE_CODE_REF))
 	{
 	  temp = value_addr (temp);
 	}
       *objp = temp;
     }
-
-  do_cleanups (all_cleanups);
+  if (old_cleanups != NULL)
+    do_cleanups (old_cleanups);
 
   switch (match_quality)
     {
@@ -2810,25 +2200,22 @@ find_overload_match (struct value **args, int nargs,
    runs out of namespaces.  It stores the overloaded functions in
    *OLOAD_SYMS, and the badness vector in *OLOAD_CHAMP_BV.  The
    calling function is responsible for freeing *OLOAD_SYMS and
-   *OLOAD_CHAMP_BV.  If NO_ADL, argument dependent lookup is not 
-   performned.  */
+   *OLOAD_CHAMP_BV.  */
 
 static int
-find_oload_champ_namespace (struct value **args, int nargs,
+find_oload_champ_namespace (struct type **arg_types, int nargs,
 			    const char *func_name,
 			    const char *qualified_name,
 			    struct symbol ***oload_syms,
-			    struct badness_vector **oload_champ_bv,
-			    const int no_adl)
+			    struct badness_vector **oload_champ_bv)
 {
   int oload_champ;
 
-  find_oload_champ_namespace_loop (args, nargs,
+  find_oload_champ_namespace_loop (arg_types, nargs,
 				   func_name,
 				   qualified_name, 0,
 				   oload_syms, oload_champ_bv,
-				   &oload_champ,
-				   no_adl);
+				   &oload_champ);
 
   return oload_champ;
 }
@@ -2836,21 +2223,19 @@ find_oload_champ_namespace (struct value **args, int nargs,
 /* Helper function for find_oload_champ_namespace; NAMESPACE_LEN is
    how deep we've looked for namespaces, and the champ is stored in
    OLOAD_CHAMP.  The return value is 1 if the champ is a good one, 0
-   if it isn't.  Other arguments are the same as in
-   find_oload_champ_namespace
+   if it isn't.
 
    It is the caller's responsibility to free *OLOAD_SYMS and
    *OLOAD_CHAMP_BV.  */
 
 static int
-find_oload_champ_namespace_loop (struct value **args, int nargs,
+find_oload_champ_namespace_loop (struct type **arg_types, int nargs,
 				 const char *func_name,
 				 const char *qualified_name,
 				 int namespace_len,
 				 struct symbol ***oload_syms,
 				 struct badness_vector **oload_champ_bv,
-				 int *oload_champ,
-				 const int no_adl)
+				 int *oload_champ)
 {
   int next_namespace_len = namespace_len;
   int searched_deeper = 0;
@@ -2873,18 +2258,18 @@ find_oload_champ_namespace_loop (struct value **args, int nargs,
   *oload_syms = NULL;
   *oload_champ_bv = NULL;
 
-  /* First, see if we have a deeper namespace we can search in.
+  /* First, see if we have a deeper namespace we can search in.  
      If we get a good match there, use it.  */
 
   if (qualified_name[next_namespace_len] == ':')
     {
       searched_deeper = 1;
 
-      if (find_oload_champ_namespace_loop (args, nargs,
+      if (find_oload_champ_namespace_loop (arg_types, nargs,
 					   func_name, qualified_name,
 					   next_namespace_len,
 					   oload_syms, oload_champ_bv,
-					   oload_champ, no_adl))
+					   oload_champ))
 	{
 	  return 1;
 	}
@@ -2899,32 +2284,16 @@ find_oload_champ_namespace_loop (struct value **args, int nargs,
      function symbol to start off with.)  */
 
   old_cleanups = make_cleanup (xfree, *oload_syms);
-  make_cleanup (xfree, *oload_champ_bv);
+  old_cleanups = make_cleanup (xfree, *oload_champ_bv);
   new_namespace = alloca (namespace_len + 1);
   strncpy (new_namespace, qualified_name, namespace_len);
   new_namespace[namespace_len] = '\0';
   new_oload_syms = make_symbol_overload_list (func_name,
 					      new_namespace);
-
-  /* If we have reached the deepest level perform argument
-     determined lookup.  */
-  if (!searched_deeper && !no_adl)
-    {
-      int ix;
-      struct type **arg_types;
-
-      /* Prepare list of argument types for overload resolution.  */
-      arg_types = (struct type **)
-	alloca (nargs * (sizeof (struct type *)));
-      for (ix = 0; ix < nargs; ix++)
-	arg_types[ix] = value_type (args[ix]);
-      make_symbol_overload_list_adl (arg_types, nargs, func_name);
-    }
-
   while (new_oload_syms[num_fns])
     ++num_fns;
 
-  new_oload_champ = find_oload_champ (args, nargs, 0, num_fns,
+  new_oload_champ = find_oload_champ (arg_types, nargs, 0, num_fns,
 				      NULL, new_oload_syms,
 				      &new_oload_champ_bv);
 
@@ -2953,15 +2322,16 @@ find_oload_champ_namespace_loop (struct value **args, int nargs,
     }
   else
     {
+      gdb_assert (new_oload_champ != -1);
       *oload_syms = new_oload_syms;
       *oload_champ = new_oload_champ;
       *oload_champ_bv = new_oload_champ_bv;
-      do_cleanups (old_cleanups);
+      discard_cleanups (old_cleanups);
       return 0;
     }
 }
 
-/* Look for a function to take NARGS args of ARGS.  Find
+/* Look for a function to take NARGS args of types ARG_TYPES.  Find
    the best match from among the overloaded methods or functions
    (depending on METHOD) given by FNS_PTR or OLOAD_SYMS, respectively.
    The number of methods/functions in the list is given by NUM_FNS.
@@ -2971,7 +2341,7 @@ find_oload_champ_namespace_loop (struct value **args, int nargs,
    It is the caller's responsibility to free *OLOAD_CHAMP_BV.  */
 
 static int
-find_oload_champ (struct value **args, int nargs, int method,
+find_oload_champ (struct type **arg_types, int nargs, int method,
 		  int num_fns, struct fn_field *fns_ptr,
 		  struct symbol **oload_syms,
 		  struct badness_vector **oload_champ_bv)
@@ -3017,7 +2387,7 @@ find_oload_champ (struct value **args, int nargs, int method,
       /* Compare parameter types to supplied argument types.  Skip
          THIS for static methods.  */
       bv = rank_function (parm_types, nparms, 
-			  args + static_offset,
+			  arg_types + static_offset,
 			  nargs - static_offset);
 
       if (!*oload_champ_bv)
@@ -3049,20 +2419,19 @@ find_oload_champ (struct value **args, int nargs, int method,
 	{
 	  if (method)
 	    fprintf_filtered (gdb_stderr,
-			      "Overloaded method instance %s, # of parms %d\n",
+			      "Overloaded method instance %s, # of parms %d\n", 
 			      fns_ptr[ix].physname, nparms);
 	  else
 	    fprintf_filtered (gdb_stderr,
-			      "Overloaded function instance "
-			      "%s # of parms %d\n",
+			      "Overloaded function instance %s # of parms %d\n",
 			      SYMBOL_DEMANGLED_NAME (oload_syms[ix]), 
 			      nparms);
 	  for (jj = 0; jj < nargs - static_offset; jj++)
 	    fprintf_filtered (gdb_stderr,
 			      "...Badness @ %d : %d\n", 
-			      jj, bv->rank[jj].rank);
-	  fprintf_filtered (gdb_stderr, "Overload resolution "
-			    "champion is %d, ambiguous? %d\n", 
+			      jj, bv->rank[jj]);
+	  fprintf_filtered (gdb_stderr,
+			    "Overload resolution champion is %d, ambiguous? %d\n", 
 			    oload_champ, oload_ambiguous);
 	}
     }
@@ -3076,8 +2445,7 @@ find_oload_champ (struct value **args, int nargs, int method,
 static int
 oload_method_static (int method, struct fn_field *fns_ptr, int index)
 {
-  if (method && fns_ptr && index >= 0
-      && TYPE_FN_FIELD_STATIC_P (fns_ptr, index))
+  if (method && TYPE_FN_FIELD_STATIC_P (fns_ptr, index))
     return 1;
   else
     return 0;
@@ -3091,40 +2459,29 @@ classify_oload_match (struct badness_vector *oload_champ_bv,
 		      int static_offset)
 {
   int ix;
-  enum oload_classification worst = STANDARD;
 
   for (ix = 1; ix <= nargs - static_offset; ix++)
     {
-      /* If this conversion is as bad as INCOMPATIBLE_TYPE_BADNESS
-         or worse return INCOMPATIBLE.  */
-      if (compare_ranks (oload_champ_bv->rank[ix],
-                         INCOMPATIBLE_TYPE_BADNESS) <= 0)
+      if (oload_champ_bv->rank[ix] >= 100)
 	return INCOMPATIBLE;	/* Truly mismatched types.  */
-      /* Otherwise If this conversion is as bad as
-         NS_POINTER_CONVERSION_BADNESS or worse return NON_STANDARD.  */
-      else if (compare_ranks (oload_champ_bv->rank[ix],
-                              NS_POINTER_CONVERSION_BADNESS) <= 0)
-	worst = NON_STANDARD;	/* Non-standard type conversions
+      else if (oload_champ_bv->rank[ix] >= 10)
+	return NON_STANDARD;	/* Non-standard type conversions
 				   needed.  */
     }
 
-  /* If no INCOMPATIBLE classification was found, return the worst one
-     that was found (if any).  */
-  return worst;
+  return STANDARD;		/* Only standard conversions needed.  */
 }
 
 /* C++: return 1 is NAME is a legitimate name for the destructor of
    type TYPE.  If TYPE does not have a destructor, or if NAME is
-   inappropriate for TYPE, an error is signaled.  Parameter TYPE should not yet
-   have CHECK_TYPEDEF applied, this function will apply it itself.  */
-
+   inappropriate for TYPE, an error is signaled.  */
 int
-destructor_name_p (const char *name, struct type *type)
+destructor_name_p (const char *name, const struct type *type)
 {
   if (name[0] == '~')
     {
-      const char *dname = type_name_no_tag_or_error (type);
-      const char *cp = strchr (dname, '<');
+      char *dname = type_name_no_tag (type);
+      char *cp = strchr (dname, '<');
       unsigned int len;
 
       /* Do not compare the template part for template classes.  */
@@ -3149,13 +2506,9 @@ check_field (struct type *type, const char *name)
 {
   int i;
 
-  /* The type may be a stub.  */
-  CHECK_TYPEDEF (type);
-
   for (i = TYPE_NFIELDS (type) - 1; i >= TYPE_N_BASECLASSES (type); i--)
     {
       char *t_field_name = TYPE_FIELD_NAME (type, i);
-
       if (t_field_name && (strcmp_iw (t_field_name, name) == 0))
 	return 1;
     }
@@ -3183,8 +2536,8 @@ check_field (struct type *type, const char *name)
    the comment before value_struct_elt_for_reference.  */
 
 struct value *
-value_aggregate_elt (struct type *curtype, char *name,
-		     struct type *expect_type, int want_address,
+value_aggregate_elt (struct type *curtype,
+		     char *name, int want_address,
 		     enum noside noside)
 {
   switch (TYPE_CODE (curtype))
@@ -3192,7 +2545,7 @@ value_aggregate_elt (struct type *curtype, char *name,
     case TYPE_CODE_STRUCT:
     case TYPE_CODE_UNION:
       return value_struct_elt_for_reference (curtype, 0, curtype, 
-					     name, expect_type,
+					     name, NULL,
 					     want_address, noside);
     case TYPE_CODE_NAMESPACE:
       return value_namespace_elt (curtype, name, 
@@ -3201,58 +2554,6 @@ value_aggregate_elt (struct type *curtype, char *name,
       internal_error (__FILE__, __LINE__,
 		      _("non-aggregate type in value_aggregate_elt"));
     }
-}
-
-/* Compares the two method/function types T1 and T2 for "equality" 
-   with respect to the methods' parameters.  If the types of the
-   two parameter lists are the same, returns 1; 0 otherwise.  This
-   comparison may ignore any artificial parameters in T1 if
-   SKIP_ARTIFICIAL is non-zero.  This function will ALWAYS skip
-   the first artificial parameter in T1, assumed to be a 'this' pointer.
-
-   The type T2 is expected to have come from make_params (in eval.c).  */
-
-static int
-compare_parameters (struct type *t1, struct type *t2, int skip_artificial)
-{
-  int start = 0;
-
-  if (TYPE_NFIELDS (t1) > 0 && TYPE_FIELD_ARTIFICIAL (t1, 0))
-    ++start;
-
-  /* If skipping artificial fields, find the first real field
-     in T1.  */
-  if (skip_artificial)
-    {
-      while (start < TYPE_NFIELDS (t1)
-	     && TYPE_FIELD_ARTIFICIAL (t1, start))
-	++start;
-    }
-
-  /* Now compare parameters.  */
-
-  /* Special case: a method taking void.  T1 will contain no
-     non-artificial fields, and T2 will contain TYPE_CODE_VOID.  */
-  if ((TYPE_NFIELDS (t1) - start) == 0 && TYPE_NFIELDS (t2) == 1
-      && TYPE_CODE (TYPE_FIELD_TYPE (t2, 0)) == TYPE_CODE_VOID)
-    return 1;
-
-  if ((TYPE_NFIELDS (t1) - start) == TYPE_NFIELDS (t2))
-    {
-      int i;
-
-      for (i = 0; i < TYPE_NFIELDS (t2); ++i)
-	{
-	  if (compare_ranks (rank_one_type (TYPE_FIELD_TYPE (t1, start + i),
-					    TYPE_FIELD_TYPE (t2, i), NULL),
-	                     EXACT_MATCH_BADNESS) != 0)
-	    return 0;
-	}
-
-      return 1;
-    }
-
-  return 0;
 }
 
 /* C++: Given an aggregate type CURTYPE, and a member name NAME,
@@ -3275,8 +2576,7 @@ value_struct_elt_for_reference (struct type *domain, int offset,
 
   if (TYPE_CODE (t) != TYPE_CODE_STRUCT
       && TYPE_CODE (t) != TYPE_CODE_UNION)
-    error (_("Internal error: non-aggregate type "
-	     "to value_struct_elt_for_reference"));
+    error (_("Internal error: non-aggregate type to value_struct_elt_for_reference"));
 
   for (i = TYPE_NFIELDS (t) - 1; i >= TYPE_N_BASECLASSES (t); i--)
     {
@@ -3333,65 +2633,29 @@ value_struct_elt_for_reference (struct type *domain, int offset,
 	}
       if (t_field_name && strcmp (t_field_name, name) == 0)
 	{
-	  int j;
-	  int len = TYPE_FN_FIELDLIST_LENGTH (t, i);
+	  int j = TYPE_FN_FIELDLIST_LENGTH (t, i);
 	  struct fn_field *f = TYPE_FN_FIELDLIST1 (t, i);
 
 	  check_stub_method_group (t, i);
 
+	  if (intype == 0 && j > 1)
+	    error (_("non-unique member `%s' requires type instantiation"), name);
 	  if (intype)
 	    {
-	      for (j = 0; j < len; ++j)
-		{
-		  if (compare_parameters (TYPE_FN_FIELD_TYPE (f, j), intype, 0)
-		      || compare_parameters (TYPE_FN_FIELD_TYPE (f, j),
-					     intype, 1))
-		    break;
-		}
-
-	      if (j == len)
-		error (_("no member function matches "
-			 "that type instantiation"));
+	      while (j--)
+		if (TYPE_FN_FIELD_TYPE (f, j) == intype)
+		  break;
+	      if (j < 0)
+		error (_("no member function matches that type instantiation"));
 	    }
 	  else
-	    {
-	      int ii;
-
-	      j = -1;
-	      for (ii = 0; ii < len; ++ii)
-		{
-		  /* Skip artificial methods.  This is necessary if,
-		     for example, the user wants to "print
-		     subclass::subclass" with only one user-defined
-		     constructor.  There is no ambiguity in this case.
-		     We are careful here to allow artificial methods
-		     if they are the unique result.  */
-		  if (TYPE_FN_FIELD_ARTIFICIAL (f, ii))
-		    {
-		      if (j == -1)
-			j = ii;
-		      continue;
-		    }
-
-		  /* Desired method is ambiguous if more than one
-		     method is defined.  */
-		  if (j != -1 && !TYPE_FN_FIELD_ARTIFICIAL (f, j))
-		    error (_("non-unique member `%s' requires "
-			     "type instantiation"), name);
-
-		  j = ii;
-		}
-
-	      if (j == -1)
-		error (_("no matching member function"));
-	    }
+	    j = 0;
 
 	  if (TYPE_FN_FIELD_STATIC_P (f, j))
 	    {
 	      struct symbol *s = 
 		lookup_symbol (TYPE_FN_FIELD_PHYSNAME (f, j),
 			       0, VAR_DOMAIN, 0);
-
 	      if (s == NULL)
 		return NULL;
 
@@ -3422,7 +2686,6 @@ value_struct_elt_for_reference (struct type *domain, int offset,
 	      struct symbol *s = 
 		lookup_symbol (TYPE_FN_FIELD_PHYSNAME (f, j),
 			       0, VAR_DOMAIN, 0);
-
 	      if (s == NULL)
 		return NULL;
 
@@ -3500,17 +2763,9 @@ value_maybe_namespace_elt (const struct type *curtype,
   struct symbol *sym;
   struct value *result;
 
-  sym = cp_lookup_symbol_namespace (namespace_name, name,
-				    get_selected_block (0), VAR_DOMAIN);
-
-  if (sym == NULL)
-    {
-      char *concatenated_name = alloca (strlen (namespace_name) + 2
-					+ strlen (name) + 1);
-
-      sprintf (concatenated_name, "%s::%s", namespace_name, name);
-      sym = lookup_static_symbol_aux (concatenated_name, VAR_DOMAIN);
-    }
+  sym = cp_lookup_symbol_namespace (namespace_name, name, NULL,
+				    get_selected_block (0), 
+				    VAR_DOMAIN);
 
   if (sym == NULL)
     return NULL;
@@ -3579,28 +2834,19 @@ value_full_object (struct value *argp,
   if (!real_type || real_type == value_enclosing_type (argp))
     return argp;
 
-  /* In a destructor we might see a real type that is a superclass of
-     the object's type.  In this case it is better to leave the object
-     as-is.  */
-  if (full
-      && TYPE_LENGTH (real_type) < TYPE_LENGTH (value_enclosing_type (argp)))
-    return argp;
-
   /* If we have the full object, but for some reason the enclosing
      type is wrong, set it.  */
   /* pai: FIXME -- sounds iffy */
   if (full)
     {
-      argp = value_copy (argp);
-      set_value_enclosing_type (argp, real_type);
+      argp = value_change_enclosing_type (argp, real_type);
       return argp;
     }
 
-  /* Check if object is in memory.  */
+  /* Check if object is in memory */
   if (VALUE_LVAL (argp) != lval_memory)
     {
-      warning (_("Couldn't retrieve complete object of RTTI "
-		 "type %s; object may be in register(s)."), 
+      warning (_("Couldn't retrieve complete object of RTTI type %s; object may be in register(s)."), 
 	       TYPE_NAME (real_type));
 
       return argp;
@@ -3620,46 +2866,73 @@ value_full_object (struct value *argp,
 }
 
 
-/* Return the value of the local variable, if one exists.  Throw error
-   otherwise, such as if the request is made in an inappropriate context.  */
+/* Return the value of the local variable, if one exists.
+   Flag COMPLAIN signals an error if the request is made in an
+   inappropriate context.  */
 
 struct value *
-value_of_this (const struct language_defn *lang)
+value_of_local (const char *name, int complain)
 {
-  struct symbol *sym;
+  struct symbol *func, *sym;
   struct block *b;
+  struct value * ret;
   struct frame_info *frame;
 
-  if (!lang->la_name_of_this)
-    error (_("no `this' in current language"));
-
-  frame = get_selected_frame (_("no frame selected"));
-
-  b = get_frame_block (frame, NULL);
-
-  sym = lookup_language_this (lang, b);
-  if (sym == NULL)
-    error (_("current stack frame does not contain a variable named `%s'"),
-	   lang->la_name_of_this);
-
-  return read_var_value (sym, frame);
-}
-
-/* Return the value of the local variable, if one exists.  Return NULL
-   otherwise.  Never throw error.  */
-
-struct value *
-value_of_this_silent (const struct language_defn *lang)
-{
-  struct value *ret = NULL;
-  volatile struct gdb_exception except;
-
-  TRY_CATCH (except, RETURN_MASK_ERROR)
+  if (complain)
+    frame = get_selected_frame (_("no frame selected"));
+  else
     {
-      ret = value_of_this (lang);
+      frame = deprecated_safe_get_selected_frame ();
+      if (frame == 0)
+	return 0;
     }
 
+  func = get_frame_function (frame);
+  if (!func)
+    {
+      if (complain)
+	error (_("no `%s' in nameless context"), name);
+      else
+	return 0;
+    }
+
+  b = SYMBOL_BLOCK_VALUE (func);
+  if (dict_empty (BLOCK_DICT (b)))
+    {
+      if (complain)
+	error (_("no args, no `%s'"), name);
+      else
+	return 0;
+    }
+
+  /* Calling lookup_block_symbol is necessary to get the LOC_REGISTER
+     symbol instead of the LOC_ARG one (if both exist).  */
+  sym = lookup_block_symbol (b, name, NULL, VAR_DOMAIN);
+  if (sym == NULL)
+    {
+      if (complain)
+	error (_("current stack frame does not contain a variable named `%s'"), 
+	       name);
+      else
+	return NULL;
+    }
+
+  ret = read_var_value (sym, frame);
+  if (ret == 0 && complain)
+    error (_("`%s' argument unreadable"), name);
   return ret;
+}
+
+/* C++/Objective-C: return the value of the class instance variable,
+   if one exists.  Flag COMPLAIN signals an error if the request is
+   made in an inappropriate context.  */
+
+struct value *
+value_of_this (int complain)
+{
+  if (!current_language->la_name_of_this)
+    return 0;
+  return value_of_local (current_language->la_name_of_this, complain);
 }
 
 /* Create a slice (sub-string, sub-array) of ARRAY, that is LENGTH
@@ -3708,13 +2981,11 @@ value_slice (struct value *array, int lowbound, int length)
 	  int element = value_bit_index (array_type,
 					 value_contents (array),
 					 lowbound + i);
-
 	  if (element < 0)
 	    error (_("internal error accessing bitstring"));
 	  else if (element > 0)
 	    {
 	      int j = i % TARGET_CHAR_BIT;
-
 	      if (gdbarch_bits_big_endian (get_type_arch (array_type)))
 		j = TARGET_CHAR_BIT - 1 - j;
 	      value_contents_raw (slice)[i / TARGET_CHAR_BIT] |= (1 << j);
@@ -3741,8 +3012,9 @@ value_slice (struct value *array, int lowbound, int length)
       else
 	{
 	  slice = allocate_value (slice_type);
-	  value_contents_copy (slice, 0, array, offset,
-			       TYPE_LENGTH (slice_type));
+	  memcpy (value_contents_writeable (slice),
+		  value_contents (array) + offset,
+		  TYPE_LENGTH (slice_type));
 	}
 
       set_value_component_location (slice, array);
