@@ -155,12 +155,12 @@ getargtype (operand_type op)
    This routine is used when disassembling the 'excp' instruction.  */
 
 static char *
-gettrapstring (unsigned int trap_index)
+gettrapstring (unsigned int index)
 {
   const trap_entry *trap;
 
   for (trap = crx_traps; trap < crx_traps + NUMTRAPS; trap++)
-    if (trap->entry == trap_index)
+    if (trap->entry == index)
       return trap->name;
 
   return ILLEGAL;
@@ -186,12 +186,12 @@ getcinvstring (unsigned int num)
 char *
 getregname (reg r)
 {
-  const reg_entry * regentry = &crx_regtab[r];
+  const reg_entry *reg = &crx_regtab[r];
 
-  if (regentry->type != CRX_R_REGTYPE)
+  if (reg->type != CRX_R_REGTYPE)
     return ILLEGAL;
   else
-    return regentry->name;
+    return reg->name;
 }
 
 /* Given a coprocessor register enum value, retrieve its name.  */
@@ -199,28 +199,28 @@ getregname (reg r)
 char *
 getcopregname (copreg r, reg_type type)
 {
-  const reg_entry * regentry;
+  const reg_entry *reg;
 
   if (type == CRX_C_REGTYPE)
-    regentry = &crx_copregtab[r];
+    reg = &crx_copregtab[r];
   else if (type == CRX_CS_REGTYPE)
-    regentry = &crx_copregtab[r+(cs0-c0)];
+    reg = &crx_copregtab[r+(cs0-c0)];
   else
     return ILLEGAL;
 
-  return regentry->name;
+  return reg->name;
 }
 
 
 /* Getting a processor register name.  */
 
 static char *
-getprocregname (int reg_index)
+getprocregname (int index)
 {
   const reg_entry *r;
 
   for (r = crx_regtab; r < crx_regtab + NUMREGS; r++)
-    if (r->image == reg_index)
+    if (r->image == index)
       return r->name;
 
   return "ILLEGAL REGISTER";
@@ -634,17 +634,17 @@ print_arg (argument *a, bfd_vma memaddr, struct disassemble_info *info)
 /* Print all the arguments of CURRINSN instruction.  */
 
 static void
-print_arguments (ins *currentInsn, bfd_vma memaddr, struct disassemble_info *info)
+print_arguments (ins *currInsn, bfd_vma memaddr, struct disassemble_info *info)
 {
   int i;
 
-  for (i = 0; i < currentInsn->nargs; i++)
+  for (i = 0; i < currInsn->nargs; i++)
     {
       processing_argument_number = i;
 
-      print_arg (&currentInsn->arg[i], memaddr, info);
+      print_arg (&currInsn->arg[i], memaddr, info);
 
-      if (i != currentInsn->nargs - 1)
+      if (i != currInsn->nargs - 1)
 	info->fprintf_func (info->stream, ", ");
     }
 }
