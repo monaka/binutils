@@ -1525,6 +1525,14 @@ find_cie (struct dwarf2_cie_table *cie_table, ULONGEST cie_pointer)
 {
   struct dwarf2_cie **p_cie;
 
+  /* The C standard (ISO/IEC 9899:TC2) requires the BASE argument to
+     bsearch be non-NULL.  */
+  if (cie_table->entries == NULL)
+    {
+      gdb_assert (cie_table->num_entries == 0);
+      return NULL;
+    }
+
   p_cie = bsearch (&cie_pointer, cie_table->entries, cie_table->num_entries,
                    sizeof (cie_table->entries[0]), bsearch_cie_cmp);
   if (p_cie != NULL)
@@ -2112,8 +2120,8 @@ dwarf2_build_frame_info (struct objfile *objfile)
           obstack_grow (&objfile->objfile_obstack, &fde_table.entries[j],
                         sizeof (fde_table.entries[0]));
           while (++j < fde_table.num_entries
-                 && (fde_table.entries[k]->initial_location
-                     == fde_table.entries[j]->initial_location))
+                 && (fde_table.entries[k]->initial_location ==
+                     fde_table.entries[j]->initial_location))
             /* Skip.  */;
         }
       fde_table2->entries = obstack_finish (&objfile->objfile_obstack);
