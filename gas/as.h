@@ -38,6 +38,19 @@
 
 #include "alloca-conf.h"
 
+/* Prefer varargs for non-ANSI compiler, since some will barf if the
+   ellipsis definition is used with a no-arguments declaration.  */
+#if defined (HAVE_VARARGS_H) && !defined (__STDC__)
+#undef HAVE_STDARG_H
+#endif
+
+#if defined (HAVE_STDARG_H)
+#define USE_STDARG
+#endif
+#if !defined (USE_STDARG) && defined (HAVE_VARARGS_H)
+#define USE_VARARGS
+#endif
+
 /* Now, tend to the rest of the configuration.  */
 
 /* System include files first...  */
@@ -64,7 +77,22 @@
 #include <errno.h>
 #endif
 
+#ifdef USE_STDARG
 #include <stdarg.h>
+#endif
+
+#ifdef USE_VARARGS
+#include <varargs.h>
+#endif
+
+#if !defined (USE_STDARG) && !defined (USE_VARARGS)
+/* Roll our own.  */
+#define va_alist REST
+#define va_dcl
+typedef int * va_list;
+#define va_start(ARGS)	ARGS = &REST
+#define va_end(ARGS)
+#endif
 
 #include "getopt.h"
 /* The first getopt value for machine-independent long options.
@@ -119,10 +147,6 @@ extern void *realloc ();
 #endif
 #ifdef NEED_DECLARATION_STRSTR
 extern char *strstr ();
-#endif
-
-#if !HAVE_DECL_MEMPCPY
-void *mempcpy(void *, const void *, size_t);
 #endif
 
 #if !HAVE_DECL_VSNPRINTF
@@ -365,9 +389,6 @@ COMMON int flag_strip_local_absolute;
 /* True if we should generate a traditional format object file.  */
 COMMON int flag_traditional_format;
 
-/* TRUE if debug sections should be compressed.  */
-COMMON int flag_compress_debug;
-
 /* TRUE if .note.GNU-stack section with SEC_CODE should be created */
 COMMON int flag_execstack;
 
@@ -433,6 +454,7 @@ struct _pseudo_type
 
 typedef struct _pseudo_type pseudo_typeS;
 
+#ifdef USE_STDARG
 #if (__GNUC__ >= 2) && !defined(VMS)
 /* for use with -Wformat */
 
@@ -458,6 +480,13 @@ typedef struct _pseudo_type pseudo_typeS;
 					  const char *format, ...)
 
 #endif /* __GNUC__ < 2 || defined(VMS) */
+
+#else /* ! USE_STDARG */
+
+#define PRINTF_LIKE(FCN)	void FCN ()
+#define PRINTF_WHERE_LIKE(FCN)	void FCN ()
+
+#endif /* ! USE_STDARG */
 
 PRINTF_LIKE (as_bad);
 PRINTF_LIKE (as_fatal) ATTRIBUTE_NORETURN;
@@ -573,16 +602,6 @@ COMMON int flag_m68k_mri;
 COMMON int           warn_comment;
 COMMON unsigned int  found_comment;
 COMMON char *        found_comment_file;
-#endif
-
-#if defined OBJ_ELF || defined OBJ_MAYBE_ELF
-/* If .size directive failure should be error or warning.  */
-COMMON enum
-  {
-    size_check_error = 0,
-    size_check_warning
-  }
-flag_size_check;
 #endif
 
 #ifndef DOLLAR_AMBIGU
