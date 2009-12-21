@@ -1,5 +1,5 @@
-# Copyright 1992-2000, 2004-2005, 2007-2012 Free Software Foundation,
-# Inc.
+# Copyright 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2004, 2005,
+# 2007, 2008, 2009 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -17,6 +17,12 @@
 # This file is based on corefile.exp which was written by Fred
 # Fish. (fnf@cygnus.com)
 
+if $tracelevel then {
+	strace $tracelevel
+}
+
+set prms_id 0
+set bug_id 0
 
 # Are we on a target board?  As of 2004-02-12, GDB didn't have a
 # mechanism that would let it efficiently access a remote corefile.
@@ -28,7 +34,7 @@ if ![isnative] then {
 
 # Can the system run this test (in particular support sparse
 # corefiles)?  On systems that lack sparse corefile support this test
-# consumes too many resources - gigabytes worth of disk space and
+# consumes too many resources - gigabytes worth of disk space and and
 # I/O bandwith.
 
 if { [istarget "*-*-*bsd*"]
@@ -63,9 +69,10 @@ gdb_exit
 gdb_start
 gdb_reinitialize_dir $srcdir/$subdir
 gdb_load ${binfile}
-gdb_test_no_output "set print sevenbit-strings"
-gdb_test_no_output "set width 0"
-
+gdb_test "set print sevenbit-strings" "" \
+	"set print sevenbit-strings; ${testfile}"
+gdb_test "set width 0" "" \
+	"set width 0; ${testfile}"
 if { ![runto_main] } then {
     gdb_suppress_tests;
 }
@@ -111,7 +118,7 @@ set prev_heap [extract_heap prev]
 
 # Save the total allocated size within GDB so that we can check
 # the core size later.
-gdb_test_no_output "set \$bytes_allocated = bytes_allocated" "save heap size"
+gdb_test "set \$bytes_allocated = bytes_allocated" "" "save heap size"
 
 # Now create a core dump
 
@@ -140,7 +147,6 @@ gdb_test_multiple "info program" $test {
 set oldtimeout $timeout
 set timeout 600
 gdb_test "signal SIGABRT" "Program terminated with signal SIGABRT, .*"
-set timeout $oldtimeout
 
 # Find the corefile
 set file ""
