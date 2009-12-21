@@ -1,4 +1,4 @@
-/* Copyright 1999, 2004, 2007-2012 Free Software Foundation, Inc.
+/* Copyright 1999, 2004, 2007, 2008, 2009 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -89,24 +89,6 @@ struct _struct_n_pointer {
   long ****long_ptr;
   struct _struct_n_pointer *ptrs[3];
   struct _struct_n_pointer *next;
-};
-
-struct anonymous {
-  int a;
-  struct {
-    int b;
-    char *c;
-    union {
-      int d;
-      void *e;
-      char f;
-      struct {
-	char g;
-	const char **h;
-	simpleton ***simple;
-      };
-    };
-  };
 };
 
 void do_locals_tests (void);
@@ -512,44 +494,12 @@ void do_bitfield_tests ()
     mi_create_varobj V d "create varobj for Data"
     mi_list_varobj_children "V" {
         {"V.alloc" "alloc" "0" "int"}
-        {"V.sharable" "sharable" "0" "uint_for_mi_testing"}
+        {"V.sharable" "sharable" "0" "unsigned int"}
     } "list children of Data"
     mi_check_varobj_value V.sharable 3 "access bitfield"
     :*/
   return;
   /*: END: bitfield :*/  
-}
-
-void
-do_anonymous_type_tests (void)
-{
-  struct anonymous *anon;
-  struct anonymous **ptr;
-  struct
-  {
-    int x;
-    struct
-    {
-      int a;
-    };
-    struct
-    {
-      int b;
-    };
-  } v = {1, {2}, {3}};
-
-  anon = malloc (sizeof (struct anonymous));
-  anon->a = 1;
-  anon->b = 2;
-  anon->c = (char *) 3;
-  anon->d = 4;
-  anon->g = '5';
-  anon->h = (const char **) 6;
-  anon->simple = (simpleton ***) 7;
-
-  ptr = &anon;
-  free (anon);
-  return; /* anonymous type tests breakpoint */
 }
 
 int
@@ -562,7 +512,6 @@ main (int argc, char *argv [])
   do_frozen_tests ();
   do_at_tests ();
   do_bitfield_tests ();
-  do_anonymous_type_tests ();
   exit (0);
 }
 
