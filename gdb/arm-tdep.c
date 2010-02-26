@@ -1,7 +1,8 @@
 /* Common target dependent code for GDB on ARM systems.
 
-   Copyright (C) 1988-1989, 1991-1993, 1995-1996, 1998-2012 Free
-   Software Foundation, Inc.
+   Copyright (C) 1988, 1989, 1991, 1992, 1993, 1995, 1996, 1998, 1999, 2000,
+   2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010
+   Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -18,7 +19,7 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include <ctype.h>		/* XXX for isupper ().  */
+#include <ctype.h>		/* XXX for isupper () */
 
 #include "defs.h"
 #include "frame.h"
@@ -26,9 +27,8 @@
 #include "gdbcmd.h"
 #include "gdbcore.h"
 #include "gdb_string.h"
-#include "dis-asm.h"		/* For register styles.  */
+#include "dis-asm.h"		/* For register styles. */
 #include "regcache.h"
-#include "reggroups.h"
 #include "doublest.h"
 #include "value.h"
 #include "arch-utils.h"
@@ -42,7 +42,6 @@
 #include "prologue-value.h"
 #include "target-descriptions.h"
 #include "user-regs.h"
-#include "observer.h"
 
 #include "arm-tdep.h"
 #include "gdb/sim-arm.h"
@@ -54,12 +53,6 @@
 #include "gdb_assert.h"
 #include "vec.h"
 
-#include "features/arm-with-m.c"
-#include "features/arm-with-iwmmxt.c"
-#include "features/arm-with-vfpv2.c"
-#include "features/arm-with-vfpv3.c"
-#include "features/arm-with-neon.c"
-
 static int arm_debug;
 
 /* Macros for setting and testing a bit in a minimal symbol that marks
@@ -69,7 +62,7 @@ static int arm_debug;
    MSYMBOL_SET_SPECIAL	Actually sets the "special" bit.
    MSYMBOL_IS_SPECIAL   Tests the "special" bit in a minimal symbol.  */
 
-#define MSYMBOL_SET_SPECIAL(msym)				\
+#define MSYMBOL_SET_SPECIAL(msym)					\
 	MSYMBOL_TARGET_FLAG_1 (msym) = 1
 
 #define MSYMBOL_IS_SPECIAL(msym)				\
@@ -129,27 +122,16 @@ static const char *arm_mode_strings[] =
   {
     "auto",
     "arm",
-    "thumb",
-    NULL
+    "thumb"
   };
 
 static const char *arm_fallback_mode_string = "auto";
 static const char *arm_force_mode_string = "auto";
 
-/* Internal override of the execution mode.  -1 means no override,
-   0 means override to ARM mode, 1 means override to Thumb mode.
-   The effect is the same as if arm_force_mode has been set by the
-   user (except the internal override has precedence over a user's
-   arm_force_mode override).  */
-static int arm_override_mode = -1;
-
 /* Number of different reg name sets (options).  */
 static int num_disassembly_options;
 
-/* The standard register names, and all the valid aliases for them.  Note
-   that `fp', `sp' and `pc' are not added in this alias list, because they
-   have been added as builtin user registers in
-   std-regs.c:_initialize_frame_reg.  */
+/* The standard register names, and all the valid aliases for them.  */
 static const struct
 {
   const char *name;
@@ -190,9 +172,12 @@ static const struct
   { "tr", 9 },
   /* Special names.  */
   { "ip", 12 },
+  { "sp", 13 },
   { "lr", 14 },
+  { "pc", 15 },
   /* Names used by GCC (not listed in the ARM EABI).  */
   { "sl", 10 },
+  { "fp", 11 },
   /* A special name from the older ATPCS.  */
   { "wr", 7 },
 };
@@ -223,14 +208,12 @@ static void convert_from_extended (const struct floatformat *, const void *,
 static void convert_to_extended (const struct floatformat *, void *,
 				 const void *, int);
 
-static enum register_status arm_neon_quad_read (struct gdbarch *gdbarch,
-						struct regcache *regcache,
-						int regnum, gdb_byte *buf);
+static void arm_neon_quad_read (struct gdbarch *gdbarch,
+				struct regcache *regcache,
+				int regnum, gdb_byte *buf);
 static void arm_neon_quad_write (struct gdbarch *gdbarch,
 				 struct regcache *regcache,
 				 int regnum, const gdb_byte *buf);
-
-static int thumb_insn_size (unsigned short inst1);
 
 struct arm_prologue_cache
 {
@@ -252,11 +235,6 @@ struct arm_prologue_cache
   struct trad_frame_saved_reg *saved_regs;
 };
 
-static CORE_ADDR arm_analyze_prologue (struct gdbarch *gdbarch,
-				       CORE_ADDR prologue_start,
-				       CORE_ADDR prologue_end,
-				       struct arm_prologue_cache *cache);
-
 /* Architecture version for displaced stepping.  This effects the behaviour of
    certain instructions, and really should not be hard-wired.  */
 
@@ -272,24 +250,12 @@ static CORE_ADDR arm_analyze_prologue (struct gdbarch *gdbarch,
 
 int arm_apcs_32 = 1;
 
-/* Return the bit mask in ARM_PS_REGNUM that indicates Thumb mode.  */
-
-int
-arm_psr_thumb_bit (struct gdbarch *gdbarch)
-{
-  if (gdbarch_tdep (gdbarch)->is_m)
-    return XPSR_T;
-  else
-    return CPSR_T;
-}
-
 /* Determine if FRAME is executing in Thumb mode.  */
 
-int
+static int
 arm_frame_is_thumb (struct frame_info *frame)
 {
   CORE_ADDR cpsr;
-  ULONGEST t_bit = arm_psr_thumb_bit (get_frame_arch (frame));
 
   /* Every ARM frame unwinder can unwind the T bit of the CPSR, either
      directly (from a signal frame or dummy frame) or by interpreting
@@ -297,7 +263,7 @@ arm_frame_is_thumb (struct frame_info *frame)
      trust the unwinders.  */
   cpsr = get_frame_register_unsigned (frame, ARM_PS_REGNUM);
 
-  return (cpsr & t_bit) != 0;
+  return (cpsr & CPSR_T) != 0;
 }
 
 /* Callback for VEC_lower_bound.  */
@@ -372,43 +338,21 @@ arm_find_mapping_symbol (CORE_ADDR memaddr, CORE_ADDR *start)
    function.  This function should be called for addresses unrelated to
    any executing frame; otherwise, prefer arm_frame_is_thumb.  */
 
-int
-arm_pc_is_thumb (struct gdbarch *gdbarch, CORE_ADDR memaddr)
+static int
+arm_pc_is_thumb (CORE_ADDR memaddr)
 {
   struct obj_section *sec;
   struct minimal_symbol *sym;
   char type;
-  struct displaced_step_closure* dsc
-    = get_displaced_step_closure_by_addr(memaddr);
-
-  /* If checking the mode of displaced instruction in copy area, the mode
-     should be determined by instruction on the original address.  */
-  if (dsc)
-    {
-      if (debug_displaced)
-	fprintf_unfiltered (gdb_stdlog,
-			    "displaced: check mode of %.8lx instead of %.8lx\n",
-			    (unsigned long) dsc->insn_addr,
-			    (unsigned long) memaddr);
-      memaddr = dsc->insn_addr;
-    }
 
   /* If bit 0 of the address is set, assume this is a Thumb address.  */
   if (IS_THUMB_ADDR (memaddr))
     return 1;
 
-  /* Respect internal mode override if active.  */
-  if (arm_override_mode != -1)
-    return arm_override_mode;
-
   /* If the user wants to override the symbol table, let him.  */
   if (strcmp (arm_force_mode_string, "arm") == 0)
     return 0;
   if (strcmp (arm_force_mode_string, "thumb") == 0)
-    return 1;
-
-  /* ARM v6-M and v7-M are always in Thumb mode.  */
-  if (gdbarch_tdep (gdbarch)->is_m)
     return 1;
 
   /* If there are mapping symbols, consult them.  */
@@ -457,249 +401,21 @@ arm_smash_text_address (struct gdbarch *gdbarch, CORE_ADDR val)
   return val & ~1;
 }
 
-/* Return 1 if PC is the start of a compiler helper function which
-   can be safely ignored during prologue skipping.  IS_THUMB is true
-   if the function is known to be a Thumb function due to the way it
-   is being called.  */
-static int
-skip_prologue_function (struct gdbarch *gdbarch, CORE_ADDR pc, int is_thumb)
-{
-  enum bfd_endian byte_order_for_code = gdbarch_byte_order_for_code (gdbarch);
-  struct minimal_symbol *msym;
-
-  msym = lookup_minimal_symbol_by_pc (pc);
-  if (msym != NULL
-      && SYMBOL_VALUE_ADDRESS (msym) == pc
-      && SYMBOL_LINKAGE_NAME (msym) != NULL)
-    {
-      const char *name = SYMBOL_LINKAGE_NAME (msym);
-
-      /* The GNU linker's Thumb call stub to foo is named
-	 __foo_from_thumb.  */
-      if (strstr (name, "_from_thumb") != NULL)
-	name += 2;
-
-      /* On soft-float targets, __truncdfsf2 is called to convert promoted
-	 arguments to their argument types in non-prototyped
-	 functions.  */
-      if (strncmp (name, "__truncdfsf2", strlen ("__truncdfsf2")) == 0)
-	return 1;
-      if (strncmp (name, "__aeabi_d2f", strlen ("__aeabi_d2f")) == 0)
-	return 1;
-
-      /* Internal functions related to thread-local storage.  */
-      if (strncmp (name, "__tls_get_addr", strlen ("__tls_get_addr")) == 0)
-	return 1;
-      if (strncmp (name, "__aeabi_read_tp", strlen ("__aeabi_read_tp")) == 0)
-	return 1;
-    }
-  else
-    {
-      /* If we run against a stripped glibc, we may be unable to identify
-	 special functions by name.  Check for one important case,
-	 __aeabi_read_tp, by comparing the *code* against the default
-	 implementation (this is hand-written ARM assembler in glibc).  */
-
-      if (!is_thumb
-	  && read_memory_unsigned_integer (pc, 4, byte_order_for_code)
-	     == 0xe3e00a0f /* mov r0, #0xffff0fff */
-	  && read_memory_unsigned_integer (pc + 4, 4, byte_order_for_code)
-	     == 0xe240f01f) /* sub pc, r0, #31 */
-	return 1;
-    }
-
-  return 0;
-}
-
-/* Support routines for instruction parsing.  */
-#define submask(x) ((1L << ((x) + 1)) - 1)
-#define bit(obj,st) (((obj) >> (st)) & 1)
-#define bits(obj,st,fn) (((obj) >> (st)) & submask ((fn) - (st)))
-#define sbits(obj,st,fn) \
-  ((long) (bits(obj,st,fn) | ((long) bit(obj,fn) * ~ submask (fn - st))))
-#define BranchDest(addr,instr) \
-  ((CORE_ADDR) (((long) (addr)) + 8 + (sbits (instr, 0, 23) << 2)))
-
-/* Extract the immediate from instruction movw/movt of encoding T.  INSN1 is
-   the first 16-bit of instruction, and INSN2 is the second 16-bit of
-   instruction.  */
-#define EXTRACT_MOVW_MOVT_IMM_T(insn1, insn2) \
-  ((bits ((insn1), 0, 3) << 12)               \
-   | (bits ((insn1), 10, 10) << 11)           \
-   | (bits ((insn2), 12, 14) << 8)            \
-   | bits ((insn2), 0, 7))
-
-/* Extract the immediate from instruction movw/movt of encoding A.  INSN is
-   the 32-bit instruction.  */
-#define EXTRACT_MOVW_MOVT_IMM_A(insn) \
-  ((bits ((insn), 16, 19) << 12) \
-   | bits ((insn), 0, 11))
-
-/* Decode immediate value; implements ThumbExpandImmediate pseudo-op.  */
-
-static unsigned int
-thumb_expand_immediate (unsigned int imm)
-{
-  unsigned int count = imm >> 7;
-
-  if (count < 8)
-    switch (count / 2)
-      {
-      case 0:
-	return imm & 0xff;
-      case 1:
-	return (imm & 0xff) | ((imm & 0xff) << 16);
-      case 2:
-	return ((imm & 0xff) << 8) | ((imm & 0xff) << 24);
-      case 3:
-	return (imm & 0xff) | ((imm & 0xff) << 8)
-		| ((imm & 0xff) << 16) | ((imm & 0xff) << 24);
-      }
-
-  return (0x80 | (imm & 0x7f)) << (32 - count);
-}
-
-/* Return 1 if the 16-bit Thumb instruction INST might change
-   control flow, 0 otherwise.  */
-
-static int
-thumb_instruction_changes_pc (unsigned short inst)
-{
-  if ((inst & 0xff00) == 0xbd00)	/* pop {rlist, pc} */
-    return 1;
-
-  if ((inst & 0xf000) == 0xd000)	/* conditional branch */
-    return 1;
-
-  if ((inst & 0xf800) == 0xe000)	/* unconditional branch */
-    return 1;
-
-  if ((inst & 0xff00) == 0x4700)	/* bx REG, blx REG */
-    return 1;
-
-  if ((inst & 0xff87) == 0x4687)	/* mov pc, REG */
-    return 1;
-
-  if ((inst & 0xf500) == 0xb100)	/* CBNZ or CBZ.  */
-    return 1;
-
-  return 0;
-}
-
-/* Return 1 if the 32-bit Thumb instruction in INST1 and INST2
-   might change control flow, 0 otherwise.  */
-
-static int
-thumb2_instruction_changes_pc (unsigned short inst1, unsigned short inst2)
-{
-  if ((inst1 & 0xf800) == 0xf000 && (inst2 & 0x8000) == 0x8000)
-    {
-      /* Branches and miscellaneous control instructions.  */
-
-      if ((inst2 & 0x1000) != 0 || (inst2 & 0xd001) == 0xc000)
-	{
-	  /* B, BL, BLX.  */
-	  return 1;
-	}
-      else if (inst1 == 0xf3de && (inst2 & 0xff00) == 0x3f00)
-	{
-	  /* SUBS PC, LR, #imm8.  */
-	  return 1;
-	}
-      else if ((inst2 & 0xd000) == 0x8000 && (inst1 & 0x0380) != 0x0380)
-	{
-	  /* Conditional branch.  */
-	  return 1;
-	}
-
-      return 0;
-    }
-
-  if ((inst1 & 0xfe50) == 0xe810)
-    {
-      /* Load multiple or RFE.  */
-
-      if (bit (inst1, 7) && !bit (inst1, 8))
-	{
-	  /* LDMIA or POP */
-	  if (bit (inst2, 15))
-	    return 1;
-	}
-      else if (!bit (inst1, 7) && bit (inst1, 8))
-	{
-	  /* LDMDB */
-	  if (bit (inst2, 15))
-	    return 1;
-	}
-      else if (bit (inst1, 7) && bit (inst1, 8))
-	{
-	  /* RFEIA */
-	  return 1;
-	}
-      else if (!bit (inst1, 7) && !bit (inst1, 8))
-	{
-	  /* RFEDB */
-	  return 1;
-	}
-
-      return 0;
-    }
-
-  if ((inst1 & 0xffef) == 0xea4f && (inst2 & 0xfff0) == 0x0f00)
-    {
-      /* MOV PC or MOVS PC.  */
-      return 1;
-    }
-
-  if ((inst1 & 0xff70) == 0xf850 && (inst2 & 0xf000) == 0xf000)
-    {
-      /* LDR PC.  */
-      if (bits (inst1, 0, 3) == 15)
-	return 1;
-      if (bit (inst1, 7))
-	return 1;
-      if (bit (inst2, 11))
-	return 1;
-      if ((inst2 & 0x0fc0) == 0x0000)
-	return 1;	
-
-      return 0;
-    }
-
-  if ((inst1 & 0xfff0) == 0xe8d0 && (inst2 & 0xfff0) == 0xf000)
-    {
-      /* TBB.  */
-      return 1;
-    }
-
-  if ((inst1 & 0xfff0) == 0xe8d0 && (inst2 & 0xfff0) == 0xf010)
-    {
-      /* TBH.  */
-      return 1;
-    }
-
-  return 0;
-}
-
 /* Analyze a Thumb prologue, looking for a recognizable stack frame
    and frame pointer.  Scan until we encounter a store that could
-   clobber the stack frame unexpectedly, or an unknown instruction.
-   Return the last address which is definitely safe to skip for an
-   initial breakpoint.  */
+   clobber the stack frame unexpectedly, or an unknown instruction.  */
 
 static CORE_ADDR
 thumb_analyze_prologue (struct gdbarch *gdbarch,
 			CORE_ADDR start, CORE_ADDR limit,
 			struct arm_prologue_cache *cache)
 {
-  enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
   enum bfd_endian byte_order_for_code = gdbarch_byte_order_for_code (gdbarch);
   int i;
   pv_t regs[16];
   struct pv_area *stack;
   struct cleanup *back_to;
   CORE_ADDR offset;
-  CORE_ADDR unrecognized_pc = 0;
 
   for (i = 0; i < 16; i++)
     regs[i] = pv_register (i, 0);
@@ -744,29 +460,9 @@ thumb_analyze_prologue (struct gdbarch *gdbarch,
 	    regs[ARM_SP_REGNUM] = pv_add_constant (regs[ARM_SP_REGNUM],
 						   offset);
 	}
-      else if ((insn & 0xf800) == 0xa800)	/* add Rd, sp, #imm */
-	regs[bits (insn, 8, 10)] = pv_add_constant (regs[ARM_SP_REGNUM],
-						    (insn & 0xff) << 2);
-      else if ((insn & 0xfe00) == 0x1c00	/* add Rd, Rn, #imm */
-	       && pv_is_register (regs[bits (insn, 3, 5)], ARM_SP_REGNUM))
-	regs[bits (insn, 0, 2)] = pv_add_constant (regs[bits (insn, 3, 5)],
-						   bits (insn, 6, 8));
-      else if ((insn & 0xf800) == 0x3000	/* add Rd, #imm */
-	       && pv_is_register (regs[bits (insn, 8, 10)], ARM_SP_REGNUM))
-	regs[bits (insn, 8, 10)] = pv_add_constant (regs[bits (insn, 8, 10)],
-						    bits (insn, 0, 7));
-      else if ((insn & 0xfe00) == 0x1800	/* add Rd, Rn, Rm */
-	       && pv_is_register (regs[bits (insn, 6, 8)], ARM_SP_REGNUM)
-	       && pv_is_constant (regs[bits (insn, 3, 5)]))
-	regs[bits (insn, 0, 2)] = pv_add (regs[bits (insn, 3, 5)],
-					  regs[bits (insn, 6, 8)]);
-      else if ((insn & 0xff00) == 0x4400	/* add Rd, Rm */
-	       && pv_is_constant (regs[bits (insn, 3, 6)]))
-	{
-	  int rd = (bit (insn, 7) << 3) + bits (insn, 0, 2);
-	  int rm = bits (insn, 3, 6);
-	  regs[rd] = pv_add (regs[rd], regs[rm]);
-	}
+      else if ((insn & 0xff00) == 0xaf00)	/* add r7, sp, #imm */
+	regs[THUMB_FP_REGNUM] = pv_add_constant (regs[ARM_SP_REGNUM],
+						 (insn & 0xff) << 2);
       else if ((insn & 0xff00) == 0x4600)	/* mov hi, lo or mov lo, hi */
 	{
 	  int dst_reg = (insn & 0x7) + ((insn & 0x80) >> 4);
@@ -789,354 +485,22 @@ thumb_analyze_prologue (struct gdbarch *gdbarch,
 
 	  pv_area_store (stack, addr, 4, regs[regno]);
 	}
-      else if ((insn & 0xf800) == 0x6000)	/* str rd, [rn, #off] */
-	{
-	  int rd = bits (insn, 0, 2);
-	  int rn = bits (insn, 3, 5);
-	  pv_t addr;
-
-	  offset = bits (insn, 6, 10) << 2;
-	  addr = pv_add_constant (regs[rn], offset);
-
-	  if (pv_area_store_would_trash (stack, addr))
-	    break;
-
-	  pv_area_store (stack, addr, 4, regs[rd]);
-	}
-      else if (((insn & 0xf800) == 0x7000	/* strb Rd, [Rn, #off] */
-		|| (insn & 0xf800) == 0x8000)	/* strh Rd, [Rn, #off] */
-	       && pv_is_register (regs[bits (insn, 3, 5)], ARM_SP_REGNUM))
-	/* Ignore stores of argument registers to the stack.  */
-	;
-      else if ((insn & 0xf800) == 0xc800	/* ldmia Rn!, { registers } */
-	       && pv_is_register (regs[bits (insn, 8, 10)], ARM_SP_REGNUM))
-	/* Ignore block loads from the stack, potentially copying
-	   parameters from memory.  */
-	;
-      else if ((insn & 0xf800) == 0x9800	/* ldr Rd, [Rn, #immed] */
-	       || ((insn & 0xf800) == 0x6800	/* ldr Rd, [sp, #immed] */
-		   && pv_is_register (regs[bits (insn, 3, 5)], ARM_SP_REGNUM)))
-	/* Similarly ignore single loads from the stack.  */
-	;
-      else if ((insn & 0xffc0) == 0x0000	/* lsls Rd, Rm, #0 */
-	       || (insn & 0xffc0) == 0x1c00)	/* add Rd, Rn, #0 */
-	/* Skip register copies, i.e. saves to another register
-	   instead of the stack.  */
-	;
-      else if ((insn & 0xf800) == 0x2000)	/* movs Rd, #imm */
-	/* Recognize constant loads; even with small stacks these are necessary
-	   on Thumb.  */
-	regs[bits (insn, 8, 10)] = pv_constant (bits (insn, 0, 7));
-      else if ((insn & 0xf800) == 0x4800)	/* ldr Rd, [pc, #imm] */
-	{
-	  /* Constant pool loads, for the same reason.  */
-	  unsigned int constant;
-	  CORE_ADDR loc;
-
-	  loc = start + 4 + bits (insn, 0, 7) * 4;
-	  constant = read_memory_unsigned_integer (loc, 4, byte_order);
-	  regs[bits (insn, 8, 10)] = pv_constant (constant);
-	}
-      else if (thumb_insn_size (insn) == 4) /* 32-bit Thumb-2 instructions.  */
-	{
-	  unsigned short inst2;
-
-	  inst2 = read_memory_unsigned_integer (start + 2, 2,
-						byte_order_for_code);
-
-	  if ((insn & 0xf800) == 0xf000 && (inst2 & 0xe800) == 0xe800)
-	    {
-	      /* BL, BLX.  Allow some special function calls when
-		 skipping the prologue; GCC generates these before
-		 storing arguments to the stack.  */
-	      CORE_ADDR nextpc;
-	      int j1, j2, imm1, imm2;
-
-	      imm1 = sbits (insn, 0, 10);
-	      imm2 = bits (inst2, 0, 10);
-	      j1 = bit (inst2, 13);
-	      j2 = bit (inst2, 11);
-
-	      offset = ((imm1 << 12) + (imm2 << 1));
-	      offset ^= ((!j2) << 22) | ((!j1) << 23);
-
-	      nextpc = start + 4 + offset;
-	      /* For BLX make sure to clear the low bits.  */
-	      if (bit (inst2, 12) == 0)
-		nextpc = nextpc & 0xfffffffc;
-
-	      if (!skip_prologue_function (gdbarch, nextpc,
-					   bit (inst2, 12) != 0))
-		break;
-	    }
-
-	  else if ((insn & 0xffd0) == 0xe900    /* stmdb Rn{!},
-						   { registers } */
-		   && pv_is_register (regs[bits (insn, 0, 3)], ARM_SP_REGNUM))
-	    {
-	      pv_t addr = regs[bits (insn, 0, 3)];
-	      int regno;
-
-	      if (pv_area_store_would_trash (stack, addr))
-		break;
-
-	      /* Calculate offsets of saved registers.  */
-	      for (regno = ARM_LR_REGNUM; regno >= 0; regno--)
-		if (inst2 & (1 << regno))
-		  {
-		    addr = pv_add_constant (addr, -4);
-		    pv_area_store (stack, addr, 4, regs[regno]);
-		  }
-
-	      if (insn & 0x0020)
-		regs[bits (insn, 0, 3)] = addr;
-	    }
-
-	  else if ((insn & 0xff50) == 0xe940	/* strd Rt, Rt2,
-						   [Rn, #+/-imm]{!} */
-		   && pv_is_register (regs[bits (insn, 0, 3)], ARM_SP_REGNUM))
-	    {
-	      int regno1 = bits (inst2, 12, 15);
-	      int regno2 = bits (inst2, 8, 11);
-	      pv_t addr = regs[bits (insn, 0, 3)];
-
-	      offset = inst2 & 0xff;
-	      if (insn & 0x0080)
-		addr = pv_add_constant (addr, offset);
-	      else
-		addr = pv_add_constant (addr, -offset);
-
-	      if (pv_area_store_would_trash (stack, addr))
-		break;
-
-	      pv_area_store (stack, addr, 4, regs[regno1]);
-	      pv_area_store (stack, pv_add_constant (addr, 4),
-			     4, regs[regno2]);
-
-	      if (insn & 0x0020)
-		regs[bits (insn, 0, 3)] = addr;
-	    }
-
-	  else if ((insn & 0xfff0) == 0xf8c0	/* str Rt,[Rn,+/-#imm]{!} */
-		   && (inst2 & 0x0c00) == 0x0c00
-		   && pv_is_register (regs[bits (insn, 0, 3)], ARM_SP_REGNUM))
-	    {
-	      int regno = bits (inst2, 12, 15);
-	      pv_t addr = regs[bits (insn, 0, 3)];
-
-	      offset = inst2 & 0xff;
-	      if (inst2 & 0x0200)
-		addr = pv_add_constant (addr, offset);
-	      else
-		addr = pv_add_constant (addr, -offset);
-
-	      if (pv_area_store_would_trash (stack, addr))
-		break;
-
-	      pv_area_store (stack, addr, 4, regs[regno]);
-
-	      if (inst2 & 0x0100)
-		regs[bits (insn, 0, 3)] = addr;
-	    }
-
-	  else if ((insn & 0xfff0) == 0xf8c0	/* str.w Rt,[Rn,#imm] */
-		   && pv_is_register (regs[bits (insn, 0, 3)], ARM_SP_REGNUM))
-	    {
-	      int regno = bits (inst2, 12, 15);
-	      pv_t addr;
-
-	      offset = inst2 & 0xfff;
-	      addr = pv_add_constant (regs[bits (insn, 0, 3)], offset);
-
-	      if (pv_area_store_would_trash (stack, addr))
-		break;
-
-	      pv_area_store (stack, addr, 4, regs[regno]);
-	    }
-
-	  else if ((insn & 0xffd0) == 0xf880	/* str{bh}.w Rt,[Rn,#imm] */
-		   && pv_is_register (regs[bits (insn, 0, 3)], ARM_SP_REGNUM))
-	    /* Ignore stores of argument registers to the stack.  */
-	    ;
-
-	  else if ((insn & 0xffd0) == 0xf800	/* str{bh} Rt,[Rn,#+/-imm] */
-		   && (inst2 & 0x0d00) == 0x0c00
-		   && pv_is_register (regs[bits (insn, 0, 3)], ARM_SP_REGNUM))
-	    /* Ignore stores of argument registers to the stack.  */
-	    ;
-
-	  else if ((insn & 0xffd0) == 0xe890	/* ldmia Rn[!],
-						   { registers } */
-		   && (inst2 & 0x8000) == 0x0000
-		   && pv_is_register (regs[bits (insn, 0, 3)], ARM_SP_REGNUM))
-	    /* Ignore block loads from the stack, potentially copying
-	       parameters from memory.  */
-	    ;
-
-	  else if ((insn & 0xffb0) == 0xe950	/* ldrd Rt, Rt2,
-						   [Rn, #+/-imm] */
-		   && pv_is_register (regs[bits (insn, 0, 3)], ARM_SP_REGNUM))
-	    /* Similarly ignore dual loads from the stack.  */
-	    ;
-
-	  else if ((insn & 0xfff0) == 0xf850	/* ldr Rt,[Rn,#+/-imm] */
-		   && (inst2 & 0x0d00) == 0x0c00
-		   && pv_is_register (regs[bits (insn, 0, 3)], ARM_SP_REGNUM))
-	    /* Similarly ignore single loads from the stack.  */
-	    ;
-
-	  else if ((insn & 0xfff0) == 0xf8d0	/* ldr.w Rt,[Rn,#imm] */
-		   && pv_is_register (regs[bits (insn, 0, 3)], ARM_SP_REGNUM))
-	    /* Similarly ignore single loads from the stack.  */
-	    ;
-
-	  else if ((insn & 0xfbf0) == 0xf100	/* add.w Rd, Rn, #imm */
-		   && (inst2 & 0x8000) == 0x0000)
-	    {
-	      unsigned int imm = ((bits (insn, 10, 10) << 11)
-				  | (bits (inst2, 12, 14) << 8)
-				  | bits (inst2, 0, 7));
-
-	      regs[bits (inst2, 8, 11)]
-		= pv_add_constant (regs[bits (insn, 0, 3)],
-				   thumb_expand_immediate (imm));
-	    }
-
-	  else if ((insn & 0xfbf0) == 0xf200	/* addw Rd, Rn, #imm */
-		   && (inst2 & 0x8000) == 0x0000)
-	    {
-	      unsigned int imm = ((bits (insn, 10, 10) << 11)
-				  | (bits (inst2, 12, 14) << 8)
-				  | bits (inst2, 0, 7));
-
-	      regs[bits (inst2, 8, 11)]
-		= pv_add_constant (regs[bits (insn, 0, 3)], imm);
-	    }
-
-	  else if ((insn & 0xfbf0) == 0xf1a0	/* sub.w Rd, Rn, #imm */
-		   && (inst2 & 0x8000) == 0x0000)
-	    {
-	      unsigned int imm = ((bits (insn, 10, 10) << 11)
-				  | (bits (inst2, 12, 14) << 8)
-				  | bits (inst2, 0, 7));
-
-	      regs[bits (inst2, 8, 11)]
-		= pv_add_constant (regs[bits (insn, 0, 3)],
-				   - (CORE_ADDR) thumb_expand_immediate (imm));
-	    }
-
-	  else if ((insn & 0xfbf0) == 0xf2a0	/* subw Rd, Rn, #imm */
-		   && (inst2 & 0x8000) == 0x0000)
-	    {
-	      unsigned int imm = ((bits (insn, 10, 10) << 11)
-				  | (bits (inst2, 12, 14) << 8)
-				  | bits (inst2, 0, 7));
-
-	      regs[bits (inst2, 8, 11)]
-		= pv_add_constant (regs[bits (insn, 0, 3)], - (CORE_ADDR) imm);
-	    }
-
-	  else if ((insn & 0xfbff) == 0xf04f)	/* mov.w Rd, #const */
-	    {
-	      unsigned int imm = ((bits (insn, 10, 10) << 11)
-				  | (bits (inst2, 12, 14) << 8)
-				  | bits (inst2, 0, 7));
-
-	      regs[bits (inst2, 8, 11)]
-		= pv_constant (thumb_expand_immediate (imm));
-	    }
-
-	  else if ((insn & 0xfbf0) == 0xf240)	/* movw Rd, #const */
-	    {
-	      unsigned int imm
-		= EXTRACT_MOVW_MOVT_IMM_T (insn, inst2);
-
-	      regs[bits (inst2, 8, 11)] = pv_constant (imm);
-	    }
-
-	  else if (insn == 0xea5f		/* mov.w Rd,Rm */
-		   && (inst2 & 0xf0f0) == 0)
-	    {
-	      int dst_reg = (inst2 & 0x0f00) >> 8;
-	      int src_reg = inst2 & 0xf;
-	      regs[dst_reg] = regs[src_reg];
-	    }
-
-	  else if ((insn & 0xff7f) == 0xf85f)	/* ldr.w Rt,<label> */
-	    {
-	      /* Constant pool loads.  */
-	      unsigned int constant;
-	      CORE_ADDR loc;
-
-	      offset = bits (insn, 0, 11);
-	      if (insn & 0x0080)
-		loc = start + 4 + offset;
-	      else
-		loc = start + 4 - offset;
-
-	      constant = read_memory_unsigned_integer (loc, 4, byte_order);
-	      regs[bits (inst2, 12, 15)] = pv_constant (constant);
-	    }
-
-	  else if ((insn & 0xff7f) == 0xe95f)	/* ldrd Rt,Rt2,<label> */
-	    {
-	      /* Constant pool loads.  */
-	      unsigned int constant;
-	      CORE_ADDR loc;
-
-	      offset = bits (insn, 0, 7) << 2;
-	      if (insn & 0x0080)
-		loc = start + 4 + offset;
-	      else
-		loc = start + 4 - offset;
-
-	      constant = read_memory_unsigned_integer (loc, 4, byte_order);
-	      regs[bits (inst2, 12, 15)] = pv_constant (constant);
-
-	      constant = read_memory_unsigned_integer (loc + 4, 4, byte_order);
-	      regs[bits (inst2, 8, 11)] = pv_constant (constant);
-	    }
-
-	  else if (thumb2_instruction_changes_pc (insn, inst2))
-	    {
-	      /* Don't scan past anything that might change control flow.  */
-	      break;
-	    }
-	  else
-	    {
-	      /* The optimizer might shove anything into the prologue,
-		 so we just skip what we don't recognize.  */
-	      unrecognized_pc = start;
-	    }
-
-	  start += 2;
-	}
-      else if (thumb_instruction_changes_pc (insn))
-	{
-	  /* Don't scan past anything that might change control flow.  */
-	  break;
-	}
       else
 	{
-	  /* The optimizer might shove anything into the prologue,
-	     so we just skip what we don't recognize.  */
-	  unrecognized_pc = start;
+	  /* We don't know what this instruction is.  We're finished
+	     scanning.  NOTE: Recognizing more safe-to-ignore
+	     instructions here will improve support for optimized
+	     code.  */
+	  break;
 	}
 
       start += 2;
     }
 
-  if (arm_debug)
-    fprintf_unfiltered (gdb_stdlog, "Prologue scan stopped at %s\n",
-			paddress (gdbarch, start));
-
-  if (unrecognized_pc == 0)
-    unrecognized_pc = start;
-
   if (cache == NULL)
     {
       do_cleanups (back_to);
-      return unrecognized_pc;
+      return start;
     }
 
   if (pv_is_register (regs[ARM_FP_REGNUM], ARM_SP_REGNUM))
@@ -1151,11 +515,17 @@ thumb_analyze_prologue (struct gdbarch *gdbarch,
       cache->framereg = THUMB_FP_REGNUM;
       cache->framesize = -regs[THUMB_FP_REGNUM].k;
     }
-  else
+  else if (pv_is_register (regs[ARM_SP_REGNUM], ARM_SP_REGNUM))
     {
       /* Try the stack pointer... this is a bit desperate.  */
       cache->framereg = ARM_SP_REGNUM;
       cache->framesize = -regs[ARM_SP_REGNUM].k;
+    }
+  else
+    {
+      /* We're just out of luck.  We don't know where the frame is.  */
+      cache->framereg = -1;
+      cache->framesize = 0;
     }
 
   for (i = 0; i < 16; i++)
@@ -1163,191 +533,7 @@ thumb_analyze_prologue (struct gdbarch *gdbarch,
       cache->saved_regs[i].addr = offset;
 
   do_cleanups (back_to);
-  return unrecognized_pc;
-}
-
-
-/* Try to analyze the instructions starting from PC, which load symbol
-   __stack_chk_guard.  Return the address of instruction after loading this
-   symbol, set the dest register number to *BASEREG, and set the size of
-   instructions for loading symbol in OFFSET.  Return 0 if instructions are
-   not recognized.  */
-
-static CORE_ADDR
-arm_analyze_load_stack_chk_guard(CORE_ADDR pc, struct gdbarch *gdbarch,
-				 unsigned int *destreg, int *offset)
-{
-  enum bfd_endian byte_order_for_code = gdbarch_byte_order_for_code (gdbarch);
-  int is_thumb = arm_pc_is_thumb (gdbarch, pc);
-  unsigned int low, high, address;
-
-  address = 0;
-  if (is_thumb)
-    {
-      unsigned short insn1
-	= read_memory_unsigned_integer (pc, 2, byte_order_for_code);
-
-      if ((insn1 & 0xf800) == 0x4800) /* ldr Rd, #immed */
-	{
-	  *destreg = bits (insn1, 8, 10);
-	  *offset = 2;
-	  address = bits (insn1, 0, 7);
-	}
-      else if ((insn1 & 0xfbf0) == 0xf240) /* movw Rd, #const */
-	{
-	  unsigned short insn2
-	    = read_memory_unsigned_integer (pc + 2, 2, byte_order_for_code);
-
-	  low = EXTRACT_MOVW_MOVT_IMM_T (insn1, insn2);
-
-	  insn1
-	    = read_memory_unsigned_integer (pc + 4, 2, byte_order_for_code);
-	  insn2
-	    = read_memory_unsigned_integer (pc + 6, 2, byte_order_for_code);
-
-	  /* movt Rd, #const */
-	  if ((insn1 & 0xfbc0) == 0xf2c0)
-	    {
-	      high = EXTRACT_MOVW_MOVT_IMM_T (insn1, insn2);
-	      *destreg = bits (insn2, 8, 11);
-	      *offset = 8;
-	      address = (high << 16 | low);
-	    }
-	}
-    }
-  else
-    {
-      unsigned int insn
-	= read_memory_unsigned_integer (pc, 4, byte_order_for_code);
-
-      if ((insn & 0x0e5f0000) == 0x041f0000) /* ldr Rd, #immed */
-	{
-	  address = bits (insn, 0, 11);
-	  *destreg = bits (insn, 12, 15);
-	  *offset = 4;
-	}
-      else if ((insn & 0x0ff00000) == 0x03000000) /* movw Rd, #const */
-	{
-	  low = EXTRACT_MOVW_MOVT_IMM_A (insn);
-
-	  insn
-	    = read_memory_unsigned_integer (pc + 4, 4, byte_order_for_code);
-
-	  if ((insn & 0x0ff00000) == 0x03400000) /* movt Rd, #const */
-	    {
-	      high = EXTRACT_MOVW_MOVT_IMM_A (insn);
-	      *destreg = bits (insn, 12, 15);
-	      *offset = 8;
-	      address = (high << 16 | low);
-	    }
-	}
-    }
-
-  return address;
-}
-
-/* Try to skip a sequence of instructions used for stack protector.  If PC
-   points to the first instruction of this sequence, return the address of
-   first instruction after this sequence, otherwise, return original PC.
-
-   On arm, this sequence of instructions is composed of mainly three steps,
-     Step 1: load symbol __stack_chk_guard,
-     Step 2: load from address of __stack_chk_guard,
-     Step 3: store it to somewhere else.
-
-   Usually, instructions on step 2 and step 3 are the same on various ARM
-   architectures.  On step 2, it is one instruction 'ldr Rx, [Rn, #0]', and
-   on step 3, it is also one instruction 'str Rx, [r7, #immd]'.  However,
-   instructions in step 1 vary from different ARM architectures.  On ARMv7,
-   they are,
-
-	movw	Rn, #:lower16:__stack_chk_guard
-	movt	Rn, #:upper16:__stack_chk_guard
-
-   On ARMv5t, it is,
-
-	ldr	Rn, .Label
-	....
-	.Lable:
-	.word	__stack_chk_guard
-
-   Since ldr/str is a very popular instruction, we can't use them as
-   'fingerprint' or 'signature' of stack protector sequence.  Here we choose
-   sequence {movw/movt, ldr}/ldr/str plus symbol __stack_chk_guard, if not
-   stripped, as the 'fingerprint' of a stack protector cdoe sequence.  */
-
-static CORE_ADDR
-arm_skip_stack_protector(CORE_ADDR pc, struct gdbarch *gdbarch)
-{
-  enum bfd_endian byte_order_for_code = gdbarch_byte_order_for_code (gdbarch);
-  unsigned int address, basereg;
-  struct minimal_symbol *stack_chk_guard;
-  int offset;
-  int is_thumb = arm_pc_is_thumb (gdbarch, pc);
-  CORE_ADDR addr;
-
-  /* Try to parse the instructions in Step 1.  */
-  addr = arm_analyze_load_stack_chk_guard (pc, gdbarch,
-					   &basereg, &offset);
-  if (!addr)
-    return pc;
-
-  stack_chk_guard = lookup_minimal_symbol_by_pc (addr);
-  /* If name of symbol doesn't start with '__stack_chk_guard', this
-     instruction sequence is not for stack protector.  If symbol is
-     removed, we conservatively think this sequence is for stack protector.  */
-  if (stack_chk_guard
-      && strncmp (SYMBOL_LINKAGE_NAME (stack_chk_guard), "__stack_chk_guard",
-		  strlen ("__stack_chk_guard")) != 0)
-   return pc;
-
-  if (is_thumb)
-    {
-      unsigned int destreg;
-      unsigned short insn
-	= read_memory_unsigned_integer (pc + offset, 2, byte_order_for_code);
-
-      /* Step 2: ldr Rd, [Rn, #immed], encoding T1.  */
-      if ((insn & 0xf800) != 0x6800)
-	return pc;
-      if (bits (insn, 3, 5) != basereg)
-	return pc;
-      destreg = bits (insn, 0, 2);
-
-      insn = read_memory_unsigned_integer (pc + offset + 2, 2,
-					   byte_order_for_code);
-      /* Step 3: str Rd, [Rn, #immed], encoding T1.  */
-      if ((insn & 0xf800) != 0x6000)
-	return pc;
-      if (destreg != bits (insn, 0, 2))
-	return pc;
-    }
-  else
-    {
-      unsigned int destreg;
-      unsigned int insn
-	= read_memory_unsigned_integer (pc + offset, 4, byte_order_for_code);
-
-      /* Step 2: ldr Rd, [Rn, #immed], encoding A1.  */
-      if ((insn & 0x0e500000) != 0x04100000)
-	return pc;
-      if (bits (insn, 16, 19) != basereg)
-	return pc;
-      destreg = bits (insn, 12, 15);
-      /* Step 3: str Rd, [Rn, #immed], encoding A1.  */
-      insn = read_memory_unsigned_integer (pc + offset + 4,
-					   4, byte_order_for_code);
-      if ((insn & 0x0e500000) != 0x04000000)
-	return pc;
-      if (bits (insn, 12, 15) != destreg)
-	return pc;
-    }
-  /* The size of total two instructions ldr/str is 4 on Thumb-2, while 8
-     on arm.  */
-  if (is_thumb)
-    return pc + offset + 4;
-  else
-    return pc + offset + 8;
+  return start;
 }
 
 /* Advance the PC across any function entry prologue instructions to
@@ -1363,7 +549,7 @@ arm_skip_stack_protector(CORE_ADDR pc, struct gdbarch *gdbarch)
    [stfe        f6, [sp, #-12]!]
    [stfe        f5, [sp, #-12]!]
    [stfe        f4, [sp, #-12]!]
-   sub fp, ip, #nn @@ nn == 20 or 4 depending on second insn.  */
+   sub fp, ip, #nn @@ nn == 20 or 4 depending on second insn */
 
 static CORE_ADDR
 arm_skip_prologue (struct gdbarch *gdbarch, CORE_ADDR pc)
@@ -1374,6 +560,10 @@ arm_skip_prologue (struct gdbarch *gdbarch, CORE_ADDR pc)
   CORE_ADDR func_addr, limit_pc;
   struct symtab_and_line sal;
 
+  /* If we're in a dummy frame, don't even try to skip the prologue.  */
+  if (deprecated_pc_in_call_dummy (gdbarch, pc))
+    return pc;
+
   /* See if we can determine the end of the prologue via the symbol table.
      If so, then return either PC, or the PC after the prologue, whichever
      is greater.  */
@@ -1381,50 +571,8 @@ arm_skip_prologue (struct gdbarch *gdbarch, CORE_ADDR pc)
     {
       CORE_ADDR post_prologue_pc
 	= skip_prologue_using_sal (gdbarch, func_addr);
-      struct symtab *s = find_pc_symtab (func_addr);
-
-      if (post_prologue_pc)
-	post_prologue_pc
-	  = arm_skip_stack_protector (post_prologue_pc, gdbarch);
-
-
-      /* GCC always emits a line note before the prologue and another
-	 one after, even if the two are at the same address or on the
-	 same line.  Take advantage of this so that we do not need to
-	 know every instruction that might appear in the prologue.  We
-	 will have producer information for most binaries; if it is
-	 missing (e.g. for -gstabs), assuming the GNU tools.  */
-      if (post_prologue_pc
-	  && (s == NULL
-	      || s->producer == NULL
-	      || strncmp (s->producer, "GNU ", sizeof ("GNU ") - 1) == 0))
-	return post_prologue_pc;
-
       if (post_prologue_pc != 0)
-	{
-	  CORE_ADDR analyzed_limit;
-
-	  /* For non-GCC compilers, make sure the entire line is an
-	     acceptable prologue; GDB will round this function's
-	     return value up to the end of the following line so we
-	     can not skip just part of a line (and we do not want to).
-
-	     RealView does not treat the prologue specially, but does
-	     associate prologue code with the opening brace; so this
-	     lets us skip the first line if we think it is the opening
-	     brace.  */
-	  if (arm_pc_is_thumb (gdbarch, func_addr))
-	    analyzed_limit = thumb_analyze_prologue (gdbarch, func_addr,
-						     post_prologue_pc, NULL);
-	  else
-	    analyzed_limit = arm_analyze_prologue (gdbarch, func_addr,
-						   post_prologue_pc, NULL);
-
-	  if (analyzed_limit != post_prologue_pc)
-	    return func_addr;
-
-	  return post_prologue_pc;
-	}
+	return max (pc, post_prologue_pc);
     }
 
   /* Can't determine prologue from the symbol table, need to examine
@@ -1433,14 +581,14 @@ arm_skip_prologue (struct gdbarch *gdbarch, CORE_ADDR pc)
   /* Find an upper limit on the function prologue using the debug
      information.  If the debug information could not be used to provide
      that bound, then use an arbitrary large number as the upper bound.  */
-  /* Like arm_scan_prologue, stop no later than pc + 64.  */
+  /* Like arm_scan_prologue, stop no later than pc + 64. */
   limit_pc = skip_prologue_using_sal (gdbarch, pc);
   if (limit_pc == 0)
     limit_pc = pc + 64;          /* Magic.  */
 
 
   /* Check if this is Thumb code.  */
-  if (arm_pc_is_thumb (gdbarch, pc))
+  if (arm_pc_is_thumb (pc))
     return thumb_analyze_prologue (gdbarch, pc, limit_pc, NULL);
 
   for (skip_pc = pc; skip_pc < limit_pc; skip_pc += 4)
@@ -1500,7 +648,7 @@ arm_skip_prologue (struct gdbarch *gdbarch, CORE_ADDR pc)
       break;
     }
 
-  return skip_pc;		/* End of prologue.  */
+  return skip_pc;		/* End of prologue */
 }
 
 /* *INDENT-OFF* */
@@ -1519,7 +667,7 @@ arm_skip_prologue (struct gdbarch *gdbarch, CORE_ADDR pc)
      R7 ->       0  local variables (16 bytes)
      SP ->     -12  additional stack space (12 bytes)
    The frame size would thus be 36 bytes, and the frame offset would be
-   12 bytes.  The frame register is R7.
+   12 bytes.  The frame register is R7. 
    
    The comments for thumb_skip_prolog() describe the algorithm we use
    to detect the end of the prolog.  */
@@ -1536,12 +684,12 @@ thumb_scan_prologue (struct gdbarch *gdbarch, CORE_ADDR prev_pc,
   if (find_pc_partial_function (block_addr, NULL, &prologue_start,
 				&prologue_end))
     {
-      /* See comment in arm_scan_prologue for an explanation of
-	 this heuristics.  */
-      if (prologue_end > prologue_start + 64)
-	{
-	  prologue_end = prologue_start + 64;
-	}
+      struct symtab_and_line sal = find_pc_line (prologue_start, 0);
+
+      if (sal.line == 0)		/* no line info, use current PC  */
+	prologue_end = prev_pc;
+      else if (sal.end < prologue_end)	/* next line begins after fn end */
+	prologue_end = sal.end;		/* (probably means no prologue)  */
     }
   else
     /* We're in the boondocks: we have no idea where the start of the
@@ -1553,353 +701,72 @@ thumb_scan_prologue (struct gdbarch *gdbarch, CORE_ADDR prev_pc,
   thumb_analyze_prologue (gdbarch, prologue_start, prologue_end, cache);
 }
 
-/* Return 1 if THIS_INSTR might change control flow, 0 otherwise.  */
+/* This function decodes an ARM function prologue to determine:
+   1) the size of the stack frame
+   2) which registers are saved on it
+   3) the offsets of saved regs
+   4) the offset from the stack pointer to the frame pointer
+   This information is stored in the "extra" fields of the frame_info.
 
-static int
-arm_instruction_changes_pc (uint32_t this_instr)
-{
-  if (bits (this_instr, 28, 31) == INST_NV)
-    /* Unconditional instructions.  */
-    switch (bits (this_instr, 24, 27))
-      {
-      case 0xa:
-      case 0xb:
-	/* Branch with Link and change to Thumb.  */
-	return 1;
-      case 0xc:
-      case 0xd:
-      case 0xe:
-	/* Coprocessor register transfer.  */
-        if (bits (this_instr, 12, 15) == 15)
-	  error (_("Invalid update to pc in instruction"));
-	return 0;
-      default:
-	return 0;
-      }
-  else
-    switch (bits (this_instr, 25, 27))
-      {
-      case 0x0:
-	if (bits (this_instr, 23, 24) == 2 && bit (this_instr, 20) == 0)
-	  {
-	    /* Multiplies and extra load/stores.  */
-	    if (bit (this_instr, 4) == 1 && bit (this_instr, 7) == 1)
-	      /* Neither multiplies nor extension load/stores are allowed
-		 to modify PC.  */
-	      return 0;
+   There are two basic forms for the ARM prologue.  The fixed argument
+   function call will look like:
 
-	    /* Otherwise, miscellaneous instructions.  */
+   mov    ip, sp
+   stmfd  sp!, {fp, ip, lr, pc}
+   sub    fp, ip, #4
+   [sub sp, sp, #4]
 
-	    /* BX <reg>, BXJ <reg>, BLX <reg> */
-	    if (bits (this_instr, 4, 27) == 0x12fff1
-		|| bits (this_instr, 4, 27) == 0x12fff2
-		|| bits (this_instr, 4, 27) == 0x12fff3)
-	      return 1;
+   Which would create this stack frame (offsets relative to FP):
+   IP ->   4    (caller's stack)
+   FP ->   0    PC (points to address of stmfd instruction + 8 in callee)
+   -4   LR (return address in caller)
+   -8   IP (copy of caller's SP)
+   -12  FP (caller's FP)
+   SP -> -28    Local variables
 
-	    /* Other miscellaneous instructions are unpredictable if they
-	       modify PC.  */
-	    return 0;
-	  }
-	/* Data processing instruction.  Fall through.  */
+   The frame size would thus be 32 bytes, and the frame offset would be
+   28 bytes.  The stmfd call can also save any of the vN registers it
+   plans to use, which increases the frame size accordingly.
 
-      case 0x1:
-	if (bits (this_instr, 12, 15) == 15)
-	  return 1;
-	else
-	  return 0;
+   Note: The stored PC is 8 off of the STMFD instruction that stored it
+   because the ARM Store instructions always store PC + 8 when you read
+   the PC register.
 
-      case 0x2:
-      case 0x3:
-	/* Media instructions and architecturally undefined instructions.  */
-	if (bits (this_instr, 25, 27) == 3 && bit (this_instr, 4) == 1)
-	  return 0;
+   A variable argument function call will look like:
 
-	/* Stores.  */
-	if (bit (this_instr, 20) == 0)
-	  return 0;
+   mov    ip, sp
+   stmfd  sp!, {a1, a2, a3, a4}
+   stmfd  sp!, {fp, ip, lr, pc}
+   sub    fp, ip, #20
 
-	/* Loads.  */
-	if (bits (this_instr, 12, 15) == ARM_PC_REGNUM)
-	  return 1;
-	else
-	  return 0;
+   Which would create this stack frame (offsets relative to FP):
+   IP ->  20    (caller's stack)
+   16  A4
+   12  A3
+   8  A2
+   4  A1
+   FP ->   0    PC (points to address of stmfd instruction + 8 in callee)
+   -4   LR (return address in caller)
+   -8   IP (copy of caller's SP)
+   -12  FP (caller's FP)
+   SP -> -28    Local variables
 
-      case 0x4:
-	/* Load/store multiple.  */
-	if (bit (this_instr, 20) == 1 && bit (this_instr, 15) == 1)
-	  return 1;
-	else
-	  return 0;
+   The frame size would thus be 48 bytes, and the frame offset would be
+   28 bytes.
 
-      case 0x5:
-	/* Branch and branch with link.  */
-	return 1;
+   There is another potential complication, which is that the optimizer
+   will try to separate the store of fp in the "stmfd" instruction from
+   the "sub fp, ip, #NN" instruction.  Almost anything can be there, so
+   we just key on the stmfd, and then scan for the "sub fp, ip, #NN"...
 
-      case 0x6:
-      case 0x7:
-	/* Coprocessor transfers or SWIs can not affect PC.  */
-	return 0;
+   Also, note, the original version of the ARM toolchain claimed that there
+   should be an
 
-      default:
-	internal_error (__FILE__, __LINE__, _("bad value in switch"));
-      }
-}
+   instruction at the end of the prologue.  I have never seen GCC produce
+   this, and the ARM docs don't mention it.  We still test for it below in
+   case it happens...
 
-/* Analyze an ARM mode prologue starting at PROLOGUE_START and
-   continuing no further than PROLOGUE_END.  If CACHE is non-NULL,
-   fill it in.  Return the first address not recognized as a prologue
-   instruction.
-
-   We recognize all the instructions typically found in ARM prologues,
-   plus harmless instructions which can be skipped (either for analysis
-   purposes, or a more restrictive set that can be skipped when finding
-   the end of the prologue).  */
-
-static CORE_ADDR
-arm_analyze_prologue (struct gdbarch *gdbarch,
-		      CORE_ADDR prologue_start, CORE_ADDR prologue_end,
-		      struct arm_prologue_cache *cache)
-{
-  enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
-  enum bfd_endian byte_order_for_code = gdbarch_byte_order_for_code (gdbarch);
-  int regno;
-  CORE_ADDR offset, current_pc;
-  pv_t regs[ARM_FPS_REGNUM];
-  struct pv_area *stack;
-  struct cleanup *back_to;
-  int framereg, framesize;
-  CORE_ADDR unrecognized_pc = 0;
-
-  /* Search the prologue looking for instructions that set up the
-     frame pointer, adjust the stack pointer, and save registers.
-
-     Be careful, however, and if it doesn't look like a prologue,
-     don't try to scan it.  If, for instance, a frameless function
-     begins with stmfd sp!, then we will tell ourselves there is
-     a frame, which will confuse stack traceback, as well as "finish" 
-     and other operations that rely on a knowledge of the stack
-     traceback.  */
-
-  for (regno = 0; regno < ARM_FPS_REGNUM; regno++)
-    regs[regno] = pv_register (regno, 0);
-  stack = make_pv_area (ARM_SP_REGNUM, gdbarch_addr_bit (gdbarch));
-  back_to = make_cleanup_free_pv_area (stack);
-
-  for (current_pc = prologue_start;
-       current_pc < prologue_end;
-       current_pc += 4)
-    {
-      unsigned int insn
-	= read_memory_unsigned_integer (current_pc, 4, byte_order_for_code);
-
-      if (insn == 0xe1a0c00d)		/* mov ip, sp */
-	{
-	  regs[ARM_IP_REGNUM] = regs[ARM_SP_REGNUM];
-	  continue;
-	}
-      else if ((insn & 0xfff00000) == 0xe2800000	/* add Rd, Rn, #n */
-	       && pv_is_register (regs[bits (insn, 16, 19)], ARM_SP_REGNUM))
-	{
-	  unsigned imm = insn & 0xff;                   /* immediate value */
-	  unsigned rot = (insn & 0xf00) >> 7;           /* rotate amount */
-	  int rd = bits (insn, 12, 15);
-	  imm = (imm >> rot) | (imm << (32 - rot));
-	  regs[rd] = pv_add_constant (regs[bits (insn, 16, 19)], imm);
-	  continue;
-	}
-      else if ((insn & 0xfff00000) == 0xe2400000	/* sub Rd, Rn, #n */
-	       && pv_is_register (regs[bits (insn, 16, 19)], ARM_SP_REGNUM))
-	{
-	  unsigned imm = insn & 0xff;                   /* immediate value */
-	  unsigned rot = (insn & 0xf00) >> 7;           /* rotate amount */
-	  int rd = bits (insn, 12, 15);
-	  imm = (imm >> rot) | (imm << (32 - rot));
-	  regs[rd] = pv_add_constant (regs[bits (insn, 16, 19)], -imm);
-	  continue;
-	}
-      else if ((insn & 0xffff0fff) == 0xe52d0004)	/* str Rd,
-							   [sp, #-4]! */
-	{
-	  if (pv_area_store_would_trash (stack, regs[ARM_SP_REGNUM]))
-	    break;
-	  regs[ARM_SP_REGNUM] = pv_add_constant (regs[ARM_SP_REGNUM], -4);
-	  pv_area_store (stack, regs[ARM_SP_REGNUM], 4,
-			 regs[bits (insn, 12, 15)]);
-	  continue;
-	}
-      else if ((insn & 0xffff0000) == 0xe92d0000)
-	/* stmfd sp!, {..., fp, ip, lr, pc}
-	   or
-	   stmfd sp!, {a1, a2, a3, a4}  */
-	{
-	  int mask = insn & 0xffff;
-
-	  if (pv_area_store_would_trash (stack, regs[ARM_SP_REGNUM]))
-	    break;
-
-	  /* Calculate offsets of saved registers.  */
-	  for (regno = ARM_PC_REGNUM; regno >= 0; regno--)
-	    if (mask & (1 << regno))
-	      {
-		regs[ARM_SP_REGNUM]
-		  = pv_add_constant (regs[ARM_SP_REGNUM], -4);
-		pv_area_store (stack, regs[ARM_SP_REGNUM], 4, regs[regno]);
-	      }
-	}
-      else if ((insn & 0xffff0000) == 0xe54b0000	/* strb rx,[r11,#-n] */
-	       || (insn & 0xffff00f0) == 0xe14b00b0	/* strh rx,[r11,#-n] */
-	       || (insn & 0xffffc000) == 0xe50b0000)	/* str  rx,[r11,#-n] */
-	{
-	  /* No need to add this to saved_regs -- it's just an arg reg.  */
-	  continue;
-	}
-      else if ((insn & 0xffff0000) == 0xe5cd0000	/* strb rx,[sp,#n] */
-	       || (insn & 0xffff00f0) == 0xe1cd00b0	/* strh rx,[sp,#n] */
-	       || (insn & 0xffffc000) == 0xe58d0000)	/* str  rx,[sp,#n] */
-	{
-	  /* No need to add this to saved_regs -- it's just an arg reg.  */
-	  continue;
-	}
-      else if ((insn & 0xfff00000) == 0xe8800000	/* stm Rn,
-							   { registers } */
-	       && pv_is_register (regs[bits (insn, 16, 19)], ARM_SP_REGNUM))
-	{
-	  /* No need to add this to saved_regs -- it's just arg regs.  */
-	  continue;
-	}
-      else if ((insn & 0xfffff000) == 0xe24cb000)	/* sub fp, ip #n */
-	{
-	  unsigned imm = insn & 0xff;			/* immediate value */
-	  unsigned rot = (insn & 0xf00) >> 7;		/* rotate amount */
-	  imm = (imm >> rot) | (imm << (32 - rot));
-	  regs[ARM_FP_REGNUM] = pv_add_constant (regs[ARM_IP_REGNUM], -imm);
-	}
-      else if ((insn & 0xfffff000) == 0xe24dd000)	/* sub sp, sp #n */
-	{
-	  unsigned imm = insn & 0xff;			/* immediate value */
-	  unsigned rot = (insn & 0xf00) >> 7;		/* rotate amount */
-	  imm = (imm >> rot) | (imm << (32 - rot));
-	  regs[ARM_SP_REGNUM] = pv_add_constant (regs[ARM_SP_REGNUM], -imm);
-	}
-      else if ((insn & 0xffff7fff) == 0xed6d0103	/* stfe f?,
-							   [sp, -#c]! */
-	       && gdbarch_tdep (gdbarch)->have_fpa_registers)
-	{
-	  if (pv_area_store_would_trash (stack, regs[ARM_SP_REGNUM]))
-	    break;
-
-	  regs[ARM_SP_REGNUM] = pv_add_constant (regs[ARM_SP_REGNUM], -12);
-	  regno = ARM_F0_REGNUM + ((insn >> 12) & 0x07);
-	  pv_area_store (stack, regs[ARM_SP_REGNUM], 12, regs[regno]);
-	}
-      else if ((insn & 0xffbf0fff) == 0xec2d0200	/* sfmfd f0, 4,
-							   [sp!] */
-	       && gdbarch_tdep (gdbarch)->have_fpa_registers)
-	{
-	  int n_saved_fp_regs;
-	  unsigned int fp_start_reg, fp_bound_reg;
-
-	  if (pv_area_store_would_trash (stack, regs[ARM_SP_REGNUM]))
-	    break;
-
-	  if ((insn & 0x800) == 0x800)		/* N0 is set */
-	    {
-	      if ((insn & 0x40000) == 0x40000)	/* N1 is set */
-		n_saved_fp_regs = 3;
-	      else
-		n_saved_fp_regs = 1;
-	    }
-	  else
-	    {
-	      if ((insn & 0x40000) == 0x40000)	/* N1 is set */
-		n_saved_fp_regs = 2;
-	      else
-		n_saved_fp_regs = 4;
-	    }
-
-	  fp_start_reg = ARM_F0_REGNUM + ((insn >> 12) & 0x7);
-	  fp_bound_reg = fp_start_reg + n_saved_fp_regs;
-	  for (; fp_start_reg < fp_bound_reg; fp_start_reg++)
-	    {
-	      regs[ARM_SP_REGNUM] = pv_add_constant (regs[ARM_SP_REGNUM], -12);
-	      pv_area_store (stack, regs[ARM_SP_REGNUM], 12,
-			     regs[fp_start_reg++]);
-	    }
-	}
-      else if ((insn & 0xff000000) == 0xeb000000 && cache == NULL) /* bl */
-	{
-	  /* Allow some special function calls when skipping the
-	     prologue; GCC generates these before storing arguments to
-	     the stack.  */
-	  CORE_ADDR dest = BranchDest (current_pc, insn);
-
-	  if (skip_prologue_function (gdbarch, dest, 0))
-	    continue;
-	  else
-	    break;
-	}
-      else if ((insn & 0xf0000000) != 0xe0000000)
-	break;			/* Condition not true, exit early.  */
-      else if (arm_instruction_changes_pc (insn))
-	/* Don't scan past anything that might change control flow.  */
-	break;
-      else if ((insn & 0xfe500000) == 0xe8100000	/* ldm */
-	       && pv_is_register (regs[bits (insn, 16, 19)], ARM_SP_REGNUM))
-	/* Ignore block loads from the stack, potentially copying
-	   parameters from memory.  */
-	continue;
-      else if ((insn & 0xfc500000) == 0xe4100000
-	       && pv_is_register (regs[bits (insn, 16, 19)], ARM_SP_REGNUM))
-	/* Similarly ignore single loads from the stack.  */
-	continue;
-      else if ((insn & 0xffff0ff0) == 0xe1a00000)
-	/* MOV Rd, Rm.  Skip register copies, i.e. saves to another
-	   register instead of the stack.  */
-	continue;
-      else
-	{
-	  /* The optimizer might shove anything into the prologue,
-	     so we just skip what we don't recognize.  */
-	  unrecognized_pc = current_pc;
-	  continue;
-	}
-    }
-
-  if (unrecognized_pc == 0)
-    unrecognized_pc = current_pc;
-
-  /* The frame size is just the distance from the frame register
-     to the original stack pointer.  */
-  if (pv_is_register (regs[ARM_FP_REGNUM], ARM_SP_REGNUM))
-    {
-      /* Frame pointer is fp.  */
-      framereg = ARM_FP_REGNUM;
-      framesize = -regs[ARM_FP_REGNUM].k;
-    }
-  else
-    {
-      /* Try the stack pointer... this is a bit desperate.  */
-      framereg = ARM_SP_REGNUM;
-      framesize = -regs[ARM_SP_REGNUM].k;
-    }
-
-  if (cache)
-    {
-      cache->framereg = framereg;
-      cache->framesize = framesize;
-
-      for (regno = 0; regno < ARM_FPS_REGNUM; regno++)
-	if (pv_area_find_reg (stack, gdbarch, regno, &offset))
-	  cache->saved_regs[regno].addr = offset;
-    }
-
-  if (arm_debug)
-    fprintf_unfiltered (gdb_stdlog, "Prologue scan stopped at %s\n",
-			paddress (gdbarch, unrecognized_pc));
-
-  do_cleanups (back_to);
-  return unrecognized_pc;
-}
+ */
 
 static void
 arm_scan_prologue (struct frame_info *this_frame,
@@ -1907,6 +774,7 @@ arm_scan_prologue (struct frame_info *this_frame,
 {
   struct gdbarch *gdbarch = get_frame_arch (this_frame);
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
+  enum bfd_endian byte_order_for_code = gdbarch_byte_order_for_code (gdbarch);
   int regno;
   CORE_ADDR prologue_start, prologue_end, current_pc;
   CORE_ADDR prev_pc = get_frame_pc (this_frame);
@@ -1954,16 +822,16 @@ arm_scan_prologue (struct frame_info *this_frame,
 	 may scan more than necessary.  To help compensate for this
 	 lack of accuracy, the prologue scanning loop below contains
 	 several clauses which'll cause the loop to terminate early if
-	 an implausible prologue instruction is encountered.
-
+	 an implausible prologue instruction is encountered.  
+	 
 	 The expression
-
+	 
 	      prologue_start + 64
-
+	    
 	 is a suitable endpoint since it accounts for the largest
 	 possible prologue plus up to five instructions inserted by
 	 the scheduler.  */
-
+         
       if (prologue_end > prologue_start + 64)
 	{
 	  prologue_end = prologue_start + 64;	/* See above.  */
@@ -1984,7 +852,7 @@ arm_scan_prologue (struct frame_info *this_frame,
         return;
       else
         {
-          prologue_start = gdbarch_addr_bits_remove
+          prologue_start = gdbarch_addr_bits_remove 
 			     (gdbarch, return_value) - 8;
           prologue_end = prologue_start + 64;	/* See above.  */
         }
@@ -1993,7 +861,193 @@ arm_scan_prologue (struct frame_info *this_frame,
   if (prev_pc < prologue_end)
     prologue_end = prev_pc;
 
-  arm_analyze_prologue (gdbarch, prologue_start, prologue_end, cache);
+  /* Now search the prologue looking for instructions that set up the
+     frame pointer, adjust the stack pointer, and save registers.
+
+     Be careful, however, and if it doesn't look like a prologue,
+     don't try to scan it.  If, for instance, a frameless function
+     begins with stmfd sp!, then we will tell ourselves there is
+     a frame, which will confuse stack traceback, as well as "finish" 
+     and other operations that rely on a knowledge of the stack
+     traceback.
+
+     In the APCS, the prologue should start with  "mov ip, sp" so
+     if we don't see this as the first insn, we will stop.  
+
+     [Note: This doesn't seem to be true any longer, so it's now an
+     optional part of the prologue.  - Kevin Buettner, 2001-11-20]
+
+     [Note further: The "mov ip,sp" only seems to be missing in
+     frameless functions at optimization level "-O2" or above,
+     in which case it is often (but not always) replaced by
+     "str lr, [sp, #-4]!".  - Michael Snyder, 2002-04-23]  */
+
+  for (regno = 0; regno < ARM_FPS_REGNUM; regno++)
+    regs[regno] = pv_register (regno, 0);
+  stack = make_pv_area (ARM_SP_REGNUM, gdbarch_addr_bit (gdbarch));
+  back_to = make_cleanup_free_pv_area (stack);
+
+  for (current_pc = prologue_start;
+       current_pc < prologue_end;
+       current_pc += 4)
+    {
+      unsigned int insn
+	= read_memory_unsigned_integer (current_pc, 4, byte_order_for_code);
+
+      if (insn == 0xe1a0c00d)		/* mov ip, sp */
+	{
+	  regs[ARM_IP_REGNUM] = regs[ARM_SP_REGNUM];
+	  continue;
+	}
+      else if ((insn & 0xfffff000) == 0xe28dc000) /* add ip, sp #n */
+	{
+	  unsigned imm = insn & 0xff;                   /* immediate value */
+	  unsigned rot = (insn & 0xf00) >> 7;           /* rotate amount */
+	  imm = (imm >> rot) | (imm << (32 - rot));
+	  regs[ARM_IP_REGNUM] = pv_add_constant (regs[ARM_SP_REGNUM], imm);
+	  continue;
+	}
+      else if ((insn & 0xfffff000) == 0xe24dc000) /* sub ip, sp #n */
+	{
+	  unsigned imm = insn & 0xff;                   /* immediate value */
+	  unsigned rot = (insn & 0xf00) >> 7;           /* rotate amount */
+	  imm = (imm >> rot) | (imm << (32 - rot));
+	  regs[ARM_IP_REGNUM] = pv_add_constant (regs[ARM_SP_REGNUM], -imm);
+	  continue;
+	}
+      else if (insn == 0xe52de004)	/* str lr, [sp, #-4]! */
+	{
+	  if (pv_area_store_would_trash (stack, regs[ARM_SP_REGNUM]))
+	    break;
+	  regs[ARM_SP_REGNUM] = pv_add_constant (regs[ARM_SP_REGNUM], -4);
+	  pv_area_store (stack, regs[ARM_SP_REGNUM], 4, regs[ARM_LR_REGNUM]);
+	  continue;
+	}
+      else if ((insn & 0xffff0000) == 0xe92d0000)
+	/* stmfd sp!, {..., fp, ip, lr, pc}
+	   or
+	   stmfd sp!, {a1, a2, a3, a4}  */
+	{
+	  int mask = insn & 0xffff;
+
+	  if (pv_area_store_would_trash (stack, regs[ARM_SP_REGNUM]))
+	    break;
+
+	  /* Calculate offsets of saved registers.  */
+	  for (regno = ARM_PC_REGNUM; regno >= 0; regno--)
+	    if (mask & (1 << regno))
+	      {
+		regs[ARM_SP_REGNUM] = pv_add_constant (regs[ARM_SP_REGNUM], -4);
+		pv_area_store (stack, regs[ARM_SP_REGNUM], 4, regs[regno]);
+	      }
+	}
+      else if ((insn & 0xffffc000) == 0xe54b0000	/* strb rx,[r11,#-n] */
+	       || (insn & 0xffffc0f0) == 0xe14b00b0	/* strh rx,[r11,#-n] */
+	       || (insn & 0xffffc000) == 0xe50b0000)	/* str  rx,[r11,#-n] */
+	{
+	  /* No need to add this to saved_regs -- it's just an arg reg.  */
+	  continue;
+	}
+      else if ((insn & 0xffffc000) == 0xe5cd0000	/* strb rx,[sp,#n] */
+	       || (insn & 0xffffc0f0) == 0xe1cd00b0	/* strh rx,[sp,#n] */
+	       || (insn & 0xffffc000) == 0xe58d0000)	/* str  rx,[sp,#n] */
+	{
+	  /* No need to add this to saved_regs -- it's just an arg reg.  */
+	  continue;
+	}
+      else if ((insn & 0xfffff000) == 0xe24cb000)	/* sub fp, ip #n */
+	{
+	  unsigned imm = insn & 0xff;			/* immediate value */
+	  unsigned rot = (insn & 0xf00) >> 7;		/* rotate amount */
+	  imm = (imm >> rot) | (imm << (32 - rot));
+	  regs[ARM_FP_REGNUM] = pv_add_constant (regs[ARM_IP_REGNUM], -imm);
+	}
+      else if ((insn & 0xfffff000) == 0xe24dd000)	/* sub sp, sp #n */
+	{
+	  unsigned imm = insn & 0xff;			/* immediate value */
+	  unsigned rot = (insn & 0xf00) >> 7;		/* rotate amount */
+	  imm = (imm >> rot) | (imm << (32 - rot));
+	  regs[ARM_SP_REGNUM] = pv_add_constant (regs[ARM_SP_REGNUM], -imm);
+	}
+      else if ((insn & 0xffff7fff) == 0xed6d0103	/* stfe f?, [sp, -#c]! */
+	       && gdbarch_tdep (gdbarch)->have_fpa_registers)
+	{
+	  if (pv_area_store_would_trash (stack, regs[ARM_SP_REGNUM]))
+	    break;
+
+	  regs[ARM_SP_REGNUM] = pv_add_constant (regs[ARM_SP_REGNUM], -12);
+	  regno = ARM_F0_REGNUM + ((insn >> 12) & 0x07);
+	  pv_area_store (stack, regs[ARM_SP_REGNUM], 12, regs[regno]);
+	}
+      else if ((insn & 0xffbf0fff) == 0xec2d0200	/* sfmfd f0, 4, [sp!] */
+	       && gdbarch_tdep (gdbarch)->have_fpa_registers)
+	{
+	  int n_saved_fp_regs;
+	  unsigned int fp_start_reg, fp_bound_reg;
+
+	  if (pv_area_store_would_trash (stack, regs[ARM_SP_REGNUM]))
+	    break;
+
+	  if ((insn & 0x800) == 0x800)		/* N0 is set */
+	    {
+	      if ((insn & 0x40000) == 0x40000)	/* N1 is set */
+		n_saved_fp_regs = 3;
+	      else
+		n_saved_fp_regs = 1;
+	    }
+	  else
+	    {
+	      if ((insn & 0x40000) == 0x40000)	/* N1 is set */
+		n_saved_fp_regs = 2;
+	      else
+		n_saved_fp_regs = 4;
+	    }
+
+	  fp_start_reg = ARM_F0_REGNUM + ((insn >> 12) & 0x7);
+	  fp_bound_reg = fp_start_reg + n_saved_fp_regs;
+	  for (; fp_start_reg < fp_bound_reg; fp_start_reg++)
+	    {
+	      regs[ARM_SP_REGNUM] = pv_add_constant (regs[ARM_SP_REGNUM], -12);
+	      pv_area_store (stack, regs[ARM_SP_REGNUM], 12,
+			     regs[fp_start_reg++]);
+	    }
+	}
+      else if ((insn & 0xf0000000) != 0xe0000000)
+	break;			/* Condition not true, exit early */
+      else if ((insn & 0xfe200000) == 0xe8200000)	/* ldm? */
+	break;			/* Don't scan past a block load */
+      else
+	/* The optimizer might shove anything into the prologue,
+	   so we just skip what we don't recognize.  */
+	continue;
+    }
+
+  /* The frame size is just the distance from the frame register
+     to the original stack pointer.  */
+  if (pv_is_register (regs[ARM_FP_REGNUM], ARM_SP_REGNUM))
+    {
+      /* Frame pointer is fp.  */
+      cache->framereg = ARM_FP_REGNUM;
+      cache->framesize = -regs[ARM_FP_REGNUM].k;
+    }
+  else if (pv_is_register (regs[ARM_SP_REGNUM], ARM_SP_REGNUM))
+    {
+      /* Try the stack pointer... this is a bit desperate.  */
+      cache->framereg = ARM_SP_REGNUM;
+      cache->framesize = -regs[ARM_SP_REGNUM].k;
+    }
+  else
+    {
+      /* We're just out of luck.  We don't know where the frame is.  */
+      cache->framereg = -1;
+      cache->framesize = 0;
+    }
+
+  for (regno = 0; regno < ARM_FPS_REGNUM; regno++)
+    if (pv_area_find_reg (stack, gdbarch, regno, &offset))
+      cache->saved_regs[regno].addr = offset;
+
+  do_cleanups (back_to);
 }
 
 static struct arm_prologue_cache *
@@ -2048,13 +1102,7 @@ arm_prologue_this_id (struct frame_info *this_frame,
   if (cache->prev_sp == 0)
     return;
 
-  /* Use function start address as part of the frame ID.  If we cannot
-     identify the start address (due to missing symbol information),
-     fall back to just using the current PC.  */
   func = get_frame_func (this_frame);
-  if (!func)
-    func = pc;
-
   id = frame_id_build (cache->prev_sp, func);
   *this_id = id;
 }
@@ -2102,14 +1150,13 @@ arm_prologue_prev_register (struct frame_info *this_frame,
   if (prev_regnum == ARM_PS_REGNUM)
     {
       CORE_ADDR lr, cpsr;
-      ULONGEST t_bit = arm_psr_thumb_bit (gdbarch);
 
       cpsr = get_frame_register_unsigned (this_frame, prev_regnum);
       lr = frame_unwind_register_unsigned (this_frame, ARM_LR_REGNUM);
       if (IS_THUMB_ADDR (lr))
-	cpsr |= t_bit;
+	cpsr |= CPSR_T;
       else
-	cpsr &= ~t_bit;
+	cpsr &= ~CPSR_T;
       return frame_unwind_got_constant (this_frame, prev_regnum, cpsr);
     }
 
@@ -2119,757 +1166,18 @@ arm_prologue_prev_register (struct frame_info *this_frame,
 
 struct frame_unwind arm_prologue_unwind = {
   NORMAL_FRAME,
-  default_frame_unwind_stop_reason,
   arm_prologue_this_id,
   arm_prologue_prev_register,
   NULL,
   default_frame_sniffer
 };
 
-/* Maintain a list of ARM exception table entries per objfile, similar to the
-   list of mapping symbols.  We only cache entries for standard ARM-defined
-   personality routines; the cache will contain only the frame unwinding
-   instructions associated with the entry (not the descriptors).  */
-
-static const struct objfile_data *arm_exidx_data_key;
-
-struct arm_exidx_entry
-{
-  bfd_vma addr;
-  gdb_byte *entry;
-};
-typedef struct arm_exidx_entry arm_exidx_entry_s;
-DEF_VEC_O(arm_exidx_entry_s);
-
-struct arm_exidx_data
-{
-  VEC(arm_exidx_entry_s) **section_maps;
-};
-
-static void
-arm_exidx_data_free (struct objfile *objfile, void *arg)
-{
-  struct arm_exidx_data *data = arg;
-  unsigned int i;
-
-  for (i = 0; i < objfile->obfd->section_count; i++)
-    VEC_free (arm_exidx_entry_s, data->section_maps[i]);
-}
-
-static inline int
-arm_compare_exidx_entries (const struct arm_exidx_entry *lhs,
-			   const struct arm_exidx_entry *rhs)
-{
-  return lhs->addr < rhs->addr;
-}
-
-static struct obj_section *
-arm_obj_section_from_vma (struct objfile *objfile, bfd_vma vma)
-{
-  struct obj_section *osect;
-
-  ALL_OBJFILE_OSECTIONS (objfile, osect)
-    if (bfd_get_section_flags (objfile->obfd,
-			       osect->the_bfd_section) & SEC_ALLOC)
-      {
-	bfd_vma start, size;
-	start = bfd_get_section_vma (objfile->obfd, osect->the_bfd_section);
-	size = bfd_get_section_size (osect->the_bfd_section);
-
-	if (start <= vma && vma < start + size)
-	  return osect;
-      }
-
-  return NULL;
-}
-
-/* Parse contents of exception table and exception index sections
-   of OBJFILE, and fill in the exception table entry cache.
-
-   For each entry that refers to a standard ARM-defined personality
-   routine, extract the frame unwinding instructions (from either
-   the index or the table section).  The unwinding instructions
-   are normalized by:
-    - extracting them from the rest of the table data
-    - converting to host endianness
-    - appending the implicit 0xb0 ("Finish") code
-
-   The extracted and normalized instructions are stored for later
-   retrieval by the arm_find_exidx_entry routine.  */
- 
-static void
-arm_exidx_new_objfile (struct objfile *objfile)
-{
-  struct cleanup *cleanups;
-  struct arm_exidx_data *data;
-  asection *exidx, *extab;
-  bfd_vma exidx_vma = 0, extab_vma = 0;
-  bfd_size_type exidx_size = 0, extab_size = 0;
-  gdb_byte *exidx_data = NULL, *extab_data = NULL;
-  LONGEST i;
-
-  /* If we've already touched this file, do nothing.  */
-  if (!objfile || objfile_data (objfile, arm_exidx_data_key) != NULL)
-    return;
-  cleanups = make_cleanup (null_cleanup, NULL);
-
-  /* Read contents of exception table and index.  */
-  exidx = bfd_get_section_by_name (objfile->obfd, ".ARM.exidx");
-  if (exidx)
-    {
-      exidx_vma = bfd_section_vma (objfile->obfd, exidx);
-      exidx_size = bfd_get_section_size (exidx);
-      exidx_data = xmalloc (exidx_size);
-      make_cleanup (xfree, exidx_data);
-
-      if (!bfd_get_section_contents (objfile->obfd, exidx,
-				     exidx_data, 0, exidx_size))
-	{
-	  do_cleanups (cleanups);
-	  return;
-	}
-    }
-
-  extab = bfd_get_section_by_name (objfile->obfd, ".ARM.extab");
-  if (extab)
-    {
-      extab_vma = bfd_section_vma (objfile->obfd, extab);
-      extab_size = bfd_get_section_size (extab);
-      extab_data = xmalloc (extab_size);
-      make_cleanup (xfree, extab_data);
-
-      if (!bfd_get_section_contents (objfile->obfd, extab,
-				     extab_data, 0, extab_size))
-	{
-	  do_cleanups (cleanups);
-	  return;
-	}
-    }
-
-  /* Allocate exception table data structure.  */
-  data = OBSTACK_ZALLOC (&objfile->objfile_obstack, struct arm_exidx_data);
-  set_objfile_data (objfile, arm_exidx_data_key, data);
-  data->section_maps = OBSTACK_CALLOC (&objfile->objfile_obstack,
-				       objfile->obfd->section_count,
-				       VEC(arm_exidx_entry_s) *);
-
-  /* Fill in exception table.  */
-  for (i = 0; i < exidx_size / 8; i++)
-    {
-      struct arm_exidx_entry new_exidx_entry;
-      bfd_vma idx = bfd_h_get_32 (objfile->obfd, exidx_data + i * 8);
-      bfd_vma val = bfd_h_get_32 (objfile->obfd, exidx_data + i * 8 + 4);
-      bfd_vma addr = 0, word = 0;
-      int n_bytes = 0, n_words = 0;
-      struct obj_section *sec;
-      gdb_byte *entry = NULL;
-
-      /* Extract address of start of function.  */
-      idx = ((idx & 0x7fffffff) ^ 0x40000000) - 0x40000000;
-      idx += exidx_vma + i * 8;
-
-      /* Find section containing function and compute section offset.  */
-      sec = arm_obj_section_from_vma (objfile, idx);
-      if (sec == NULL)
-	continue;
-      idx -= bfd_get_section_vma (objfile->obfd, sec->the_bfd_section);
-
-      /* Determine address of exception table entry.  */
-      if (val == 1)
-	{
-	  /* EXIDX_CANTUNWIND -- no exception table entry present.  */
-	}
-      else if ((val & 0xff000000) == 0x80000000)
-	{
-	  /* Exception table entry embedded in .ARM.exidx
-	     -- must be short form.  */
-	  word = val;
-	  n_bytes = 3;
-	}
-      else if (!(val & 0x80000000))
-	{
-	  /* Exception table entry in .ARM.extab.  */
-	  addr = ((val & 0x7fffffff) ^ 0x40000000) - 0x40000000;
-	  addr += exidx_vma + i * 8 + 4;
-
-	  if (addr >= extab_vma && addr + 4 <= extab_vma + extab_size)
-	    {
-	      word = bfd_h_get_32 (objfile->obfd,
-				   extab_data + addr - extab_vma);
-	      addr += 4;
-
-	      if ((word & 0xff000000) == 0x80000000)
-		{
-		  /* Short form.  */
-		  n_bytes = 3;
-		}
-	      else if ((word & 0xff000000) == 0x81000000
-		       || (word & 0xff000000) == 0x82000000)
-		{
-		  /* Long form.  */
-		  n_bytes = 2;
-		  n_words = ((word >> 16) & 0xff);
-		}
-	      else if (!(word & 0x80000000))
-		{
-		  bfd_vma pers;
-		  struct obj_section *pers_sec;
-		  int gnu_personality = 0;
-
-		  /* Custom personality routine.  */
-		  pers = ((word & 0x7fffffff) ^ 0x40000000) - 0x40000000;
-		  pers = UNMAKE_THUMB_ADDR (pers + addr - 4);
-
-		  /* Check whether we've got one of the variants of the
-		     GNU personality routines.  */
-		  pers_sec = arm_obj_section_from_vma (objfile, pers);
-		  if (pers_sec)
-		    {
-		      static const char *personality[] = 
-			{
-			  "__gcc_personality_v0",
-			  "__gxx_personality_v0",
-			  "__gcj_personality_v0",
-			  "__gnu_objc_personality_v0",
-			  NULL
-			};
-
-		      CORE_ADDR pc = pers + obj_section_offset (pers_sec);
-		      int k;
-
-		      for (k = 0; personality[k]; k++)
-			if (lookup_minimal_symbol_by_pc_name
-			      (pc, personality[k], objfile))
-			  {
-			    gnu_personality = 1;
-			    break;
-			  }
-		    }
-
-		  /* If so, the next word contains a word count in the high
-		     byte, followed by the same unwind instructions as the
-		     pre-defined forms.  */
-		  if (gnu_personality
-		      && addr + 4 <= extab_vma + extab_size)
-		    {
-		      word = bfd_h_get_32 (objfile->obfd,
-					   extab_data + addr - extab_vma);
-		      addr += 4;
-		      n_bytes = 3;
-		      n_words = ((word >> 24) & 0xff);
-		    }
-		}
-	    }
-	}
-
-      /* Sanity check address.  */
-      if (n_words)
-	if (addr < extab_vma || addr + 4 * n_words > extab_vma + extab_size)
-	  n_words = n_bytes = 0;
-
-      /* The unwind instructions reside in WORD (only the N_BYTES least
-	 significant bytes are valid), followed by N_WORDS words in the
-	 extab section starting at ADDR.  */
-      if (n_bytes || n_words)
-	{
-	  gdb_byte *p = entry = obstack_alloc (&objfile->objfile_obstack,
-					       n_bytes + n_words * 4 + 1);
-
-	  while (n_bytes--)
-	    *p++ = (gdb_byte) ((word >> (8 * n_bytes)) & 0xff);
-
-	  while (n_words--)
-	    {
-	      word = bfd_h_get_32 (objfile->obfd,
-				   extab_data + addr - extab_vma);
-	      addr += 4;
-
-	      *p++ = (gdb_byte) ((word >> 24) & 0xff);
-	      *p++ = (gdb_byte) ((word >> 16) & 0xff);
-	      *p++ = (gdb_byte) ((word >> 8) & 0xff);
-	      *p++ = (gdb_byte) (word & 0xff);
-	    }
-
-	  /* Implied "Finish" to terminate the list.  */
-	  *p++ = 0xb0;
-	}
-
-      /* Push entry onto vector.  They are guaranteed to always
-	 appear in order of increasing addresses.  */
-      new_exidx_entry.addr = idx;
-      new_exidx_entry.entry = entry;
-      VEC_safe_push (arm_exidx_entry_s,
-		     data->section_maps[sec->the_bfd_section->index],
-		     &new_exidx_entry);
-    }
-
-  do_cleanups (cleanups);
-}
-
-/* Search for the exception table entry covering MEMADDR.  If one is found,
-   return a pointer to its data.  Otherwise, return 0.  If START is non-NULL,
-   set *START to the start of the region covered by this entry.  */
-
-static gdb_byte *
-arm_find_exidx_entry (CORE_ADDR memaddr, CORE_ADDR *start)
-{
-  struct obj_section *sec;
-
-  sec = find_pc_section (memaddr);
-  if (sec != NULL)
-    {
-      struct arm_exidx_data *data;
-      VEC(arm_exidx_entry_s) *map;
-      struct arm_exidx_entry map_key = { memaddr - obj_section_addr (sec), 0 };
-      unsigned int idx;
-
-      data = objfile_data (sec->objfile, arm_exidx_data_key);
-      if (data != NULL)
-	{
-	  map = data->section_maps[sec->the_bfd_section->index];
-	  if (!VEC_empty (arm_exidx_entry_s, map))
-	    {
-	      struct arm_exidx_entry *map_sym;
-
-	      idx = VEC_lower_bound (arm_exidx_entry_s, map, &map_key,
-				     arm_compare_exidx_entries);
-
-	      /* VEC_lower_bound finds the earliest ordered insertion
-		 point.  If the following symbol starts at this exact
-		 address, we use that; otherwise, the preceding
-		 exception table entry covers this address.  */
-	      if (idx < VEC_length (arm_exidx_entry_s, map))
-		{
-		  map_sym = VEC_index (arm_exidx_entry_s, map, idx);
-		  if (map_sym->addr == map_key.addr)
-		    {
-		      if (start)
-			*start = map_sym->addr + obj_section_addr (sec);
-		      return map_sym->entry;
-		    }
-		}
-
-	      if (idx > 0)
-		{
-		  map_sym = VEC_index (arm_exidx_entry_s, map, idx - 1);
-		  if (start)
-		    *start = map_sym->addr + obj_section_addr (sec);
-		  return map_sym->entry;
-		}
-	    }
-	}
-    }
-
-  return NULL;
-}
-
-/* Given the current frame THIS_FRAME, and its associated frame unwinding
-   instruction list from the ARM exception table entry ENTRY, allocate and
-   return a prologue cache structure describing how to unwind this frame.
-
-   Return NULL if the unwinding instruction list contains a "spare",
-   "reserved" or "refuse to unwind" instruction as defined in section
-   "9.3 Frame unwinding instructions" of the "Exception Handling ABI
-   for the ARM Architecture" document.  */
-
-static struct arm_prologue_cache *
-arm_exidx_fill_cache (struct frame_info *this_frame, gdb_byte *entry)
-{
-  CORE_ADDR vsp = 0;
-  int vsp_valid = 0;
-
-  struct arm_prologue_cache *cache;
-  cache = FRAME_OBSTACK_ZALLOC (struct arm_prologue_cache);
-  cache->saved_regs = trad_frame_alloc_saved_regs (this_frame);
-
-  for (;;)
-    {
-      gdb_byte insn;
-
-      /* Whenever we reload SP, we actually have to retrieve its
-	 actual value in the current frame.  */
-      if (!vsp_valid)
-	{
-	  if (trad_frame_realreg_p (cache->saved_regs, ARM_SP_REGNUM))
-	    {
-	      int reg = cache->saved_regs[ARM_SP_REGNUM].realreg;
-	      vsp = get_frame_register_unsigned (this_frame, reg);
-	    }
-	  else
-	    {
-	      CORE_ADDR addr = cache->saved_regs[ARM_SP_REGNUM].addr;
-	      vsp = get_frame_memory_unsigned (this_frame, addr, 4);
-	    }
-
-	  vsp_valid = 1;
-	}
-
-      /* Decode next unwind instruction.  */
-      insn = *entry++;
-
-      if ((insn & 0xc0) == 0)
-	{
-	  int offset = insn & 0x3f;
-	  vsp += (offset << 2) + 4;
-	}
-      else if ((insn & 0xc0) == 0x40)
-	{
-	  int offset = insn & 0x3f;
-	  vsp -= (offset << 2) + 4;
-	}
-      else if ((insn & 0xf0) == 0x80)
-	{
-	  int mask = ((insn & 0xf) << 8) | *entry++;
-	  int i;
-
-	  /* The special case of an all-zero mask identifies
-	     "Refuse to unwind".  We return NULL to fall back
-	     to the prologue analyzer.  */
-	  if (mask == 0)
-	    return NULL;
-
-	  /* Pop registers r4..r15 under mask.  */
-	  for (i = 0; i < 12; i++)
-	    if (mask & (1 << i))
-	      {
-	        cache->saved_regs[4 + i].addr = vsp;
-		vsp += 4;
-	      }
-
-	  /* Special-case popping SP -- we need to reload vsp.  */
-	  if (mask & (1 << (ARM_SP_REGNUM - 4)))
-	    vsp_valid = 0;
-	}
-      else if ((insn & 0xf0) == 0x90)
-	{
-	  int reg = insn & 0xf;
-
-	  /* Reserved cases.  */
-	  if (reg == ARM_SP_REGNUM || reg == ARM_PC_REGNUM)
-	    return NULL;
-
-	  /* Set SP from another register and mark VSP for reload.  */
-	  cache->saved_regs[ARM_SP_REGNUM] = cache->saved_regs[reg];
-	  vsp_valid = 0;
-	}
-      else if ((insn & 0xf0) == 0xa0)
-	{
-	  int count = insn & 0x7;
-	  int pop_lr = (insn & 0x8) != 0;
-	  int i;
-
-	  /* Pop r4..r[4+count].  */
-	  for (i = 0; i <= count; i++)
-	    {
-	      cache->saved_regs[4 + i].addr = vsp;
-	      vsp += 4;
-	    }
-
-	  /* If indicated by flag, pop LR as well.  */
-	  if (pop_lr)
-	    {
-	      cache->saved_regs[ARM_LR_REGNUM].addr = vsp;
-	      vsp += 4;
-	    }
-	}
-      else if (insn == 0xb0)
-	{
-	  /* We could only have updated PC by popping into it; if so, it
-	     will show up as address.  Otherwise, copy LR into PC.  */
-	  if (!trad_frame_addr_p (cache->saved_regs, ARM_PC_REGNUM))
-	    cache->saved_regs[ARM_PC_REGNUM]
-	      = cache->saved_regs[ARM_LR_REGNUM];
-
-	  /* We're done.  */
-	  break;
-	}
-      else if (insn == 0xb1)
-	{
-	  int mask = *entry++;
-	  int i;
-
-	  /* All-zero mask and mask >= 16 is "spare".  */
-	  if (mask == 0 || mask >= 16)
-	    return NULL;
-
-	  /* Pop r0..r3 under mask.  */
-	  for (i = 0; i < 4; i++)
-	    if (mask & (1 << i))
-	      {
-		cache->saved_regs[i].addr = vsp;
-		vsp += 4;
-	      }
-	}
-      else if (insn == 0xb2)
-	{
-	  ULONGEST offset = 0;
-	  unsigned shift = 0;
-
-	  do
-	    {
-	      offset |= (*entry & 0x7f) << shift;
-	      shift += 7;
-	    }
-	  while (*entry++ & 0x80);
-
-	  vsp += 0x204 + (offset << 2);
-	}
-      else if (insn == 0xb3)
-	{
-	  int start = *entry >> 4;
-	  int count = (*entry++) & 0xf;
-	  int i;
-
-	  /* Only registers D0..D15 are valid here.  */
-	  if (start + count >= 16)
-	    return NULL;
-
-	  /* Pop VFP double-precision registers D[start]..D[start+count].  */
-	  for (i = 0; i <= count; i++)
-	    {
-	      cache->saved_regs[ARM_D0_REGNUM + start + i].addr = vsp;
-	      vsp += 8;
-	    }
-
-	  /* Add an extra 4 bytes for FSTMFDX-style stack.  */
-	  vsp += 4;
-	}
-      else if ((insn & 0xf8) == 0xb8)
-	{
-	  int count = insn & 0x7;
-	  int i;
-
-	  /* Pop VFP double-precision registers D[8]..D[8+count].  */
-	  for (i = 0; i <= count; i++)
-	    {
-	      cache->saved_regs[ARM_D0_REGNUM + 8 + i].addr = vsp;
-	      vsp += 8;
-	    }
-
-	  /* Add an extra 4 bytes for FSTMFDX-style stack.  */
-	  vsp += 4;
-	}
-      else if (insn == 0xc6)
-	{
-	  int start = *entry >> 4;
-	  int count = (*entry++) & 0xf;
-	  int i;
-
-	  /* Only registers WR0..WR15 are valid.  */
-	  if (start + count >= 16)
-	    return NULL;
-
-	  /* Pop iwmmx registers WR[start]..WR[start+count].  */
-	  for (i = 0; i <= count; i++)
-	    {
-	      cache->saved_regs[ARM_WR0_REGNUM + start + i].addr = vsp;
-	      vsp += 8;
-	    }
-	}
-      else if (insn == 0xc7)
-	{
-	  int mask = *entry++;
-	  int i;
-
-	  /* All-zero mask and mask >= 16 is "spare".  */
-	  if (mask == 0 || mask >= 16)
-	    return NULL;
-
-	  /* Pop iwmmx general-purpose registers WCGR0..WCGR3 under mask.  */
-	  for (i = 0; i < 4; i++)
-	    if (mask & (1 << i))
-	      {
-		cache->saved_regs[ARM_WCGR0_REGNUM + i].addr = vsp;
-		vsp += 4;
-	      }
-	}
-      else if ((insn & 0xf8) == 0xc0)
-	{
-	  int count = insn & 0x7;
-	  int i;
-
-	  /* Pop iwmmx registers WR[10]..WR[10+count].  */
-	  for (i = 0; i <= count; i++)
-	    {
-	      cache->saved_regs[ARM_WR0_REGNUM + 10 + i].addr = vsp;
-	      vsp += 8;
-	    }
-	}
-      else if (insn == 0xc8)
-	{
-	  int start = *entry >> 4;
-	  int count = (*entry++) & 0xf;
-	  int i;
-
-	  /* Only registers D0..D31 are valid.  */
-	  if (start + count >= 16)
-	    return NULL;
-
-	  /* Pop VFP double-precision registers
-	     D[16+start]..D[16+start+count].  */
-	  for (i = 0; i <= count; i++)
-	    {
-	      cache->saved_regs[ARM_D0_REGNUM + 16 + start + i].addr = vsp;
-	      vsp += 8;
-	    }
-	}
-      else if (insn == 0xc9)
-	{
-	  int start = *entry >> 4;
-	  int count = (*entry++) & 0xf;
-	  int i;
-
-	  /* Pop VFP double-precision registers D[start]..D[start+count].  */
-	  for (i = 0; i <= count; i++)
-	    {
-	      cache->saved_regs[ARM_D0_REGNUM + start + i].addr = vsp;
-	      vsp += 8;
-	    }
-	}
-      else if ((insn & 0xf8) == 0xd0)
-	{
-	  int count = insn & 0x7;
-	  int i;
-
-	  /* Pop VFP double-precision registers D[8]..D[8+count].  */
-	  for (i = 0; i <= count; i++)
-	    {
-	      cache->saved_regs[ARM_D0_REGNUM + 8 + i].addr = vsp;
-	      vsp += 8;
-	    }
-	}
-      else
-	{
-	  /* Everything else is "spare".  */
-	  return NULL;
-	}
-    }
-
-  /* If we restore SP from a register, assume this was the frame register.
-     Otherwise just fall back to SP as frame register.  */
-  if (trad_frame_realreg_p (cache->saved_regs, ARM_SP_REGNUM))
-    cache->framereg = cache->saved_regs[ARM_SP_REGNUM].realreg;
-  else
-    cache->framereg = ARM_SP_REGNUM;
-
-  /* Determine offset to previous frame.  */
-  cache->framesize
-    = vsp - get_frame_register_unsigned (this_frame, cache->framereg);
-
-  /* We already got the previous SP.  */
-  cache->prev_sp = vsp;
-
-  return cache;
-}
-
-/* Unwinding via ARM exception table entries.  Note that the sniffer
-   already computes a filled-in prologue cache, which is then used
-   with the same arm_prologue_this_id and arm_prologue_prev_register
-   routines also used for prologue-parsing based unwinding.  */
-
-static int
-arm_exidx_unwind_sniffer (const struct frame_unwind *self,
-			  struct frame_info *this_frame,
-			  void **this_prologue_cache)
-{
-  struct gdbarch *gdbarch = get_frame_arch (this_frame);
-  enum bfd_endian byte_order_for_code = gdbarch_byte_order_for_code (gdbarch);
-  CORE_ADDR addr_in_block, exidx_region, func_start;
-  struct arm_prologue_cache *cache;
-  gdb_byte *entry;
-
-  /* See if we have an ARM exception table entry covering this address.  */
-  addr_in_block = get_frame_address_in_block (this_frame);
-  entry = arm_find_exidx_entry (addr_in_block, &exidx_region);
-  if (!entry)
-    return 0;
-
-  /* The ARM exception table does not describe unwind information
-     for arbitrary PC values, but is guaranteed to be correct only
-     at call sites.  We have to decide here whether we want to use
-     ARM exception table information for this frame, or fall back
-     to using prologue parsing.  (Note that if we have DWARF CFI,
-     this sniffer isn't even called -- CFI is always preferred.)
-
-     Before we make this decision, however, we check whether we
-     actually have *symbol* information for the current frame.
-     If not, prologue parsing would not work anyway, so we might
-     as well use the exception table and hope for the best.  */
-  if (find_pc_partial_function (addr_in_block, NULL, &func_start, NULL))
-    {
-      int exc_valid = 0;
-
-      /* If the next frame is "normal", we are at a call site in this
-	 frame, so exception information is guaranteed to be valid.  */
-      if (get_next_frame (this_frame)
-	  && get_frame_type (get_next_frame (this_frame)) == NORMAL_FRAME)
-	exc_valid = 1;
-
-      /* We also assume exception information is valid if we're currently
-	 blocked in a system call.  The system library is supposed to
-	 ensure this, so that e.g. pthread cancellation works.  */
-      if (arm_frame_is_thumb (this_frame))
-	{
-	  LONGEST insn;
-
-	  if (safe_read_memory_integer (get_frame_pc (this_frame) - 2, 2,
-					byte_order_for_code, &insn)
-	      && (insn & 0xff00) == 0xdf00 /* svc */)
-	    exc_valid = 1;
-	}
-      else
-	{
-	  LONGEST insn;
-
-	  if (safe_read_memory_integer (get_frame_pc (this_frame) - 4, 4,
-					byte_order_for_code, &insn)
-	      && (insn & 0x0f000000) == 0x0f000000 /* svc */)
-	    exc_valid = 1;
-	}
-	
-      /* Bail out if we don't know that exception information is valid.  */
-      if (!exc_valid)
-	return 0;
-
-     /* The ARM exception index does not mark the *end* of the region
-	covered by the entry, and some functions will not have any entry.
-	To correctly recognize the end of the covered region, the linker
-	should have inserted dummy records with a CANTUNWIND marker.
-
-	Unfortunately, current versions of GNU ld do not reliably do
-	this, and thus we may have found an incorrect entry above.
-	As a (temporary) sanity check, we only use the entry if it
-	lies *within* the bounds of the function.  Note that this check
-	might reject perfectly valid entries that just happen to cover
-	multiple functions; therefore this check ought to be removed
-	once the linker is fixed.  */
-      if (func_start > exidx_region)
-	return 0;
-    }
-
-  /* Decode the list of unwinding instructions into a prologue cache.
-     Note that this may fail due to e.g. a "refuse to unwind" code.  */
-  cache = arm_exidx_fill_cache (this_frame, entry);
-  if (!cache)
-    return 0;
-
-  *this_prologue_cache = cache;
-  return 1;
-}
-
-struct frame_unwind arm_exidx_unwind = {
-  NORMAL_FRAME,
-  default_frame_unwind_stop_reason,
-  arm_prologue_this_id,
-  arm_prologue_prev_register,
-  NULL,
-  arm_exidx_unwind_sniffer
-};
-
 static struct arm_prologue_cache *
 arm_make_stub_cache (struct frame_info *this_frame)
 {
+  int reg;
   struct arm_prologue_cache *cache;
+  CORE_ADDR unwound_fp;
 
   cache = FRAME_OBSTACK_ZALLOC (struct arm_prologue_cache);
   cache->saved_regs = trad_frame_alloc_saved_regs (this_frame);
@@ -2905,8 +1213,6 @@ arm_stub_unwind_sniffer (const struct frame_unwind *self,
 
   addr_in_block = get_frame_address_in_block (this_frame);
   if (in_plt_section (addr_in_block, NULL)
-      /* We also use the stub winder if the target memory is unreadable
-	 to avoid having the prologue unwinder trying to read it.  */
       || target_read_memory (get_frame_pc (this_frame), dummy, 4) != 0)
     return 1;
 
@@ -2915,7 +1221,6 @@ arm_stub_unwind_sniffer (const struct frame_unwind *self,
 
 struct frame_unwind arm_stub_unwind = {
   NORMAL_FRAME,
-  default_frame_unwind_stop_reason,
   arm_stub_this_id,
   arm_prologue_prev_register,
   NULL,
@@ -2950,8 +1255,7 @@ struct frame_base arm_normal_base = {
 static struct frame_id
 arm_dummy_id (struct gdbarch *gdbarch, struct frame_info *this_frame)
 {
-  return frame_id_build (get_frame_register_unsigned (this_frame,
-						      ARM_SP_REGNUM),
+  return frame_id_build (get_frame_register_unsigned (this_frame, ARM_SP_REGNUM),
 			 get_frame_pc (this_frame));
 }
 
@@ -2979,7 +1283,6 @@ arm_dwarf2_prev_register (struct frame_info *this_frame, void **this_cache,
 {
   struct gdbarch * gdbarch = get_frame_arch (this_frame);
   CORE_ADDR lr, cpsr;
-  ULONGEST t_bit = arm_psr_thumb_bit (gdbarch);
 
   switch (regnum)
     {
@@ -2997,9 +1300,9 @@ arm_dwarf2_prev_register (struct frame_info *this_frame, void **this_cache,
       cpsr = get_frame_register_unsigned (this_frame, regnum);
       lr = frame_unwind_register_unsigned (this_frame, ARM_LR_REGNUM);
       if (IS_THUMB_ADDR (lr))
-	cpsr |= t_bit;
+	cpsr |= CPSR_T;
       else
-	cpsr &= ~t_bit;
+	cpsr &= ~CPSR_T;
       return frame_unwind_got_constant (this_frame, regnum, cpsr);
 
     default:
@@ -3026,204 +1329,6 @@ arm_dwarf2_frame_init_reg (struct gdbarch *gdbarch, int regnum,
     }
 }
 
-/* Return true if we are in the function's epilogue, i.e. after the
-   instruction that destroyed the function's stack frame.  */
-
-static int
-thumb_in_function_epilogue_p (struct gdbarch *gdbarch, CORE_ADDR pc)
-{
-  enum bfd_endian byte_order_for_code = gdbarch_byte_order_for_code (gdbarch);
-  unsigned int insn, insn2;
-  int found_return = 0, found_stack_adjust = 0;
-  CORE_ADDR func_start, func_end;
-  CORE_ADDR scan_pc;
-  gdb_byte buf[4];
-
-  if (!find_pc_partial_function (pc, NULL, &func_start, &func_end))
-    return 0;
-
-  /* The epilogue is a sequence of instructions along the following lines:
-
-    - add stack frame size to SP or FP
-    - [if frame pointer used] restore SP from FP
-    - restore registers from SP [may include PC]
-    - a return-type instruction [if PC wasn't already restored]
-
-    In a first pass, we scan forward from the current PC and verify the
-    instructions we find as compatible with this sequence, ending in a
-    return instruction.
-
-    However, this is not sufficient to distinguish indirect function calls
-    within a function from indirect tail calls in the epilogue in some cases.
-    Therefore, if we didn't already find any SP-changing instruction during
-    forward scan, we add a backward scanning heuristic to ensure we actually
-    are in the epilogue.  */
-
-  scan_pc = pc;
-  while (scan_pc < func_end && !found_return)
-    {
-      if (target_read_memory (scan_pc, buf, 2))
-	break;
-
-      scan_pc += 2;
-      insn = extract_unsigned_integer (buf, 2, byte_order_for_code);
-
-      if ((insn & 0xff80) == 0x4700)  /* bx <Rm> */
-	found_return = 1;
-      else if (insn == 0x46f7)  /* mov pc, lr */
-	found_return = 1;
-      else if (insn == 0x46bd)  /* mov sp, r7 */
-	found_stack_adjust = 1;
-      else if ((insn & 0xff00) == 0xb000)  /* add sp, imm or sub sp, imm  */
-	found_stack_adjust = 1;
-      else if ((insn & 0xfe00) == 0xbc00)  /* pop <registers> */
-	{
-	  found_stack_adjust = 1;
-	  if (insn & 0x0100)  /* <registers> include PC.  */
-	    found_return = 1;
-	}
-      else if (thumb_insn_size (insn) == 4)  /* 32-bit Thumb-2 instruction */
-	{
-	  if (target_read_memory (scan_pc, buf, 2))
-	    break;
-
-	  scan_pc += 2;
-	  insn2 = extract_unsigned_integer (buf, 2, byte_order_for_code);
-
-	  if (insn == 0xe8bd)  /* ldm.w sp!, <registers> */
-	    {
-	      found_stack_adjust = 1;
-	      if (insn2 & 0x8000)  /* <registers> include PC.  */
-		found_return = 1;
-	    }
-	  else if (insn == 0xf85d  /* ldr.w <Rt>, [sp], #4 */
-		   && (insn2 & 0x0fff) == 0x0b04)
-	    {
-	      found_stack_adjust = 1;
-	      if ((insn2 & 0xf000) == 0xf000) /* <Rt> is PC.  */
-		found_return = 1;
-	    }
-	  else if ((insn & 0xffbf) == 0xecbd  /* vldm sp!, <list> */
-		   && (insn2 & 0x0e00) == 0x0a00)
-	    found_stack_adjust = 1;
-	  else
-	    break;
-	}
-      else
-	break;
-    }
-
-  if (!found_return)
-    return 0;
-
-  /* Since any instruction in the epilogue sequence, with the possible
-     exception of return itself, updates the stack pointer, we need to
-     scan backwards for at most one instruction.  Try either a 16-bit or
-     a 32-bit instruction.  This is just a heuristic, so we do not worry
-     too much about false positives.  */
-
-  if (!found_stack_adjust)
-    {
-      if (pc - 4 < func_start)
-	return 0;
-      if (target_read_memory (pc - 4, buf, 4))
-	return 0;
-
-      insn = extract_unsigned_integer (buf, 2, byte_order_for_code);
-      insn2 = extract_unsigned_integer (buf + 2, 2, byte_order_for_code);
-
-      if (insn2 == 0x46bd)  /* mov sp, r7 */
-	found_stack_adjust = 1;
-      else if ((insn2 & 0xff00) == 0xb000)  /* add sp, imm or sub sp, imm  */
-	found_stack_adjust = 1;
-      else if ((insn2 & 0xff00) == 0xbc00)  /* pop <registers> without PC */
-	found_stack_adjust = 1;
-      else if (insn == 0xe8bd)  /* ldm.w sp!, <registers> */
-	found_stack_adjust = 1;
-      else if (insn == 0xf85d  /* ldr.w <Rt>, [sp], #4 */
-	       && (insn2 & 0x0fff) == 0x0b04)
-	found_stack_adjust = 1;
-      else if ((insn & 0xffbf) == 0xecbd  /* vldm sp!, <list> */
-	       && (insn2 & 0x0e00) == 0x0a00)
-	found_stack_adjust = 1;
-    }
-
-  return found_stack_adjust;
-}
-
-/* Return true if we are in the function's epilogue, i.e. after the
-   instruction that destroyed the function's stack frame.  */
-
-static int
-arm_in_function_epilogue_p (struct gdbarch *gdbarch, CORE_ADDR pc)
-{
-  enum bfd_endian byte_order_for_code = gdbarch_byte_order_for_code (gdbarch);
-  unsigned int insn;
-  int found_return, found_stack_adjust;
-  CORE_ADDR func_start, func_end;
-
-  if (arm_pc_is_thumb (gdbarch, pc))
-    return thumb_in_function_epilogue_p (gdbarch, pc);
-
-  if (!find_pc_partial_function (pc, NULL, &func_start, &func_end))
-    return 0;
-
-  /* We are in the epilogue if the previous instruction was a stack
-     adjustment and the next instruction is a possible return (bx, mov
-     pc, or pop).  We could have to scan backwards to find the stack
-     adjustment, or forwards to find the return, but this is a decent
-     approximation.  First scan forwards.  */
-
-  found_return = 0;
-  insn = read_memory_unsigned_integer (pc, 4, byte_order_for_code);
-  if (bits (insn, 28, 31) != INST_NV)
-    {
-      if ((insn & 0x0ffffff0) == 0x012fff10)
-	/* BX.  */
-	found_return = 1;
-      else if ((insn & 0x0ffffff0) == 0x01a0f000)
-	/* MOV PC.  */
-	found_return = 1;
-      else if ((insn & 0x0fff0000) == 0x08bd0000
-	  && (insn & 0x0000c000) != 0)
-	/* POP (LDMIA), including PC or LR.  */
-	found_return = 1;
-    }
-
-  if (!found_return)
-    return 0;
-
-  /* Scan backwards.  This is just a heuristic, so do not worry about
-     false positives from mode changes.  */
-
-  if (pc < func_start + 4)
-    return 0;
-
-  found_stack_adjust = 0;
-  insn = read_memory_unsigned_integer (pc - 4, 4, byte_order_for_code);
-  if (bits (insn, 28, 31) != INST_NV)
-    {
-      if ((insn & 0x0df0f000) == 0x0080d000)
-	/* ADD SP (register or immediate).  */
-	found_stack_adjust = 1;
-      else if ((insn & 0x0df0f000) == 0x0040d000)
-	/* SUB SP (register or immediate).  */
-	found_stack_adjust = 1;
-      else if ((insn & 0x0ffffff0) == 0x01a0d000)
-	/* MOV SP.  */
-	found_stack_adjust = 1;
-      else if ((insn & 0x0fff0000) == 0x08bd0000)
-	/* POP (LDMIA).  */
-	found_stack_adjust = 1;
-    }
-
-  if (found_stack_adjust)
-    return 1;
-
-  return 0;
-}
-
-
 /* When arguments must be pushed onto the stack, they go on in reverse
    order.  The code below implements a FILO (stack) to do this.  */
 
@@ -3235,7 +1340,7 @@ struct stack_item
 };
 
 static struct stack_item *
-push_stack_item (struct stack_item *prev, const void *contents, int len)
+push_stack_item (struct stack_item *prev, void *contents, int len)
 {
   struct stack_item *si;
   si = xmalloc (sizeof (struct stack_item));
@@ -3546,13 +1651,13 @@ arm_push_dummy_call (struct gdbarch *gdbarch, struct value *function,
 
   /* Set the return address.  For the ARM, the return breakpoint is
      always at BP_ADDR.  */
-  if (arm_pc_is_thumb (gdbarch, bp_addr))
+  if (arm_pc_is_thumb (bp_addr))
     bp_addr |= 1;
   regcache_cooked_write_unsigned (regcache, ARM_LR_REGNUM, bp_addr);
 
   /* Walk through the list of args and determine how large a temporary
      stack is required.  Need to take care here as structs may be
-     passed on the stack, and we have to push them.  */
+     passed on the stack, and we have to to push them.  */
   nstack = 0;
 
   argreg = ARM_A1_REGNUM;
@@ -3576,7 +1681,7 @@ arm_push_dummy_call (struct gdbarch *gdbarch, struct value *function,
       struct type *arg_type;
       struct type *target_type;
       enum type_code typecode;
-      const bfd_byte *val;
+      bfd_byte *val;
       int align;
       enum arm_vfp_cprc_base_type vfp_base_type;
       int vfp_base_count;
@@ -3586,7 +1691,7 @@ arm_push_dummy_call (struct gdbarch *gdbarch, struct value *function,
       len = TYPE_LENGTH (arg_type);
       target_type = TYPE_TARGET_TYPE (arg_type);
       typecode = TYPE_CODE (arg_type);
-      val = value_contents (args[argnum]);
+      val = value_contents_writeable (args[argnum]);
 
       align = arm_type_align (arg_type);
       /* Round alignment up to a whole number of words.  */
@@ -3682,15 +1787,14 @@ arm_push_dummy_call (struct gdbarch *gdbarch, struct value *function,
 	 the THUMB bit in it.  */
       if (TYPE_CODE_PTR == typecode
 	  && target_type != NULL
-	  && TYPE_CODE_FUNC == TYPE_CODE (check_typedef (target_type)))
+	  && TYPE_CODE_FUNC == TYPE_CODE (target_type))
 	{
 	  CORE_ADDR regval = extract_unsigned_integer (val, len, byte_order);
-	  if (arm_pc_is_thumb (gdbarch, regval))
+	  if (arm_pc_is_thumb (regval))
 	    {
-	      bfd_byte *copy = alloca (len);
-	      store_unsigned_integer (copy, len, byte_order,
+	      val = alloca (len);
+	      store_unsigned_integer (val, len, byte_order,
 				      MAKE_THUMB_ADDR (regval));
-	      val = copy;
 	    }
 	}
 
@@ -4104,6 +2208,16 @@ condition_true (unsigned long cond, unsigned long status_reg)
   return 1;
 }
 
+/* Support routines for single stepping.  Calculate the next PC value.  */
+#define submask(x) ((1L << ((x) + 1)) - 1)
+#define bit(obj,st) (((obj) >> (st)) & 1)
+#define bits(obj,st,fn) (((obj) >> (st)) & submask ((fn) - (st)))
+#define sbits(obj,st,fn) \
+  ((long) (bits(obj,st,fn) | ((long) bit(obj,fn) * ~ submask (fn - st))))
+#define BranchDest(addr,instr) \
+  ((CORE_ADDR) (((long) (addr)) + 8 + (sbits (instr, 0, 23) << 2)))
+#define ARM_PC_32 1
+
 static unsigned long
 shifted_reg_val (struct frame_info *frame, unsigned long inst, int carry,
 		 unsigned long pc_val, unsigned long status_reg)
@@ -4121,8 +2235,9 @@ shifted_reg_val (struct frame_info *frame, unsigned long inst, int carry,
   else
     shift = bits (inst, 7, 11);
 
-  res = (rm == ARM_PC_REGNUM
-	 ? (pc_val + (bit (inst, 4) ? 12 : 8))
+  res = (rm == 15
+	 ? ((pc_val | (ARM_PC_32 ? 0 : status_reg))
+	    + (bit (inst, 4) ? 12 : 8))
 	 : get_frame_register_unsigned (frame, rm));
 
   switch (shifttype)
@@ -4161,7 +2276,7 @@ bitcount (unsigned long val)
 {
   int nbits;
   for (nbits = 0; val != 0; nbits++)
-    val &= val - 1;		/* Delete rightmost 1-bit in val.  */
+    val &= val - 1;		/* delete rightmost 1-bit in val */
   return nbits;
 }
 
@@ -4198,7 +2313,7 @@ thumb_advance_itstate (unsigned int itstate)
    another breakpoint by our caller.  */
 
 static CORE_ADDR
-thumb_get_next_pc_raw (struct frame_info *frame, CORE_ADDR pc)
+thumb_get_next_pc (struct frame_info *frame, CORE_ADDR pc)
 {
   struct gdbarch *gdbarch = get_frame_arch (frame);
   struct address_space *aspace = get_frame_address_space (frame);
@@ -4206,12 +2321,9 @@ thumb_get_next_pc_raw (struct frame_info *frame, CORE_ADDR pc)
   enum bfd_endian byte_order_for_code = gdbarch_byte_order_for_code (gdbarch);
   unsigned long pc_val = ((unsigned long) pc) + 4;	/* PC after prefetch */
   unsigned short inst1;
-  CORE_ADDR nextpc = pc + 2;		/* Default is next instruction.  */
+  CORE_ADDR nextpc = pc + 2;		/* default is next instruction */
   unsigned long offset;
   ULONGEST status, itstate;
-
-  nextpc = MAKE_THUMB_ADDR (nextpc);
-  pc_val = MAKE_THUMB_ADDR (pc_val);
 
   inst1 = read_memory_unsigned_integer (pc, 2, byte_order_for_code);
 
@@ -4246,13 +2358,12 @@ thumb_get_next_pc_raw (struct frame_info *frame, CORE_ADDR pc)
 
 	  while (itstate != 0 && ! condition_true (itstate >> 4, status))
 	    {
-	      inst1 = read_memory_unsigned_integer (pc, 2,
-						    byte_order_for_code);
+	      inst1 = read_memory_unsigned_integer (pc, 2, byte_order_for_code);
 	      pc += thumb_insn_size (inst1);
 	      itstate = thumb_advance_itstate (itstate);
 	    }
 
-	  return MAKE_THUMB_ADDR (pc);
+	  return pc;
 	}
       else if (itstate != 0)
 	{
@@ -4265,13 +2376,12 @@ thumb_get_next_pc_raw (struct frame_info *frame, CORE_ADDR pc)
 
 	      while (itstate != 0 && ! condition_true (itstate >> 4, status))
 		{
-		  inst1 = read_memory_unsigned_integer (pc, 2, 
-							byte_order_for_code);
+		  inst1 = read_memory_unsigned_integer (pc, 2, byte_order_for_code);
 		  pc += thumb_insn_size (inst1);
 		  itstate = thumb_advance_itstate (itstate);
 		}
 
-	      return MAKE_THUMB_ADDR (pc);
+	      return pc;
 	    }
 	  else if ((itstate & 0x0f) == 0x08)
 	    {
@@ -4296,8 +2406,7 @@ thumb_get_next_pc_raw (struct frame_info *frame, CORE_ADDR pc)
 
 	      /* Set a breakpoint on the following instruction.  */
 	      gdb_assert ((itstate & 0x0f) != 0);
-	      arm_insert_single_step_breakpoint (gdbarch, aspace,
-						 MAKE_THUMB_ADDR (pc));
+	      insert_single_step_breakpoint (gdbarch, aspace, pc);
 	      cond_negated = (itstate >> 4) & 1;
 
 	      /* Skip all following instructions with the same
@@ -4307,14 +2416,13 @@ thumb_get_next_pc_raw (struct frame_info *frame, CORE_ADDR pc)
 		 the instruction after the IT block.  */
 	      do
 		{
-		  inst1 = read_memory_unsigned_integer (pc, 2,
-							byte_order_for_code);
+		  inst1 = read_memory_unsigned_integer (pc, 2, byte_order_for_code);
 		  pc += thumb_insn_size (inst1);
 		  itstate = thumb_advance_itstate (itstate);
 		}
 	      while (itstate != 0 && ((itstate >> 4) & 1) == cond_negated);
 
-	      return MAKE_THUMB_ADDR (pc);
+	      return pc;
 	    }
 	}
     }
@@ -4324,9 +2432,14 @@ thumb_get_next_pc_raw (struct frame_info *frame, CORE_ADDR pc)
       int cond = itstate >> 4;
 
       if (! condition_true (cond, status))
-	/* Advance to the next instruction.  All the 32-bit
-	   instructions share a common prefix.  */
-	return MAKE_THUMB_ADDR (pc + thumb_insn_size (inst1));
+	{
+	  /* Advance to the next instruction.  All the 32-bit
+	     instructions share a common prefix.  */
+	  if ((inst1 & 0xe000) == 0xe000 && (inst1 & 0x1800) != 0)
+	    return pc + 4;
+	  else
+	    return pc + 2;
+	}
 
       /* Otherwise, handle the instruction normally.  */
     }
@@ -4340,34 +2453,27 @@ thumb_get_next_pc_raw (struct frame_info *frame, CORE_ADDR pc)
       offset = bitcount (bits (inst1, 0, 7)) * INT_REGISTER_SIZE;
       sp = get_frame_register_unsigned (frame, ARM_SP_REGNUM);
       nextpc = read_memory_unsigned_integer (sp + offset, 4, byte_order);
+      nextpc = gdbarch_addr_bits_remove (gdbarch, nextpc);
+      if (nextpc == pc)
+	error (_("Infinite loop detected"));
     }
   else if ((inst1 & 0xf000) == 0xd000)	/* conditional branch */
     {
       unsigned long cond = bits (inst1, 8, 11);
-      if (cond == 0x0f)  /* 0x0f = SWI */
-	{
-	  struct gdbarch_tdep *tdep;
-	  tdep = gdbarch_tdep (gdbarch);
-
-	  if (tdep->syscall_next_pc != NULL)
-	    nextpc = tdep->syscall_next_pc (frame);
-
-	}
-      else if (cond != 0x0f && condition_true (cond, status))
+      if (cond != 0x0f && condition_true (cond, status))    /* 0x0f = SWI */
 	nextpc = pc_val + (sbits (inst1, 0, 7) << 1);
     }
   else if ((inst1 & 0xf800) == 0xe000)	/* unconditional branch */
     {
       nextpc = pc_val + (sbits (inst1, 0, 10) << 1);
     }
-  else if (thumb_insn_size (inst1) == 4) /* 32-bit instruction */
+  else if ((inst1 & 0xe000) == 0xe000) /* 32-bit instruction */
     {
       unsigned short inst2;
       inst2 = read_memory_unsigned_integer (pc + 2, 2, byte_order_for_code);
 
       /* Default to the next instruction.  */
       nextpc = pc + 4;
-      nextpc = MAKE_THUMB_ADDR (nextpc);
 
       if ((inst1 & 0xf800) == 0xf000 && (inst2 & 0x8000) == 0x8000)
 	{
@@ -4460,7 +2566,6 @@ thumb_get_next_pc_raw (struct frame_info *frame, CORE_ADDR pc)
 	{
 	  /* MOV PC or MOVS PC.  */
 	  nextpc = get_frame_register_unsigned (frame, bits (inst2, 0, 3));
-	  nextpc = MAKE_THUMB_ADDR (nextpc);
 	}
       else if ((inst1 & 0xff70) == 0xf850 && (inst2 & 0xf000) == 0xf000)
 	{
@@ -4470,7 +2575,7 @@ thumb_get_next_pc_raw (struct frame_info *frame, CORE_ADDR pc)
 
 	  rn = bits (inst1, 0, 3);
 	  base = get_frame_register_unsigned (frame, rn);
-	  if (rn == ARM_PC_REGNUM)
+	  if (rn == 15)
 	    {
 	      base = (base + 4) & ~(CORE_ADDR) 0x3;
 	      if (bit (inst1, 7))
@@ -4505,29 +2610,19 @@ thumb_get_next_pc_raw (struct frame_info *frame, CORE_ADDR pc)
       else if ((inst1 & 0xfff0) == 0xe8d0 && (inst2 & 0xfff0) == 0xf000)
 	{
 	  /* TBB.  */
-	  CORE_ADDR tbl_reg, table, offset, length;
+	  CORE_ADDR table, offset, length;
 
-	  tbl_reg = bits (inst1, 0, 3);
-	  if (tbl_reg == 0x0f)
-	    table = pc + 4;  /* Regcache copy of PC isn't right yet.  */
-	  else
-	    table = get_frame_register_unsigned (frame, tbl_reg);
-
+	  table = get_frame_register_unsigned (frame, bits (inst1, 0, 3));
 	  offset = get_frame_register_unsigned (frame, bits (inst2, 0, 3));
 	  length = 2 * get_frame_memory_unsigned (frame, table + offset, 1);
 	  nextpc = pc_val + length;
 	}
-      else if ((inst1 & 0xfff0) == 0xe8d0 && (inst2 & 0xfff0) == 0xf010)
+      else if ((inst1 & 0xfff0) == 0xe8d0 && (inst2 & 0xfff0) == 0xf000)
 	{
 	  /* TBH.  */
-	  CORE_ADDR tbl_reg, table, offset, length;
+	  CORE_ADDR table, offset, length;
 
-	  tbl_reg = bits (inst1, 0, 3);
-	  if (tbl_reg == 0x0f)
-	    table = pc + 4;  /* Regcache copy of PC isn't right yet.  */
-	  else
-	    table = get_frame_register_unsigned (frame, tbl_reg);
-
+	  table = get_frame_register_unsigned (frame, bits (inst1, 0, 3));
 	  offset = 2 * get_frame_register_unsigned (frame, bits (inst2, 0, 3));
 	  length = 2 * get_frame_memory_unsigned (frame, table + offset, 2);
 	  nextpc = pc_val + length;
@@ -4539,15 +2634,10 @@ thumb_get_next_pc_raw (struct frame_info *frame, CORE_ADDR pc)
 	nextpc = pc_val;
       else
 	nextpc = get_frame_register_unsigned (frame, bits (inst1, 3, 6));
-    }
-  else if ((inst1 & 0xff87) == 0x4687)	/* mov pc, REG */
-    {
-      if (bits (inst1, 3, 6) == 0x0f)
-	nextpc = pc_val;
-      else
-	nextpc = get_frame_register_unsigned (frame, bits (inst1, 3, 6));
 
-      nextpc = MAKE_THUMB_ADDR (nextpc);
+      nextpc = gdbarch_addr_bits_remove (gdbarch, nextpc);
+      if (nextpc == pc)
+	error (_("Infinite loop detected"));
     }
   else if ((inst1 & 0xf500) == 0xb100)
     {
@@ -4560,19 +2650,12 @@ thumb_get_next_pc_raw (struct frame_info *frame, CORE_ADDR pc)
       else if (!bit (inst1, 11) && reg == 0)
 	nextpc = pc_val + imm;
     }
+
   return nextpc;
 }
 
-/* Get the raw next address.  PC is the current program counter, in 
-   FRAME, which is assumed to be executing in ARM mode.
-
-   The value returned has the execution state of the next instruction 
-   encoded in it.  Use IS_THUMB_ADDR () to see whether the instruction is
-   in Thumb-State, and gdbarch_addr_bits_remove () to get the plain memory
-   address.  */
-
-static CORE_ADDR
-arm_get_next_pc_raw (struct frame_info *frame, CORE_ADDR pc)
+CORE_ADDR
+arm_get_next_pc (struct frame_info *frame, CORE_ADDR pc)
 {
   struct gdbarch *gdbarch = get_frame_arch (frame);
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
@@ -4581,6 +2664,9 @@ arm_get_next_pc_raw (struct frame_info *frame, CORE_ADDR pc)
   unsigned long this_instr;
   unsigned long status;
   CORE_ADDR nextpc;
+
+  if (arm_frame_is_thumb (frame))
+    return thumb_get_next_pc (frame, pc);
 
   pc_val = (unsigned long) pc;
   this_instr = read_memory_unsigned_integer (pc, 4, byte_order_for_code);
@@ -4597,7 +2683,10 @@ arm_get_next_pc_raw (struct frame_info *frame, CORE_ADDR pc)
 	  /* Branch with Link and change to Thumb.  */
 	  nextpc = BranchDest (pc, this_instr);
 	  nextpc |= bit (this_instr, 24) << 1;
-	  nextpc = MAKE_THUMB_ADDR (nextpc);
+
+	  nextpc = gdbarch_addr_bits_remove (gdbarch, nextpc);
+	  if (nextpc == pc)
+	    error (_("Infinite loop detected"));
 	  break;
 	}
       case 0xc:
@@ -4633,19 +2722,22 @@ arm_get_next_pc_raw (struct frame_info *frame, CORE_ADDR pc)
 		|| bits (this_instr, 4, 27) == 0x12fff3)
 	      {
 		rn = bits (this_instr, 0, 3);
-		nextpc = ((rn == ARM_PC_REGNUM)
-			  ? (pc_val + 8)
-			  : get_frame_register_unsigned (frame, rn));
+		result = (rn == 15) ? pc_val + 8
+				    : get_frame_register_unsigned (frame, rn);
+		nextpc = (CORE_ADDR) gdbarch_addr_bits_remove
+				       (gdbarch, result);
+
+		if (nextpc == pc)
+		  error (_("Infinite loop detected"));
 
 		return nextpc;
 	      }
 
-	    /* Multiply into PC.  */
+	    /* Multiply into PC */
 	    c = (status & FLAG_C) ? 1 : 0;
 	    rn = bits (this_instr, 16, 19);
-	    operand1 = ((rn == ARM_PC_REGNUM)
-			? (pc_val + 8)
-			: get_frame_register_unsigned (frame, rn));
+	    operand1 = (rn == 15) ? pc_val + 8
+				  : get_frame_register_unsigned (frame, rn);
 
 	    if (bit (this_instr, 25))
 	      {
@@ -4654,9 +2746,8 @@ arm_get_next_pc_raw (struct frame_info *frame, CORE_ADDR pc)
 		operand2 = ((immval >> rotate) | (immval << (32 - rotate)))
 		  & 0xffffffff;
 	      }
-	    else		/* operand 2 is a shifted register.  */
-	      operand2 = shifted_reg_val (frame, this_instr, c,
-					  pc_val, status);
+	    else		/* operand 2 is a shifted register */
+	      operand2 = shifted_reg_val (frame, this_instr, c, pc_val, status);
 
 	    switch (bits (this_instr, 21, 24))
 	      {
@@ -4716,14 +2807,11 @@ arm_get_next_pc_raw (struct frame_info *frame, CORE_ADDR pc)
 		result = ~operand2;
 		break;
 	      }
+	    nextpc = (CORE_ADDR) gdbarch_addr_bits_remove
+				   (gdbarch, result);
 
-            /* In 26-bit APCS the bottom two bits of the result are 
-	       ignored, and we always end up in ARM state.  */
-	    if (!arm_apcs_32)
-	      nextpc = arm_addr_bits_remove (gdbarch, result);
-	    else
-	      nextpc = result;
-
+	    if (nextpc == pc)
+	      error (_("Infinite loop detected"));
 	    break;
 	  }
 
@@ -4745,10 +2833,8 @@ arm_get_next_pc_raw (struct frame_info *frame, CORE_ADDR pc)
 
 		  /* byte write to PC */
 		  rn = bits (this_instr, 16, 19);
-		  base = ((rn == ARM_PC_REGNUM)
-			  ? (pc_val + 8)
-			  : get_frame_register_unsigned (frame, rn));
-
+		  base = (rn == 15) ? pc_val + 8
+				    : get_frame_register_unsigned (frame, rn);
 		  if (bit (this_instr, 24))
 		    {
 		      /* pre-indexed */
@@ -4763,9 +2849,13 @@ arm_get_next_pc_raw (struct frame_info *frame, CORE_ADDR pc)
 		      else
 			base -= offset;
 		    }
-		  nextpc =
-		    (CORE_ADDR) read_memory_unsigned_integer ((CORE_ADDR) base,
-							      4, byte_order);
+		  nextpc = (CORE_ADDR) read_memory_integer ((CORE_ADDR) base,
+							    4, byte_order);
+
+		  nextpc = gdbarch_addr_bits_remove (gdbarch, nextpc);
+
+		  if (nextpc == pc)
+		    error (_("Infinite loop detected"));
 		}
 	    }
 	  break;
@@ -4779,9 +2869,6 @@ arm_get_next_pc_raw (struct frame_info *frame, CORE_ADDR pc)
 		{
 		  /* loading pc */
 		  int offset = 0;
-		  unsigned long rn_val
-		    = get_frame_register_unsigned (frame,
-						   bits (this_instr, 16, 19));
 
 		  if (bit (this_instr, 23))
 		    {
@@ -4794,10 +2881,19 @@ arm_get_next_pc_raw (struct frame_info *frame, CORE_ADDR pc)
 		  else if (bit (this_instr, 24))
 		    offset = -4;
 
-		  nextpc =
-		    (CORE_ADDR) read_memory_unsigned_integer ((CORE_ADDR)
-							      (rn_val + offset),
-							      4, byte_order);
+		  {
+		    unsigned long rn_val =
+		    get_frame_register_unsigned (frame,
+						 bits (this_instr, 16, 19));
+		    nextpc =
+		      (CORE_ADDR) read_memory_integer ((CORE_ADDR) (rn_val
+								  + offset),
+						       4, byte_order);
+		  }
+		  nextpc = gdbarch_addr_bits_remove
+			     (gdbarch, nextpc);
+		  if (nextpc == pc)
+		    error (_("Infinite loop detected"));
 		}
 	    }
 	  break;
@@ -4806,22 +2902,17 @@ arm_get_next_pc_raw (struct frame_info *frame, CORE_ADDR pc)
 	case 0xa:		/* branch */
 	  {
 	    nextpc = BranchDest (pc, this_instr);
+
+	    nextpc = gdbarch_addr_bits_remove (gdbarch, nextpc);
+	    if (nextpc == pc)
+	      error (_("Infinite loop detected"));
 	    break;
 	  }
 
 	case 0xc:
 	case 0xd:
 	case 0xe:		/* coproc ops */
-	  break;
 	case 0xf:		/* SWI */
-	  {
-	    struct gdbarch_tdep *tdep;
-	    tdep = gdbarch_tdep (gdbarch);
-
-	    if (tdep->syscall_next_pc != NULL)
-	      nextpc = tdep->syscall_next_pc (frame);
-
-	  }
 	  break;
 
 	default:
@@ -4831,271 +2922,6 @@ arm_get_next_pc_raw (struct frame_info *frame, CORE_ADDR pc)
     }
 
   return nextpc;
-}
-
-/* Determine next PC after current instruction executes.  Will call either
-   arm_get_next_pc_raw or thumb_get_next_pc_raw.  Error out if infinite
-   loop is detected.  */
-
-CORE_ADDR
-arm_get_next_pc (struct frame_info *frame, CORE_ADDR pc)
-{
-  CORE_ADDR nextpc;
-
-  if (arm_frame_is_thumb (frame))
-    {
-      nextpc = thumb_get_next_pc_raw (frame, pc);
-      if (nextpc == MAKE_THUMB_ADDR (pc))
-	error (_("Infinite loop detected"));
-    }
-  else
-    {
-      nextpc = arm_get_next_pc_raw (frame, pc);
-      if (nextpc == pc)
-	error (_("Infinite loop detected"));
-    }
-
-  return nextpc;
-}
-
-/* Like insert_single_step_breakpoint, but make sure we use a breakpoint
-   of the appropriate mode (as encoded in the PC value), even if this
-   differs from what would be expected according to the symbol tables.  */
-
-void
-arm_insert_single_step_breakpoint (struct gdbarch *gdbarch,
-				   struct address_space *aspace,
-				   CORE_ADDR pc)
-{
-  struct cleanup *old_chain
-    = make_cleanup_restore_integer (&arm_override_mode);
-
-  arm_override_mode = IS_THUMB_ADDR (pc);
-  pc = gdbarch_addr_bits_remove (gdbarch, pc);
-
-  insert_single_step_breakpoint (gdbarch, aspace, pc);
-
-  do_cleanups (old_chain);
-}
-
-/* Checks for an atomic sequence of instructions beginning with a LDREX{,B,H,D}
-   instruction and ending with a STREX{,B,H,D} instruction.  If such a sequence
-   is found, attempt to step through it.  A breakpoint is placed at the end of
-   the sequence.  */
-
-static int
-thumb_deal_with_atomic_sequence_raw (struct frame_info *frame)
-{
-  struct gdbarch *gdbarch = get_frame_arch (frame);
-  struct address_space *aspace = get_frame_address_space (frame);
-  enum bfd_endian byte_order_for_code = gdbarch_byte_order_for_code (gdbarch);
-  CORE_ADDR pc = get_frame_pc (frame);
-  CORE_ADDR breaks[2] = {-1, -1};
-  CORE_ADDR loc = pc;
-  unsigned short insn1, insn2;
-  int insn_count;
-  int index;
-  int last_breakpoint = 0; /* Defaults to 0 (no breakpoints placed).  */
-  const int atomic_sequence_length = 16; /* Instruction sequence length.  */
-  ULONGEST status, itstate;
-
-  /* We currently do not support atomic sequences within an IT block.  */
-  status = get_frame_register_unsigned (frame, ARM_PS_REGNUM);
-  itstate = ((status >> 8) & 0xfc) | ((status >> 25) & 0x3);
-  if (itstate & 0x0f)
-    return 0;
-
-  /* Assume all atomic sequences start with a ldrex{,b,h,d} instruction.  */
-  insn1 = read_memory_unsigned_integer (loc, 2, byte_order_for_code);
-  loc += 2;
-  if (thumb_insn_size (insn1) != 4)
-    return 0;
-
-  insn2 = read_memory_unsigned_integer (loc, 2, byte_order_for_code);
-  loc += 2;
-  if (!((insn1 & 0xfff0) == 0xe850
-        || ((insn1 & 0xfff0) == 0xe8d0 && (insn2 & 0x00c0) == 0x0040)))
-    return 0;
-
-  /* Assume that no atomic sequence is longer than "atomic_sequence_length"
-     instructions.  */
-  for (insn_count = 0; insn_count < atomic_sequence_length; ++insn_count)
-    {
-      insn1 = read_memory_unsigned_integer (loc, 2, byte_order_for_code);
-      loc += 2;
-
-      if (thumb_insn_size (insn1) != 4)
-	{
-	  /* Assume that there is at most one conditional branch in the
-	     atomic sequence.  If a conditional branch is found, put a
-	     breakpoint in its destination address.  */
-	  if ((insn1 & 0xf000) == 0xd000 && bits (insn1, 8, 11) != 0x0f)
-	    {
-	      if (last_breakpoint > 0)
-		return 0; /* More than one conditional branch found,
-			     fallback to the standard code.  */
-
-	      breaks[1] = loc + 2 + (sbits (insn1, 0, 7) << 1);
-	      last_breakpoint++;
-	    }
-
-	  /* We do not support atomic sequences that use any *other*
-	     instructions but conditional branches to change the PC.
-	     Fall back to standard code to avoid losing control of
-	     execution.  */
-	  else if (thumb_instruction_changes_pc (insn1))
-	    return 0;
-	}
-      else
-	{
-	  insn2 = read_memory_unsigned_integer (loc, 2, byte_order_for_code);
-	  loc += 2;
-
-	  /* Assume that there is at most one conditional branch in the
-	     atomic sequence.  If a conditional branch is found, put a
-	     breakpoint in its destination address.  */
-	  if ((insn1 & 0xf800) == 0xf000
-	      && (insn2 & 0xd000) == 0x8000
-	      && (insn1 & 0x0380) != 0x0380)
-	    {
-	      int sign, j1, j2, imm1, imm2;
-	      unsigned int offset;
-
-	      sign = sbits (insn1, 10, 10);
-	      imm1 = bits (insn1, 0, 5);
-	      imm2 = bits (insn2, 0, 10);
-	      j1 = bit (insn2, 13);
-	      j2 = bit (insn2, 11);
-
-	      offset = (sign << 20) + (j2 << 19) + (j1 << 18);
-	      offset += (imm1 << 12) + (imm2 << 1);
-
-	      if (last_breakpoint > 0)
-		return 0; /* More than one conditional branch found,
-			     fallback to the standard code.  */
-
-	      breaks[1] = loc + offset;
-	      last_breakpoint++;
-	    }
-
-	  /* We do not support atomic sequences that use any *other*
-	     instructions but conditional branches to change the PC.
-	     Fall back to standard code to avoid losing control of
-	     execution.  */
-	  else if (thumb2_instruction_changes_pc (insn1, insn2))
-	    return 0;
-
-	  /* If we find a strex{,b,h,d}, we're done.  */
-	  if ((insn1 & 0xfff0) == 0xe840
-	      || ((insn1 & 0xfff0) == 0xe8c0 && (insn2 & 0x00c0) == 0x0040))
-	    break;
-	}
-    }
-
-  /* If we didn't find the strex{,b,h,d}, we cannot handle the sequence.  */
-  if (insn_count == atomic_sequence_length)
-    return 0;
-
-  /* Insert a breakpoint right after the end of the atomic sequence.  */
-  breaks[0] = loc;
-
-  /* Check for duplicated breakpoints.  Check also for a breakpoint
-     placed (branch instruction's destination) anywhere in sequence.  */
-  if (last_breakpoint
-      && (breaks[1] == breaks[0]
-	  || (breaks[1] >= pc && breaks[1] < loc)))
-    last_breakpoint = 0;
-
-  /* Effectively inserts the breakpoints.  */
-  for (index = 0; index <= last_breakpoint; index++)
-    arm_insert_single_step_breakpoint (gdbarch, aspace,
-				       MAKE_THUMB_ADDR (breaks[index]));
-
-  return 1;
-}
-
-static int
-arm_deal_with_atomic_sequence_raw (struct frame_info *frame)
-{
-  struct gdbarch *gdbarch = get_frame_arch (frame);
-  struct address_space *aspace = get_frame_address_space (frame);
-  enum bfd_endian byte_order_for_code = gdbarch_byte_order_for_code (gdbarch);
-  CORE_ADDR pc = get_frame_pc (frame);
-  CORE_ADDR breaks[2] = {-1, -1};
-  CORE_ADDR loc = pc;
-  unsigned int insn;
-  int insn_count;
-  int index;
-  int last_breakpoint = 0; /* Defaults to 0 (no breakpoints placed).  */
-  const int atomic_sequence_length = 16; /* Instruction sequence length.  */
-
-  /* Assume all atomic sequences start with a ldrex{,b,h,d} instruction.
-     Note that we do not currently support conditionally executed atomic
-     instructions.  */
-  insn = read_memory_unsigned_integer (loc, 4, byte_order_for_code);
-  loc += 4;
-  if ((insn & 0xff9000f0) != 0xe1900090)
-    return 0;
-
-  /* Assume that no atomic sequence is longer than "atomic_sequence_length"
-     instructions.  */
-  for (insn_count = 0; insn_count < atomic_sequence_length; ++insn_count)
-    {
-      insn = read_memory_unsigned_integer (loc, 4, byte_order_for_code);
-      loc += 4;
-
-      /* Assume that there is at most one conditional branch in the atomic
-         sequence.  If a conditional branch is found, put a breakpoint in
-         its destination address.  */
-      if (bits (insn, 24, 27) == 0xa)
-	{
-          if (last_breakpoint > 0)
-            return 0; /* More than one conditional branch found, fallback
-                         to the standard single-step code.  */
-
-	  breaks[1] = BranchDest (loc - 4, insn);
-	  last_breakpoint++;
-        }
-
-      /* We do not support atomic sequences that use any *other* instructions
-         but conditional branches to change the PC.  Fall back to standard
-	 code to avoid losing control of execution.  */
-      else if (arm_instruction_changes_pc (insn))
-	return 0;
-
-      /* If we find a strex{,b,h,d}, we're done.  */
-      if ((insn & 0xff9000f0) == 0xe1800090)
-	break;
-    }
-
-  /* If we didn't find the strex{,b,h,d}, we cannot handle the sequence.  */
-  if (insn_count == atomic_sequence_length)
-    return 0;
-
-  /* Insert a breakpoint right after the end of the atomic sequence.  */
-  breaks[0] = loc;
-
-  /* Check for duplicated breakpoints.  Check also for a breakpoint
-     placed (branch instruction's destination) anywhere in sequence.  */
-  if (last_breakpoint
-      && (breaks[1] == breaks[0]
-	  || (breaks[1] >= pc && breaks[1] < loc)))
-    last_breakpoint = 0;
-
-  /* Effectively inserts the breakpoints.  */
-  for (index = 0; index <= last_breakpoint; index++)
-    arm_insert_single_step_breakpoint (gdbarch, aspace, breaks[index]);
-
-  return 1;
-}
-
-int
-arm_deal_with_atomic_sequence (struct frame_info *frame)
-{
-  if (arm_frame_is_thumb (frame))
-    return thumb_deal_with_atomic_sequence_raw (frame);
-  else
-    return arm_deal_with_atomic_sequence_raw (frame);
 }
 
 /* single_step() is called just before we want to resume the inferior,
@@ -5108,13 +2934,13 @@ arm_software_single_step (struct frame_info *frame)
 {
   struct gdbarch *gdbarch = get_frame_arch (frame);
   struct address_space *aspace = get_frame_address_space (frame);
-  CORE_ADDR next_pc;
 
-  if (arm_deal_with_atomic_sequence (frame))
-    return 1;
+  /* NOTE: This may insert the wrong breakpoint instruction when
+     single-stepping over a mode-changing instruction, if the
+     CPSR heuristics are used.  */
 
-  next_pc = arm_get_next_pc (frame, get_frame_pc (frame));
-  arm_insert_single_step_breakpoint (gdbarch, aspace, next_pc);
+  CORE_ADDR next_pc = arm_get_next_pc (frame, get_frame_pc (frame));
+  insert_single_step_breakpoint (gdbarch, aspace, next_pc);
 
   return 1;
 }
@@ -5169,7 +2995,7 @@ arm_adjust_breakpoint_address (struct gdbarch *gdbarch, CORE_ADDR bpaddr)
     return bpaddr;
 
   /* ARM mode does not have this problem.  */
-  if (!arm_pc_is_thumb (gdbarch, bpaddr))
+  if (!arm_pc_is_thumb (bpaddr))
     return bpaddr;
 
   /* We are setting a breakpoint in Thumb code that could potentially
@@ -5252,8 +3078,7 @@ arm_adjust_breakpoint_address (struct gdbarch *gdbarch, CORE_ADDR bpaddr)
 	 known boundary.  */
       if (! definite)
 	{
-	  buf = extend_buffer_earlier (buf, bpaddr, buf_len,
-				       bpaddr - boundary);
+	  buf = extend_buffer_earlier (buf, bpaddr, buf_len, bpaddr - boundary);
 	  if (buf == NULL)
 	    return bpaddr;
 	  buf_len = bpaddr - boundary;
@@ -5314,7 +3139,7 @@ arm_adjust_breakpoint_address (struct gdbarch *gdbarch, CORE_ADDR bpaddr)
       arm_process_displaced_insn (called from arm_displaced_step_copy_insn).
       Depending on the type of instruction, it is then copied to a scratch
       location, possibly in a modified form.  The copy_* set of functions
-      performs such modification, as necessary.  A breakpoint is placed after
+      performs such modification, as necessary. A breakpoint is placed after
       the modified instruction in the scratch space to return control to GDB.
       Note in particular that instructions which modify the PC will no longer
       do so after modification.
@@ -5330,36 +3155,22 @@ arm_adjust_breakpoint_address (struct gdbarch *gdbarch, CORE_ADDR bpaddr)
 
 /* NOP instruction (mov r0, r0).  */
 #define ARM_NOP				0xe1a00000
-#define THUMB_NOP 0x4600
 
 /* Helper for register reads for displaced stepping.  In particular, this
    returns the PC as it would be seen by the instruction at its original
    location.  */
 
 ULONGEST
-displaced_read_reg (struct regcache *regs, struct displaced_step_closure *dsc,
-		    int regno)
+displaced_read_reg (struct regcache *regs, CORE_ADDR from, int regno)
 {
   ULONGEST ret;
-  CORE_ADDR from = dsc->insn_addr;
 
-  if (regno == ARM_PC_REGNUM)
+  if (regno == 15)
     {
-      /* Compute pipeline offset:
-	 - When executing an ARM instruction, PC reads as the address of the
-	 current instruction plus 8.
-	 - When executing a Thumb instruction, PC reads as the address of the
-	 current instruction plus 4.  */
-
-      if (!dsc->is_thumb)
-	from += 8;
-      else
-	from += 4;
-
       if (debug_displaced)
 	fprintf_unfiltered (gdb_stdlog, "displaced: read pc value %.8lx\n",
-			    (unsigned long) from);
-      return (ULONGEST) from;
+			    (unsigned long) from + 8);
+      return (ULONGEST) from + 8;  /* Pipeline offset.  */
     }
   else
     {
@@ -5375,27 +3186,23 @@ static int
 displaced_in_arm_mode (struct regcache *regs)
 {
   ULONGEST ps;
-  ULONGEST t_bit = arm_psr_thumb_bit (get_regcache_arch (regs));
 
   regcache_cooked_read_unsigned (regs, ARM_PS_REGNUM, &ps);
 
-  return (ps & t_bit) == 0;
+  return (ps & CPSR_T) == 0;
 }
 
 /* Write to the PC as from a branch instruction.  */
 
 static void
-branch_write_pc (struct regcache *regs, struct displaced_step_closure *dsc,
-		 ULONGEST val)
+branch_write_pc (struct regcache *regs, ULONGEST val)
 {
-  if (!dsc->is_thumb)
+  if (displaced_in_arm_mode (regs))
     /* Note: If bits 0/1 are set, this branch would be unpredictable for
        architecture versions < 6.  */
-    regcache_cooked_write_unsigned (regs, ARM_PC_REGNUM,
-				    val & ~(ULONGEST) 0x3);
+    regcache_cooked_write_unsigned (regs, ARM_PC_REGNUM, val & ~(ULONGEST) 0x3);
   else
-    regcache_cooked_write_unsigned (regs, ARM_PC_REGNUM,
-				    val & ~(ULONGEST) 0x1);
+    regcache_cooked_write_unsigned (regs, ARM_PC_REGNUM, val & ~(ULONGEST) 0x1);
 }
 
 /* Write to the PC as from a branch-exchange instruction.  */
@@ -5404,18 +3211,18 @@ static void
 bx_write_pc (struct regcache *regs, ULONGEST val)
 {
   ULONGEST ps;
-  ULONGEST t_bit = arm_psr_thumb_bit (get_regcache_arch (regs));
 
   regcache_cooked_read_unsigned (regs, ARM_PS_REGNUM, &ps);
 
   if ((val & 1) == 1)
     {
-      regcache_cooked_write_unsigned (regs, ARM_PS_REGNUM, ps | t_bit);
+      regcache_cooked_write_unsigned (regs, ARM_PS_REGNUM, ps | CPSR_T);
       regcache_cooked_write_unsigned (regs, ARM_PC_REGNUM, val & 0xfffffffe);
     }
   else if ((val & 2) == 0)
     {
-      regcache_cooked_write_unsigned (regs, ARM_PS_REGNUM, ps & ~t_bit);
+      regcache_cooked_write_unsigned (regs, ARM_PS_REGNUM,
+				      ps & ~(ULONGEST) CPSR_T);
       regcache_cooked_write_unsigned (regs, ARM_PC_REGNUM, val);
     }
   else
@@ -5423,7 +3230,8 @@ bx_write_pc (struct regcache *regs, ULONGEST val)
       /* Unpredictable behaviour.  Try to do something sensible (switch to ARM
 	  mode, align dest to 4 bytes).  */
       warning (_("Single-stepping BX to non-word-aligned ARM instruction."));
-      regcache_cooked_write_unsigned (regs, ARM_PS_REGNUM, ps & ~t_bit);
+      regcache_cooked_write_unsigned (regs, ARM_PS_REGNUM,
+				      ps & ~(ULONGEST) CPSR_T);
       regcache_cooked_write_unsigned (regs, ARM_PC_REGNUM, val & 0xfffffffc);
     }
 }
@@ -5431,25 +3239,23 @@ bx_write_pc (struct regcache *regs, ULONGEST val)
 /* Write to the PC as if from a load instruction.  */
 
 static void
-load_write_pc (struct regcache *regs, struct displaced_step_closure *dsc,
-	       ULONGEST val)
+load_write_pc (struct regcache *regs, ULONGEST val)
 {
   if (DISPLACED_STEPPING_ARCH_VERSION >= 5)
     bx_write_pc (regs, val);
   else
-    branch_write_pc (regs, dsc, val);
+    branch_write_pc (regs, val);
 }
 
 /* Write to the PC as if from an ALU instruction.  */
 
 static void
-alu_write_pc (struct regcache *regs, struct displaced_step_closure *dsc,
-	      ULONGEST val)
+alu_write_pc (struct regcache *regs, ULONGEST val)
 {
-  if (DISPLACED_STEPPING_ARCH_VERSION >= 7 && !dsc->is_thumb)
+  if (DISPLACED_STEPPING_ARCH_VERSION >= 7 && displaced_in_arm_mode (regs))
     bx_write_pc (regs, val);
   else
-    branch_write_pc (regs, dsc, val);
+    branch_write_pc (regs, val);
 }
 
 /* Helper for writing to registers for displaced stepping.  Writing to the PC
@@ -5460,7 +3266,7 @@ void
 displaced_write_reg (struct regcache *regs, struct displaced_step_closure *dsc,
 		     int regno, ULONGEST val, enum pc_write_style write_pc)
 {
-  if (regno == ARM_PC_REGNUM)
+  if (regno == 15)
     {
       if (debug_displaced)
 	fprintf_unfiltered (gdb_stdlog, "displaced: writing pc %.8lx\n",
@@ -5468,7 +3274,7 @@ displaced_write_reg (struct regcache *regs, struct displaced_step_closure *dsc,
       switch (write_pc)
 	{
 	case BRANCH_WRITE_PC:
-	  branch_write_pc (regs, dsc, val);
+	  branch_write_pc (regs, val);
 	  break;
 
 	case BX_WRITE_PC:
@@ -5476,11 +3282,11 @@ displaced_write_reg (struct regcache *regs, struct displaced_step_closure *dsc,
   	  break;
 
 	case LOAD_WRITE_PC:
-	  load_write_pc (regs, dsc, val);
+	  load_write_pc (regs, val);
   	  break;
 
 	case ALU_WRITE_PC:
-	  alu_write_pc (regs, dsc, val);
+	  alu_write_pc (regs, val);
   	  break;
 
 	case CANNOT_WRITE_PC:
@@ -5506,9 +3312,9 @@ displaced_write_reg (struct regcache *regs, struct displaced_step_closure *dsc,
 
 /* This function is used to concisely determine if an instruction INSN
    references PC.  Register fields of interest in INSN should have the
-   corresponding fields of BITMASK set to 0b1111.  The function
-   returns return 1 if any of these fields in INSN reference the PC
-   (also 0b1111, r15), else it returns 0.  */
+   corresponding fields of BITMASK set to 0b1111.  The function returns return 1
+   if any of these fields in INSN reference the PC (also 0b1111, r15), else it
+   returns 0.  */
 
 static int
 insn_references_pc (uint32_t insn, uint32_t bitmask)
@@ -5540,8 +3346,8 @@ insn_references_pc (uint32_t insn, uint32_t bitmask)
    matter what address they are executed at: in those cases, use this.  */
 
 static int
-arm_copy_unmodified (struct gdbarch *gdbarch, uint32_t insn,
-		     const char *iname, struct displaced_step_closure *dsc)
+copy_unmodified (struct gdbarch *gdbarch ATTRIBUTE_UNUSED, uint32_t insn,
+		 const char *iname, struct displaced_step_closure *dsc)
 {
   if (debug_displaced)
     fprintf_unfiltered (gdb_stdlog, "displaced: copying insn %.8lx, "
@@ -5553,44 +3359,10 @@ arm_copy_unmodified (struct gdbarch *gdbarch, uint32_t insn,
   return 0;
 }
 
-static int
-thumb_copy_unmodified_32bit (struct gdbarch *gdbarch, uint16_t insn1,
-			     uint16_t insn2, const char *iname,
-			     struct displaced_step_closure *dsc)
-{
-  if (debug_displaced)
-    fprintf_unfiltered (gdb_stdlog, "displaced: copying insn %.4x %.4x, "
-			"opcode/class '%s' unmodified\n", insn1, insn2,
-			iname);
-
-  dsc->modinsn[0] = insn1;
-  dsc->modinsn[1] = insn2;
-  dsc->numinsns = 2;
-
-  return 0;
-}
-
-/* Copy 16-bit Thumb(Thumb and 16-bit Thumb-2) instruction without any
-   modification.  */
-static int
-thumb_copy_unmodified_16bit (struct gdbarch *gdbarch, unsigned int insn,
-			     const char *iname,
-			     struct displaced_step_closure *dsc)
-{
-  if (debug_displaced)
-    fprintf_unfiltered (gdb_stdlog, "displaced: copying insn %.4x, "
-			"opcode/class '%s' unmodified\n", insn,
-			iname);
-
-  dsc->modinsn[0] = insn;
-
-  return 0;
-}
-
 /* Preload instructions with immediate offset.  */
 
 static void
-cleanup_preload (struct gdbarch *gdbarch,
+cleanup_preload (struct gdbarch *gdbarch ATTRIBUTE_UNUSED,
 		 struct regcache *regs, struct displaced_step_closure *dsc)
 {
   displaced_write_reg (regs, dsc, 0, dsc->tmp[0], CANNOT_WRITE_PC);
@@ -5598,101 +3370,57 @@ cleanup_preload (struct gdbarch *gdbarch,
     displaced_write_reg (regs, dsc, 1, dsc->tmp[1], CANNOT_WRITE_PC);
 }
 
-static void
-install_preload (struct gdbarch *gdbarch, struct regcache *regs,
-		 struct displaced_step_closure *dsc, unsigned int rn)
+static int
+copy_preload (struct gdbarch *gdbarch, uint32_t insn, struct regcache *regs,
+	      struct displaced_step_closure *dsc)
 {
+  unsigned int rn = bits (insn, 16, 19);
   ULONGEST rn_val;
+  CORE_ADDR from = dsc->insn_addr;
+
+  if (!insn_references_pc (insn, 0x000f0000ul))
+    return copy_unmodified (gdbarch, insn, "preload", dsc);
+
+  if (debug_displaced)
+    fprintf_unfiltered (gdb_stdlog, "displaced: copying preload insn %.8lx\n",
+			(unsigned long) insn);
+
   /* Preload instructions:
 
      {pli/pld} [rn, #+/-imm]
      ->
      {pli/pld} [r0, #+/-imm].  */
 
-  dsc->tmp[0] = displaced_read_reg (regs, dsc, 0);
-  rn_val = displaced_read_reg (regs, dsc, rn);
+  dsc->tmp[0] = displaced_read_reg (regs, from, 0);
+  rn_val = displaced_read_reg (regs, from, rn);
   displaced_write_reg (regs, dsc, 0, rn_val, CANNOT_WRITE_PC);
+
   dsc->u.preload.immed = 1;
-
-  dsc->cleanup = &cleanup_preload;
-}
-
-static int
-arm_copy_preload (struct gdbarch *gdbarch, uint32_t insn, struct regcache *regs,
-		  struct displaced_step_closure *dsc)
-{
-  unsigned int rn = bits (insn, 16, 19);
-
-  if (!insn_references_pc (insn, 0x000f0000ul))
-    return arm_copy_unmodified (gdbarch, insn, "preload", dsc);
-
-  if (debug_displaced)
-    fprintf_unfiltered (gdb_stdlog, "displaced: copying preload insn %.8lx\n",
-			(unsigned long) insn);
 
   dsc->modinsn[0] = insn & 0xfff0ffff;
 
-  install_preload (gdbarch, regs, dsc, rn);
-
-  return 0;
-}
-
-static int
-thumb2_copy_preload (struct gdbarch *gdbarch, uint16_t insn1, uint16_t insn2,
-		     struct regcache *regs, struct displaced_step_closure *dsc)
-{
-  unsigned int rn = bits (insn1, 0, 3);
-  unsigned int u_bit = bit (insn1, 7);
-  int imm12 = bits (insn2, 0, 11);
-  ULONGEST pc_val;
-
-  if (rn != ARM_PC_REGNUM)
-    return thumb_copy_unmodified_32bit (gdbarch, insn1, insn2, "preload", dsc);
-
-  /* PC is only allowed to use in PLI (immediate,literal) Encoding T3, and
-     PLD (literal) Encoding T1.  */
-  if (debug_displaced)
-    fprintf_unfiltered (gdb_stdlog,
-			"displaced: copying pld/pli pc (0x%x) %c imm12 %.4x\n",
-			(unsigned int) dsc->insn_addr, u_bit ? '+' : '-',
-			imm12);
-
-  if (!u_bit)
-    imm12 = -1 * imm12;
-
-  /* Rewrite instruction {pli/pld} PC imm12 into:
-     Prepare: tmp[0] <- r0, tmp[1] <- r1, r0 <- pc, r1 <- imm12
-
-     {pli/pld} [r0, r1]
-
-     Cleanup: r0 <- tmp[0], r1 <- tmp[1].  */
-
-  dsc->tmp[0] = displaced_read_reg (regs, dsc, 0);
-  dsc->tmp[1] = displaced_read_reg (regs, dsc, 1);
-
-  pc_val = displaced_read_reg (regs, dsc, ARM_PC_REGNUM);
-
-  displaced_write_reg (regs, dsc, 0, pc_val, CANNOT_WRITE_PC);
-  displaced_write_reg (regs, dsc, 1, imm12, CANNOT_WRITE_PC);
-  dsc->u.preload.immed = 0;
-
-  /* {pli/pld} [r0, r1] */
-  dsc->modinsn[0] = insn1 & 0xfff0;
-  dsc->modinsn[1] = 0xf001;
-  dsc->numinsns = 2;
-
   dsc->cleanup = &cleanup_preload;
+
   return 0;
 }
 
 /* Preload instructions with register offset.  */
 
-static void
-install_preload_reg(struct gdbarch *gdbarch, struct regcache *regs,
-		    struct displaced_step_closure *dsc, unsigned int rn,
-		    unsigned int rm)
+static int
+copy_preload_reg (struct gdbarch *gdbarch, uint32_t insn, struct regcache *regs,
+		  struct displaced_step_closure *dsc)
 {
+  unsigned int rn = bits (insn, 16, 19);
+  unsigned int rm = bits (insn, 0, 3);
   ULONGEST rn_val, rm_val;
+  CORE_ADDR from = dsc->insn_addr;
+
+  if (!insn_references_pc (insn, 0x000f000ful))
+    return copy_unmodified (gdbarch, insn, "preload reg", dsc);
+
+  if (debug_displaced)
+    fprintf_unfiltered (gdb_stdlog, "displaced: copying preload insn %.8lx\n",
+			(unsigned long) insn);
 
   /* Preload register-offset instructions:
 
@@ -5700,47 +3428,30 @@ install_preload_reg(struct gdbarch *gdbarch, struct regcache *regs,
      ->
      {pli/pld} [r0, r1 {, shift}].  */
 
-  dsc->tmp[0] = displaced_read_reg (regs, dsc, 0);
-  dsc->tmp[1] = displaced_read_reg (regs, dsc, 1);
-  rn_val = displaced_read_reg (regs, dsc, rn);
-  rm_val = displaced_read_reg (regs, dsc, rm);
+  dsc->tmp[0] = displaced_read_reg (regs, from, 0);
+  dsc->tmp[1] = displaced_read_reg (regs, from, 1);
+  rn_val = displaced_read_reg (regs, from, rn);
+  rm_val = displaced_read_reg (regs, from, rm);
   displaced_write_reg (regs, dsc, 0, rn_val, CANNOT_WRITE_PC);
   displaced_write_reg (regs, dsc, 1, rm_val, CANNOT_WRITE_PC);
+
   dsc->u.preload.immed = 0;
-
-  dsc->cleanup = &cleanup_preload;
-}
-
-static int
-arm_copy_preload_reg (struct gdbarch *gdbarch, uint32_t insn,
-		      struct regcache *regs,
-		      struct displaced_step_closure *dsc)
-{
-  unsigned int rn = bits (insn, 16, 19);
-  unsigned int rm = bits (insn, 0, 3);
-
-
-  if (!insn_references_pc (insn, 0x000f000ful))
-    return arm_copy_unmodified (gdbarch, insn, "preload reg", dsc);
-
-  if (debug_displaced)
-    fprintf_unfiltered (gdb_stdlog, "displaced: copying preload insn %.8lx\n",
-			(unsigned long) insn);
 
   dsc->modinsn[0] = (insn & 0xfff0fff0) | 0x1;
 
-  install_preload_reg (gdbarch, regs, dsc, rn, rm);
+  dsc->cleanup = &cleanup_preload;
+
   return 0;
 }
 
 /* Copy/cleanup coprocessor load and store instructions.  */
 
 static void
-cleanup_copro_load_store (struct gdbarch *gdbarch,
+cleanup_copro_load_store (struct gdbarch *gdbarch ATTRIBUTE_UNUSED,
 			  struct regcache *regs,
 			  struct displaced_step_closure *dsc)
 {
-  ULONGEST rn_val = displaced_read_reg (regs, dsc, 0);
+  ULONGEST rn_val = displaced_read_reg (regs, dsc->insn_addr, 0);
 
   displaced_write_reg (regs, dsc, 0, dsc->tmp[0], CANNOT_WRITE_PC);
 
@@ -5748,12 +3459,21 @@ cleanup_copro_load_store (struct gdbarch *gdbarch,
     displaced_write_reg (regs, dsc, dsc->u.ldst.rn, rn_val, LOAD_WRITE_PC);
 }
 
-static void
-install_copro_load_store (struct gdbarch *gdbarch, struct regcache *regs,
-			  struct displaced_step_closure *dsc,
-			  int writeback, unsigned int rn)
+static int
+copy_copro_load_store (struct gdbarch *gdbarch, uint32_t insn,
+		       struct regcache *regs,
+		       struct displaced_step_closure *dsc)
 {
+  unsigned int rn = bits (insn, 16, 19);
   ULONGEST rn_val;
+  CORE_ADDR from = dsc->insn_addr;
+
+  if (!insn_references_pc (insn, 0x000f0000ul))
+    return copy_unmodified (gdbarch, insn, "copro load/store", dsc);
+
+  if (debug_displaced)
+    fprintf_unfiltered (gdb_stdlog, "displaced: copying coprocessor "
+			"load/store insn %.8lx\n", (unsigned long) insn);
 
   /* Coprocessor load/store instructions:
 
@@ -5763,61 +3483,16 @@ install_copro_load_store (struct gdbarch *gdbarch, struct regcache *regs,
 
      ldc/ldc2 are handled identically.  */
 
-  dsc->tmp[0] = displaced_read_reg (regs, dsc, 0);
-  rn_val = displaced_read_reg (regs, dsc, rn);
-  /* PC should be 4-byte aligned.  */
-  rn_val = rn_val & 0xfffffffc;
+  dsc->tmp[0] = displaced_read_reg (regs, from, 0);
+  rn_val = displaced_read_reg (regs, from, rn);
   displaced_write_reg (regs, dsc, 0, rn_val, CANNOT_WRITE_PC);
 
-  dsc->u.ldst.writeback = writeback;
+  dsc->u.ldst.writeback = bit (insn, 25);
   dsc->u.ldst.rn = rn;
-
-  dsc->cleanup = &cleanup_copro_load_store;
-}
-
-static int
-arm_copy_copro_load_store (struct gdbarch *gdbarch, uint32_t insn,
-			   struct regcache *regs,
-			   struct displaced_step_closure *dsc)
-{
-  unsigned int rn = bits (insn, 16, 19);
-
-  if (!insn_references_pc (insn, 0x000f0000ul))
-    return arm_copy_unmodified (gdbarch, insn, "copro load/store", dsc);
-
-  if (debug_displaced)
-    fprintf_unfiltered (gdb_stdlog, "displaced: copying coprocessor "
-			"load/store insn %.8lx\n", (unsigned long) insn);
 
   dsc->modinsn[0] = insn & 0xfff0ffff;
 
-  install_copro_load_store (gdbarch, regs, dsc, bit (insn, 25), rn);
-
-  return 0;
-}
-
-static int
-thumb2_copy_copro_load_store (struct gdbarch *gdbarch, uint16_t insn1,
-			      uint16_t insn2, struct regcache *regs,
-			      struct displaced_step_closure *dsc)
-{
-  unsigned int rn = bits (insn1, 0, 3);
-
-  if (rn != ARM_PC_REGNUM)
-    return thumb_copy_unmodified_32bit (gdbarch, insn1, insn2,
-					"copro load/store", dsc);
-
-  if (debug_displaced)
-    fprintf_unfiltered (gdb_stdlog, "displaced: copying coprocessor "
-			"load/store insn %.4x%.4x\n", insn1, insn2);
-
-  dsc->modinsn[0] = insn1 & 0xfff0;
-  dsc->modinsn[1] = insn2;
-  dsc->numinsns = 2;
-
-  /* This function is called for copying instruction LDC/LDC2/VLDR, which
-     doesn't support writeback, so pass 0.  */
-  install_copro_load_store (gdbarch, regs, dsc, 0, rn);
+  dsc->cleanup = &cleanup_copro_load_store;
 
   return 0;
 }
@@ -5826,10 +3501,11 @@ thumb2_copy_copro_load_store (struct gdbarch *gdbarch, uint16_t insn1,
    PC).  */
 
 static void
-cleanup_branch (struct gdbarch *gdbarch, struct regcache *regs,
+cleanup_branch (struct gdbarch *gdbarch ATTRIBUTE_UNUSED, struct regcache *regs,
 		struct displaced_step_closure *dsc)
 {
-  uint32_t status = displaced_read_reg (regs, dsc, ARM_PS_REGNUM);
+  ULONGEST from = dsc->insn_addr;
+  uint32_t status = displaced_read_reg (regs, from, ARM_PS_REGNUM);
   int branch_taken = condition_true (dsc->u.branch.cond, status);
   enum pc_write_style write_pc = dsc->u.branch.exchange
 				 ? BX_WRITE_PC : BRANCH_WRITE_PC;
@@ -5839,28 +3515,30 @@ cleanup_branch (struct gdbarch *gdbarch, struct regcache *regs,
 
   if (dsc->u.branch.link)
     {
-      /* The value of LR should be the next insn of current one.  In order
-       not to confuse logic hanlding later insn `bx lr', if current insn mode
-       is Thumb, the bit 0 of LR value should be set to 1.  */
-      ULONGEST next_insn_addr = dsc->insn_addr + dsc->insn_size;
-
-      if (dsc->is_thumb)
-	next_insn_addr |= 0x1;
-
-      displaced_write_reg (regs, dsc, ARM_LR_REGNUM, next_insn_addr,
-			   CANNOT_WRITE_PC);
+      ULONGEST pc = displaced_read_reg (regs, from, 15);
+      displaced_write_reg (regs, dsc, 14, pc - 4, CANNOT_WRITE_PC);
     }
 
-  displaced_write_reg (regs, dsc, ARM_PC_REGNUM, dsc->u.branch.dest, write_pc);
+  displaced_write_reg (regs, dsc, 15, dsc->u.branch.dest, write_pc);
 }
 
 /* Copy B/BL/BLX instructions with immediate destinations.  */
 
-static void
-install_b_bl_blx (struct gdbarch *gdbarch, struct regcache *regs,
-		  struct displaced_step_closure *dsc,
-		  unsigned int cond, int exchange, int link, long offset)
+static int
+copy_b_bl_blx (struct gdbarch *gdbarch ATTRIBUTE_UNUSED, uint32_t insn,
+	       struct regcache *regs, struct displaced_step_closure *dsc)
 {
+  unsigned int cond = bits (insn, 28, 31);
+  int exchange = (cond == 0xf);
+  int link = exchange || bit (insn, 24);
+  CORE_ADDR from = dsc->insn_addr;
+  long offset;
+
+  if (debug_displaced)
+    fprintf_unfiltered (gdb_stdlog, "displaced: copying %s immediate insn "
+			"%.8lx\n", (exchange) ? "blx" : (link) ? "bl" : "b",
+			(unsigned long) insn);
+
   /* Implement "BL<cond> <label>" as:
 
      Preparation: cond <- instruction condition
@@ -5869,35 +3547,6 @@ install_b_bl_blx (struct gdbarch *gdbarch, struct regcache *regs,
 
      B<cond> similar, but don't set r14 in cleanup.  */
 
-  dsc->u.branch.cond = cond;
-  dsc->u.branch.link = link;
-  dsc->u.branch.exchange = exchange;
-
-  dsc->u.branch.dest = dsc->insn_addr;
-  if (link && exchange)
-    /* For BLX, offset is computed from the Align (PC, 4).  */
-    dsc->u.branch.dest = dsc->u.branch.dest & 0xfffffffc;
-
-  if (dsc->is_thumb)
-    dsc->u.branch.dest += 4 + offset;
-  else
-    dsc->u.branch.dest += 8 + offset;
-
-  dsc->cleanup = &cleanup_branch;
-}
-static int
-arm_copy_b_bl_blx (struct gdbarch *gdbarch, uint32_t insn,
-		   struct regcache *regs, struct displaced_step_closure *dsc)
-{
-  unsigned int cond = bits (insn, 28, 31);
-  int exchange = (cond == 0xf);
-  int link = exchange || bit (insn, 24);
-  long offset;
-
-  if (debug_displaced)
-    fprintf_unfiltered (gdb_stdlog, "displaced: copying %s immediate insn "
-			"%.8lx\n", (exchange) ? "blx" : (link) ? "bl" : "b",
-			(unsigned long) insn);
   if (exchange)
     /* For BLX, set bit 0 of the destination.  The cleanup_branch function will
        then arrange the switch into Thumb mode.  */
@@ -5908,100 +3557,12 @@ arm_copy_b_bl_blx (struct gdbarch *gdbarch, uint32_t insn,
   if (bit (offset, 25))
     offset = offset | ~0x3ffffff;
 
-  dsc->modinsn[0] = ARM_NOP;
-
-  install_b_bl_blx (gdbarch, regs, dsc, cond, exchange, link, offset);
-  return 0;
-}
-
-static int
-thumb2_copy_b_bl_blx (struct gdbarch *gdbarch, uint16_t insn1,
-		      uint16_t insn2, struct regcache *regs,
-		      struct displaced_step_closure *dsc)
-{
-  int link = bit (insn2, 14);
-  int exchange = link && !bit (insn2, 12);
-  int cond = INST_AL;
-  long offset = 0;
-  int j1 = bit (insn2, 13);
-  int j2 = bit (insn2, 11);
-  int s = sbits (insn1, 10, 10);
-  int i1 = !(j1 ^ bit (insn1, 10));
-  int i2 = !(j2 ^ bit (insn1, 10));
-
-  if (!link && !exchange) /* B */
-    {
-      offset = (bits (insn2, 0, 10) << 1);
-      if (bit (insn2, 12)) /* Encoding T4 */
-	{
-	  offset |= (bits (insn1, 0, 9) << 12)
-	    | (i2 << 22)
-	    | (i1 << 23)
-	    | (s << 24);
-	  cond = INST_AL;
-	}
-      else /* Encoding T3 */
-	{
-	  offset |= (bits (insn1, 0, 5) << 12)
-	    | (j1 << 18)
-	    | (j2 << 19)
-	    | (s << 20);
-	  cond = bits (insn1, 6, 9);
-	}
-    }
-  else
-    {
-      offset = (bits (insn1, 0, 9) << 12);
-      offset |= ((i2 << 22) | (i1 << 23) | (s << 24));
-      offset |= exchange ?
-	(bits (insn2, 1, 10) << 2) : (bits (insn2, 0, 10) << 1);
-    }
-
-  if (debug_displaced)
-    fprintf_unfiltered (gdb_stdlog, "displaced: copying %s insn "
-			"%.4x %.4x with offset %.8lx\n",
-			link ? (exchange) ? "blx" : "bl" : "b",
-			insn1, insn2, offset);
-
-  dsc->modinsn[0] = THUMB_NOP;
-
-  install_b_bl_blx (gdbarch, regs, dsc, cond, exchange, link, offset);
-  return 0;
-}
-
-/* Copy B Thumb instructions.  */
-static int
-thumb_copy_b (struct gdbarch *gdbarch, unsigned short insn,
-	      struct displaced_step_closure *dsc)
-{
-  unsigned int cond = 0;
-  int offset = 0;
-  unsigned short bit_12_15 = bits (insn, 12, 15);
-  CORE_ADDR from = dsc->insn_addr;
-
-  if (bit_12_15 == 0xd)
-    {
-      /* offset = SignExtend (imm8:0, 32) */
-      offset = sbits ((insn << 1), 0, 8);
-      cond = bits (insn, 8, 11);
-    }
-  else if (bit_12_15 == 0xe) /* Encoding T2 */
-    {
-      offset = sbits ((insn << 1), 0, 11);
-      cond = INST_AL;
-    }
-
-  if (debug_displaced)
-    fprintf_unfiltered (gdb_stdlog,
-			"displaced: copying b immediate insn %.4x "
-			"with offset %d\n", insn, offset);
-
   dsc->u.branch.cond = cond;
-  dsc->u.branch.link = 0;
-  dsc->u.branch.exchange = 0;
-  dsc->u.branch.dest = from + 4 + offset;
+  dsc->u.branch.link = link;
+  dsc->u.branch.exchange = exchange;
+  dsc->u.branch.dest = from + 8 + offset;
 
-  dsc->modinsn[0] = THUMB_NOP;
+  dsc->modinsn[0] = ARM_NOP;
 
   dsc->cleanup = &cleanup_branch;
 
@@ -6010,11 +3571,21 @@ thumb_copy_b (struct gdbarch *gdbarch, unsigned short insn,
 
 /* Copy BX/BLX with register-specified destinations.  */
 
-static void
-install_bx_blx_reg (struct gdbarch *gdbarch, struct regcache *regs,
-		    struct displaced_step_closure *dsc, int link,
-		    unsigned int cond, unsigned int rm)
+static int
+copy_bx_blx_reg (struct gdbarch *gdbarch ATTRIBUTE_UNUSED, uint32_t insn,
+		 struct regcache *regs, struct displaced_step_closure *dsc)
 {
+  unsigned int cond = bits (insn, 28, 31);
+  /* BX:  x12xxx1x
+     BLX: x12xxx3x.  */
+  int link = bit (insn, 5);
+  unsigned int rm = bits (insn, 0, 3);
+  CORE_ADDR from = dsc->insn_addr;
+
+  if (debug_displaced)
+    fprintf_unfiltered (gdb_stdlog, "displaced: copying %s register insn "
+			"%.8lx\n", (link) ? "blx" : "bx", (unsigned long) insn);
+
   /* Implement {BX,BLX}<cond> <reg>" as:
 
      Preparation: cond <- instruction condition
@@ -6023,80 +3594,44 @@ install_bx_blx_reg (struct gdbarch *gdbarch, struct regcache *regs,
 
      Don't set r14 in cleanup for BX.  */
 
-  dsc->u.branch.dest = displaced_read_reg (regs, dsc, rm);
+  dsc->u.branch.dest = displaced_read_reg (regs, from, rm);
 
   dsc->u.branch.cond = cond;
   dsc->u.branch.link = link;
-
   dsc->u.branch.exchange = 1;
-
-  dsc->cleanup = &cleanup_branch;
-}
-
-static int
-arm_copy_bx_blx_reg (struct gdbarch *gdbarch, uint32_t insn,
-		     struct regcache *regs, struct displaced_step_closure *dsc)
-{
-  unsigned int cond = bits (insn, 28, 31);
-  /* BX:  x12xxx1x
-     BLX: x12xxx3x.  */
-  int link = bit (insn, 5);
-  unsigned int rm = bits (insn, 0, 3);
-
-  if (debug_displaced)
-    fprintf_unfiltered (gdb_stdlog, "displaced: copying insn %.8lx",
-			(unsigned long) insn);
 
   dsc->modinsn[0] = ARM_NOP;
 
-  install_bx_blx_reg (gdbarch, regs, dsc, link, cond, rm);
-  return 0;
-}
-
-static int
-thumb_copy_bx_blx_reg (struct gdbarch *gdbarch, uint16_t insn,
-		       struct regcache *regs,
-		       struct displaced_step_closure *dsc)
-{
-  int link = bit (insn, 7);
-  unsigned int rm = bits (insn, 3, 6);
-
-  if (debug_displaced)
-    fprintf_unfiltered (gdb_stdlog, "displaced: copying insn %.4x",
-			(unsigned short) insn);
-
-  dsc->modinsn[0] = THUMB_NOP;
-
-  install_bx_blx_reg (gdbarch, regs, dsc, link, INST_AL, rm);
+  dsc->cleanup = &cleanup_branch;
 
   return 0;
 }
 
-
-/* Copy/cleanup arithmetic/logic instruction with immediate RHS.  */
+/* Copy/cleanup arithmetic/logic instruction with immediate RHS. */
 
 static void
-cleanup_alu_imm (struct gdbarch *gdbarch,
+cleanup_alu_imm (struct gdbarch *gdbarch ATTRIBUTE_UNUSED,
 		 struct regcache *regs, struct displaced_step_closure *dsc)
 {
-  ULONGEST rd_val = displaced_read_reg (regs, dsc, 0);
+  ULONGEST rd_val = displaced_read_reg (regs, dsc->insn_addr, 0);
   displaced_write_reg (regs, dsc, 0, dsc->tmp[0], CANNOT_WRITE_PC);
   displaced_write_reg (regs, dsc, 1, dsc->tmp[1], CANNOT_WRITE_PC);
   displaced_write_reg (regs, dsc, dsc->rd, rd_val, ALU_WRITE_PC);
 }
 
 static int
-arm_copy_alu_imm (struct gdbarch *gdbarch, uint32_t insn, struct regcache *regs,
-		  struct displaced_step_closure *dsc)
+copy_alu_imm (struct gdbarch *gdbarch, uint32_t insn, struct regcache *regs,
+	      struct displaced_step_closure *dsc)
 {
   unsigned int rn = bits (insn, 16, 19);
   unsigned int rd = bits (insn, 12, 15);
   unsigned int op = bits (insn, 21, 24);
   int is_mov = (op == 0xd);
   ULONGEST rd_val, rn_val;
+  CORE_ADDR from = dsc->insn_addr;
 
   if (!insn_references_pc (insn, 0x000ff000ul))
-    return arm_copy_unmodified (gdbarch, insn, "ALU immediate", dsc);
+    return copy_unmodified (gdbarch, insn, "ALU immediate", dsc);
 
   if (debug_displaced)
     fprintf_unfiltered (gdb_stdlog, "displaced: copying immediate %s insn "
@@ -6115,10 +3650,10 @@ arm_copy_alu_imm (struct gdbarch *gdbarch, uint32_t insn, struct regcache *regs,
      Cleanup: rd <- r0; r0 <- tmp1; r1 <- tmp2
   */
 
-  dsc->tmp[0] = displaced_read_reg (regs, dsc, 0);
-  dsc->tmp[1] = displaced_read_reg (regs, dsc, 1);
-  rn_val = displaced_read_reg (regs, dsc, rn);
-  rd_val = displaced_read_reg (regs, dsc, rd);
+  dsc->tmp[0] = displaced_read_reg (regs, from, 0);
+  dsc->tmp[1] = displaced_read_reg (regs, from, 1);
+  rn_val = displaced_read_reg (regs, from, rn);
+  rd_val = displaced_read_reg (regs, from, rd);
   displaced_write_reg (regs, dsc, 0, rd_val, CANNOT_WRITE_PC);
   displaced_write_reg (regs, dsc, 1, rn_val, CANNOT_WRITE_PC);
   dsc->rd = rd;
@@ -6133,68 +3668,16 @@ arm_copy_alu_imm (struct gdbarch *gdbarch, uint32_t insn, struct regcache *regs,
   return 0;
 }
 
-static int
-thumb2_copy_alu_imm (struct gdbarch *gdbarch, uint16_t insn1,
-		     uint16_t insn2, struct regcache *regs,
-		     struct displaced_step_closure *dsc)
-{
-  unsigned int op = bits (insn1, 5, 8);
-  unsigned int rn, rm, rd;
-  ULONGEST rd_val, rn_val;
-
-  rn = bits (insn1, 0, 3); /* Rn */
-  rm = bits (insn2, 0, 3); /* Rm */
-  rd = bits (insn2, 8, 11); /* Rd */
-
-  /* This routine is only called for instruction MOV.  */
-  gdb_assert (op == 0x2 && rn == 0xf);
-
-  if (rm != ARM_PC_REGNUM && rd != ARM_PC_REGNUM)
-    return thumb_copy_unmodified_32bit (gdbarch, insn1, insn2, "ALU imm", dsc);
-
-  if (debug_displaced)
-    fprintf_unfiltered (gdb_stdlog, "displaced: copying reg %s insn %.4x%.4x\n",
-			"ALU", insn1, insn2);
-
-  /* Instruction is of form:
-
-     <op><cond> rd, [rn,] #imm
-
-     Rewrite as:
-
-     Preparation: tmp1, tmp2 <- r0, r1;
-		  r0, r1 <- rd, rn
-     Insn: <op><cond> r0, r1, #imm
-     Cleanup: rd <- r0; r0 <- tmp1; r1 <- tmp2
-  */
-
-  dsc->tmp[0] = displaced_read_reg (regs, dsc, 0);
-  dsc->tmp[1] = displaced_read_reg (regs, dsc, 1);
-  rn_val = displaced_read_reg (regs, dsc, rn);
-  rd_val = displaced_read_reg (regs, dsc, rd);
-  displaced_write_reg (regs, dsc, 0, rd_val, CANNOT_WRITE_PC);
-  displaced_write_reg (regs, dsc, 1, rn_val, CANNOT_WRITE_PC);
-  dsc->rd = rd;
-
-  dsc->modinsn[0] = insn1;
-  dsc->modinsn[1] = ((insn2 & 0xf0f0) | 0x1);
-  dsc->numinsns = 2;
-
-  dsc->cleanup = &cleanup_alu_imm;
-
-  return 0;
-}
-
 /* Copy/cleanup arithmetic/logic insns with register RHS.  */
 
 static void
-cleanup_alu_reg (struct gdbarch *gdbarch,
+cleanup_alu_reg (struct gdbarch *gdbarch ATTRIBUTE_UNUSED,
 		 struct regcache *regs, struct displaced_step_closure *dsc)
 {
   ULONGEST rd_val;
   int i;
 
-  rd_val = displaced_read_reg (regs, dsc, 0);
+  rd_val = displaced_read_reg (regs, dsc->insn_addr, 0);
 
   for (i = 0; i < 3; i++)
     displaced_write_reg (regs, dsc, i, dsc->tmp[i], CANNOT_WRITE_PC);
@@ -6202,12 +3685,24 @@ cleanup_alu_reg (struct gdbarch *gdbarch,
   displaced_write_reg (regs, dsc, dsc->rd, rd_val, ALU_WRITE_PC);
 }
 
-static void
-install_alu_reg (struct gdbarch *gdbarch, struct regcache *regs,
-		 struct displaced_step_closure *dsc,
-		 unsigned int rd, unsigned int rn, unsigned int rm)
+static int
+copy_alu_reg (struct gdbarch *gdbarch, uint32_t insn, struct regcache *regs,
+	      struct displaced_step_closure *dsc)
 {
+  unsigned int rn = bits (insn, 16, 19);
+  unsigned int rm = bits (insn, 0, 3);
+  unsigned int rd = bits (insn, 12, 15);
+  unsigned int op = bits (insn, 21, 24);
+  int is_mov = (op == 0xd);
   ULONGEST rd_val, rn_val, rm_val;
+  CORE_ADDR from = dsc->insn_addr;
+
+  if (!insn_references_pc (insn, 0x000ff00ful))
+    return copy_unmodified (gdbarch, insn, "ALU reg", dsc);
+
+  if (debug_displaced)
+    fprintf_unfiltered (gdb_stdlog, "displaced: copying reg %s insn %.8lx\n",
+			is_mov ? "move" : "ALU", (unsigned long) insn);
 
   /* Instruction is of form:
 
@@ -6221,65 +3716,23 @@ install_alu_reg (struct gdbarch *gdbarch, struct regcache *regs,
      Cleanup: rd <- r0; r0, r1, r2 <- tmp1, tmp2, tmp3
   */
 
-  dsc->tmp[0] = displaced_read_reg (regs, dsc, 0);
-  dsc->tmp[1] = displaced_read_reg (regs, dsc, 1);
-  dsc->tmp[2] = displaced_read_reg (regs, dsc, 2);
-  rd_val = displaced_read_reg (regs, dsc, rd);
-  rn_val = displaced_read_reg (regs, dsc, rn);
-  rm_val = displaced_read_reg (regs, dsc, rm);
+  dsc->tmp[0] = displaced_read_reg (regs, from, 0);
+  dsc->tmp[1] = displaced_read_reg (regs, from, 1);
+  dsc->tmp[2] = displaced_read_reg (regs, from, 2);
+  rd_val = displaced_read_reg (regs, from, rd);
+  rn_val = displaced_read_reg (regs, from, rn);
+  rm_val = displaced_read_reg (regs, from, rm);
   displaced_write_reg (regs, dsc, 0, rd_val, CANNOT_WRITE_PC);
   displaced_write_reg (regs, dsc, 1, rn_val, CANNOT_WRITE_PC);
   displaced_write_reg (regs, dsc, 2, rm_val, CANNOT_WRITE_PC);
   dsc->rd = rd;
-
-  dsc->cleanup = &cleanup_alu_reg;
-}
-
-static int
-arm_copy_alu_reg (struct gdbarch *gdbarch, uint32_t insn, struct regcache *regs,
-		  struct displaced_step_closure *dsc)
-{
-  unsigned int op = bits (insn, 21, 24);
-  int is_mov = (op == 0xd);
-
-  if (!insn_references_pc (insn, 0x000ff00ful))
-    return arm_copy_unmodified (gdbarch, insn, "ALU reg", dsc);
-
-  if (debug_displaced)
-    fprintf_unfiltered (gdb_stdlog, "displaced: copying reg %s insn %.8lx\n",
-			is_mov ? "move" : "ALU", (unsigned long) insn);
 
   if (is_mov)
     dsc->modinsn[0] = (insn & 0xfff00ff0) | 0x2;
   else
     dsc->modinsn[0] = (insn & 0xfff00ff0) | 0x10002;
 
-  install_alu_reg (gdbarch, regs, dsc, bits (insn, 12, 15), bits (insn, 16, 19),
-		   bits (insn, 0, 3));
-  return 0;
-}
-
-static int
-thumb_copy_alu_reg (struct gdbarch *gdbarch, uint16_t insn,
-		    struct regcache *regs,
-		    struct displaced_step_closure *dsc)
-{
-  unsigned rn, rm, rd;
-
-  rd = bits (insn, 3, 6);
-  rn = (bit (insn, 7) << 3) | bits (insn, 0, 2);
-  rm = 2;
-
-  if (rd != ARM_PC_REGNUM && rn != ARM_PC_REGNUM)
-    return thumb_copy_unmodified_16bit (gdbarch, insn, "ALU reg", dsc);
-
-  if (debug_displaced)
-    fprintf_unfiltered (gdb_stdlog, "displaced: copying reg %s insn %.4x\n",
-			"ALU", (unsigned short) insn);
-
-  dsc->modinsn[0] = ((insn & 0xff00) | 0x08);
-
-  install_alu_reg (gdbarch, regs, dsc, rd, rn, rm);
+  dsc->cleanup = &cleanup_alu_reg;
 
   return 0;
 }
@@ -6287,11 +3740,11 @@ thumb_copy_alu_reg (struct gdbarch *gdbarch, uint16_t insn,
 /* Cleanup/copy arithmetic/logic insns with shifted register RHS.  */
 
 static void
-cleanup_alu_shifted_reg (struct gdbarch *gdbarch,
+cleanup_alu_shifted_reg (struct gdbarch *gdbarch ATTRIBUTE_UNUSED,
 			 struct regcache *regs,
 			 struct displaced_step_closure *dsc)
 {
-  ULONGEST rd_val = displaced_read_reg (regs, dsc, 0);
+  ULONGEST rd_val = displaced_read_reg (regs, dsc->insn_addr, 0);
   int i;
 
   for (i = 0; i < 4; i++)
@@ -6300,14 +3753,26 @@ cleanup_alu_shifted_reg (struct gdbarch *gdbarch,
   displaced_write_reg (regs, dsc, dsc->rd, rd_val, ALU_WRITE_PC);
 }
 
-static void
-install_alu_shifted_reg (struct gdbarch *gdbarch, struct regcache *regs,
-			 struct displaced_step_closure *dsc,
-			 unsigned int rd, unsigned int rn, unsigned int rm,
-			 unsigned rs)
+static int
+copy_alu_shifted_reg (struct gdbarch *gdbarch, uint32_t insn,
+		      struct regcache *regs, struct displaced_step_closure *dsc)
 {
-  int i;
+  unsigned int rn = bits (insn, 16, 19);
+  unsigned int rm = bits (insn, 0, 3);
+  unsigned int rd = bits (insn, 12, 15);
+  unsigned int rs = bits (insn, 8, 11);
+  unsigned int op = bits (insn, 21, 24);
+  int is_mov = (op == 0xd), i;
   ULONGEST rd_val, rn_val, rm_val, rs_val;
+  CORE_ADDR from = dsc->insn_addr;
+
+  if (!insn_references_pc (insn, 0x000fff0ful))
+    return copy_unmodified (gdbarch, insn, "ALU shifted reg", dsc);
+
+  if (debug_displaced)
+    fprintf_unfiltered (gdb_stdlog, "displaced: copying shifted reg %s insn "
+			"%.8lx\n", is_mov ? "move" : "ALU",
+			(unsigned long) insn);
 
   /* Instruction is of form:
 
@@ -6324,48 +3789,24 @@ install_alu_shifted_reg (struct gdbarch *gdbarch, struct regcache *regs,
   */
 
   for (i = 0; i < 4; i++)
-    dsc->tmp[i] = displaced_read_reg (regs, dsc, i);
+    dsc->tmp[i] = displaced_read_reg (regs, from, i);
 
-  rd_val = displaced_read_reg (regs, dsc, rd);
-  rn_val = displaced_read_reg (regs, dsc, rn);
-  rm_val = displaced_read_reg (regs, dsc, rm);
-  rs_val = displaced_read_reg (regs, dsc, rs);
+  rd_val = displaced_read_reg (regs, from, rd);
+  rn_val = displaced_read_reg (regs, from, rn);
+  rm_val = displaced_read_reg (regs, from, rm);
+  rs_val = displaced_read_reg (regs, from, rs);
   displaced_write_reg (regs, dsc, 0, rd_val, CANNOT_WRITE_PC);
   displaced_write_reg (regs, dsc, 1, rn_val, CANNOT_WRITE_PC);
   displaced_write_reg (regs, dsc, 2, rm_val, CANNOT_WRITE_PC);
   displaced_write_reg (regs, dsc, 3, rs_val, CANNOT_WRITE_PC);
   dsc->rd = rd;
-  dsc->cleanup = &cleanup_alu_shifted_reg;
-}
-
-static int
-arm_copy_alu_shifted_reg (struct gdbarch *gdbarch, uint32_t insn,
-			  struct regcache *regs,
-			  struct displaced_step_closure *dsc)
-{
-  unsigned int op = bits (insn, 21, 24);
-  int is_mov = (op == 0xd);
-  unsigned int rd, rn, rm, rs;
-
-  if (!insn_references_pc (insn, 0x000fff0ful))
-    return arm_copy_unmodified (gdbarch, insn, "ALU shifted reg", dsc);
-
-  if (debug_displaced)
-    fprintf_unfiltered (gdb_stdlog, "displaced: copying shifted reg %s insn "
-			"%.8lx\n", is_mov ? "move" : "ALU",
-			(unsigned long) insn);
-
-  rn = bits (insn, 16, 19);
-  rm = bits (insn, 0, 3);
-  rs = bits (insn, 8, 11);
-  rd = bits (insn, 12, 15);
 
   if (is_mov)
     dsc->modinsn[0] = (insn & 0xfff000f0) | 0x302;
   else
     dsc->modinsn[0] = (insn & 0xfff000f0) | 0x10302;
 
-  install_alu_shifted_reg (gdbarch, regs, dsc, rd, rn, rm, rs);
+  dsc->cleanup = &cleanup_alu_shifted_reg;
 
   return 0;
 }
@@ -6373,15 +3814,16 @@ arm_copy_alu_shifted_reg (struct gdbarch *gdbarch, uint32_t insn,
 /* Clean up load instructions.  */
 
 static void
-cleanup_load (struct gdbarch *gdbarch, struct regcache *regs,
+cleanup_load (struct gdbarch *gdbarch ATTRIBUTE_UNUSED, struct regcache *regs,
 	      struct displaced_step_closure *dsc)
 {
   ULONGEST rt_val, rt_val2 = 0, rn_val;
+  CORE_ADDR from = dsc->insn_addr;
 
-  rt_val = displaced_read_reg (regs, dsc, 0);
+  rt_val = displaced_read_reg (regs, from, 0);
   if (dsc->u.ldst.xfersize == 8)
-    rt_val2 = displaced_read_reg (regs, dsc, 1);
-  rn_val = displaced_read_reg (regs, dsc, 2);
+    rt_val2 = displaced_read_reg (regs, from, 1);
+  rn_val = displaced_read_reg (regs, from, 2);
 
   displaced_write_reg (regs, dsc, 0, dsc->tmp[0], CANNOT_WRITE_PC);
   if (dsc->u.ldst.xfersize > 4)
@@ -6402,10 +3844,11 @@ cleanup_load (struct gdbarch *gdbarch, struct regcache *regs,
 /* Clean up store instructions.  */
 
 static void
-cleanup_store (struct gdbarch *gdbarch, struct regcache *regs,
+cleanup_store (struct gdbarch *gdbarch ATTRIBUTE_UNUSED, struct regcache *regs,
 	       struct displaced_step_closure *dsc)
 {
-  ULONGEST rn_val = displaced_read_reg (regs, dsc, 2);
+  CORE_ADDR from = dsc->insn_addr;
+  ULONGEST rn_val = displaced_read_reg (regs, from, 2);
 
   displaced_write_reg (regs, dsc, 0, dsc->tmp[0], CANNOT_WRITE_PC);
   if (dsc->u.ldst.xfersize > 4)
@@ -6425,8 +3868,8 @@ cleanup_store (struct gdbarch *gdbarch, struct regcache *regs,
    transfers, which have a different encoding to byte/word transfers.  */
 
 static int
-arm_copy_extra_ld_st (struct gdbarch *gdbarch, uint32_t insn, int unpriveleged,
-		      struct regcache *regs, struct displaced_step_closure *dsc)
+copy_extra_ld_st (struct gdbarch *gdbarch, uint32_t insn, int unpriveleged,
+		  struct regcache *regs, struct displaced_step_closure *dsc)
 {
   unsigned int op1 = bits (insn, 20, 24);
   unsigned int op2 = bits (insn, 5, 6);
@@ -6438,9 +3881,10 @@ arm_copy_extra_ld_st (struct gdbarch *gdbarch, uint32_t insn, int unpriveleged,
   int immed = (op1 & 0x4) != 0;
   int opcode;
   ULONGEST rt_val, rt_val2 = 0, rn_val, rm_val = 0;
+  CORE_ADDR from = dsc->insn_addr;
 
   if (!insn_references_pc (insn, 0x000ff00ful))
-    return arm_copy_unmodified (gdbarch, insn, "extra load/store", dsc);
+    return copy_unmodified (gdbarch, insn, "extra load/store", dsc);
 
   if (debug_displaced)
     fprintf_unfiltered (gdb_stdlog, "displaced: copying %sextra load/store "
@@ -6453,18 +3897,18 @@ arm_copy_extra_ld_st (struct gdbarch *gdbarch, uint32_t insn, int unpriveleged,
     internal_error (__FILE__, __LINE__,
 		    _("copy_extra_ld_st: instruction decode error"));
 
-  dsc->tmp[0] = displaced_read_reg (regs, dsc, 0);
-  dsc->tmp[1] = displaced_read_reg (regs, dsc, 1);
-  dsc->tmp[2] = displaced_read_reg (regs, dsc, 2);
+  dsc->tmp[0] = displaced_read_reg (regs, from, 0);
+  dsc->tmp[1] = displaced_read_reg (regs, from, 1);
+  dsc->tmp[2] = displaced_read_reg (regs, from, 2);
   if (!immed)
-    dsc->tmp[3] = displaced_read_reg (regs, dsc, 3);
+    dsc->tmp[3] = displaced_read_reg (regs, from, 3);
 
-  rt_val = displaced_read_reg (regs, dsc, rt);
+  rt_val = displaced_read_reg (regs, from, rt);
   if (bytesize[opcode] == 8)
-    rt_val2 = displaced_read_reg (regs, dsc, rt + 1);
-  rn_val = displaced_read_reg (regs, dsc, rn);
+    rt_val2 = displaced_read_reg (regs, from, rt + 1);
+  rn_val = displaced_read_reg (regs, from, rn);
   if (!immed)
-    rm_val = displaced_read_reg (regs, dsc, rm);
+    rm_val = displaced_read_reg (regs, from, rm);
 
   displaced_write_reg (regs, dsc, 0, rt_val, CANNOT_WRITE_PC);
   if (bytesize[opcode] == 8)
@@ -6496,195 +3940,67 @@ arm_copy_extra_ld_st (struct gdbarch *gdbarch, uint32_t insn, int unpriveleged,
   return 0;
 }
 
-/* Copy byte/half word/word loads and stores.  */
+/* Copy byte/word loads and stores.  */
 
-static void
-install_load_store (struct gdbarch *gdbarch, struct regcache *regs,
-		    struct displaced_step_closure *dsc, int load,
-		    int immed, int writeback, int size, int usermode,
-		    int rt, int rm, int rn)
+static int
+copy_ldr_str_ldrb_strb (struct gdbarch *gdbarch, uint32_t insn,
+			struct regcache *regs,
+			struct displaced_step_closure *dsc, int load, int byte,
+			int usermode)
 {
+  int immed = !bit (insn, 25);
+  unsigned int rt = bits (insn, 12, 15);
+  unsigned int rn = bits (insn, 16, 19);
+  unsigned int rm = bits (insn, 0, 3);  /* Only valid if !immed.  */
   ULONGEST rt_val, rn_val, rm_val = 0;
+  CORE_ADDR from = dsc->insn_addr;
 
-  dsc->tmp[0] = displaced_read_reg (regs, dsc, 0);
-  dsc->tmp[2] = displaced_read_reg (regs, dsc, 2);
+  if (!insn_references_pc (insn, 0x000ff00ful))
+    return copy_unmodified (gdbarch, insn, "load/store", dsc);
+
+  if (debug_displaced)
+    fprintf_unfiltered (gdb_stdlog, "displaced: copying %s%s insn %.8lx\n",
+			load ? (byte ? "ldrb" : "ldr")
+			     : (byte ? "strb" : "str"), usermode ? "t" : "",
+			(unsigned long) insn);
+
+  dsc->tmp[0] = displaced_read_reg (regs, from, 0);
+  dsc->tmp[2] = displaced_read_reg (regs, from, 2);
   if (!immed)
-    dsc->tmp[3] = displaced_read_reg (regs, dsc, 3);
+    dsc->tmp[3] = displaced_read_reg (regs, from, 3);
   if (!load)
-    dsc->tmp[4] = displaced_read_reg (regs, dsc, 4);
+    dsc->tmp[4] = displaced_read_reg (regs, from, 4);
 
-  rt_val = displaced_read_reg (regs, dsc, rt);
-  rn_val = displaced_read_reg (regs, dsc, rn);
+  rt_val = displaced_read_reg (regs, from, rt);
+  rn_val = displaced_read_reg (regs, from, rn);
   if (!immed)
-    rm_val = displaced_read_reg (regs, dsc, rm);
+    rm_val = displaced_read_reg (regs, from, rm);
 
   displaced_write_reg (regs, dsc, 0, rt_val, CANNOT_WRITE_PC);
   displaced_write_reg (regs, dsc, 2, rn_val, CANNOT_WRITE_PC);
   if (!immed)
     displaced_write_reg (regs, dsc, 3, rm_val, CANNOT_WRITE_PC);
+
   dsc->rd = rt;
-  dsc->u.ldst.xfersize = size;
+  dsc->u.ldst.xfersize = byte ? 1 : 4;
   dsc->u.ldst.rn = rn;
   dsc->u.ldst.immed = immed;
-  dsc->u.ldst.writeback = writeback;
+  dsc->u.ldst.writeback = bit (insn, 24) == 0 || bit (insn, 21) != 0;
 
   /* To write PC we can do:
 
-     Before this sequence of instructions:
-     r0 is the PC value got from displaced_read_reg, so r0 = from + 8;
-     r2 is the Rn value got from dispalced_read_reg.
-
-     Insn1: push {pc} Write address of STR instruction + offset on stack
-     Insn2: pop  {r4} Read it back from stack, r4 = addr(Insn1) + offset
-     Insn3: sub r4, r4, pc   r4 = addr(Insn1) + offset - pc
-                                = addr(Insn1) + offset - addr(Insn3) - 8
-                                = offset - 16
-     Insn4: add r4, r4, #8   r4 = offset - 8
-     Insn5: add r0, r0, r4   r0 = from + 8 + offset - 8
-                                = from + offset
-     Insn6: str r0, [r2, #imm] (or str r0, [r2, r3])
+     scratch+0:  str pc, temp  (*temp = scratch + 8 + offset)
+     scratch+4:  ldr r4, temp
+     scratch+8:  sub r4, r4, pc  (r4 = scratch + 8 + offset - scratch - 8 - 8)
+     scratch+12: add r4, r4, #8  (r4 = offset)
+     scratch+16: add r0, r0, r4
+     scratch+20: str r0, [r2, #imm] (or str r0, [r2, r3])
+     scratch+24: <temp>
 
      Otherwise we don't know what value to write for PC, since the offset is
-     architecture-dependent (sometimes PC+8, sometimes PC+12).  More details
-     of this can be found in Section "Saving from r15" in
-     http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.dui0204g/Cihbjifh.html */
+     architecture-dependent (sometimes PC+8, sometimes PC+12).  */
 
-  dsc->cleanup = load ? &cleanup_load : &cleanup_store;
-}
-
-
-static int
-thumb2_copy_load_literal (struct gdbarch *gdbarch, uint16_t insn1,
-			  uint16_t insn2, struct regcache *regs,
-			  struct displaced_step_closure *dsc, int size)
-{
-  unsigned int u_bit = bit (insn1, 7);
-  unsigned int rt = bits (insn2, 12, 15);
-  int imm12 = bits (insn2, 0, 11);
-  ULONGEST pc_val;
-
-  if (debug_displaced)
-    fprintf_unfiltered (gdb_stdlog,
-			"displaced: copying ldr pc (0x%x) R%d %c imm12 %.4x\n",
-			(unsigned int) dsc->insn_addr, rt, u_bit ? '+' : '-',
-			imm12);
-
-  if (!u_bit)
-    imm12 = -1 * imm12;
-
-  /* Rewrite instruction LDR Rt imm12 into:
-
-     Prepare: tmp[0] <- r0, tmp[1] <- r2, tmp[2] <- r3, r2 <- pc, r3 <- imm12
-
-     LDR R0, R2, R3,
-
-     Cleanup: rt <- r0, r0 <- tmp[0], r2 <- tmp[1], r3 <- tmp[2].  */
-
-
-  dsc->tmp[0] = displaced_read_reg (regs, dsc, 0);
-  dsc->tmp[2] = displaced_read_reg (regs, dsc, 2);
-  dsc->tmp[3] = displaced_read_reg (regs, dsc, 3);
-
-  pc_val = displaced_read_reg (regs, dsc, ARM_PC_REGNUM);
-
-  pc_val = pc_val & 0xfffffffc;
-
-  displaced_write_reg (regs, dsc, 2, pc_val, CANNOT_WRITE_PC);
-  displaced_write_reg (regs, dsc, 3, imm12, CANNOT_WRITE_PC);
-
-  dsc->rd = rt;
-
-  dsc->u.ldst.xfersize = size;
-  dsc->u.ldst.immed = 0;
-  dsc->u.ldst.writeback = 0;
-  dsc->u.ldst.restore_r4 = 0;
-
-  /* LDR R0, R2, R3 */
-  dsc->modinsn[0] = 0xf852;
-  dsc->modinsn[1] = 0x3;
-  dsc->numinsns = 2;
-
-  dsc->cleanup = &cleanup_load;
-
-  return 0;
-}
-
-static int
-thumb2_copy_load_reg_imm (struct gdbarch *gdbarch, uint16_t insn1,
-			  uint16_t insn2, struct regcache *regs,
-			  struct displaced_step_closure *dsc,
-			  int writeback, int immed)
-{
-  unsigned int rt = bits (insn2, 12, 15);
-  unsigned int rn = bits (insn1, 0, 3);
-  unsigned int rm = bits (insn2, 0, 3);  /* Only valid if !immed.  */
-  /* In LDR (register), there is also a register Rm, which is not allowed to
-     be PC, so we don't have to check it.  */
-
-  if (rt != ARM_PC_REGNUM && rn != ARM_PC_REGNUM)
-    return thumb_copy_unmodified_32bit (gdbarch, insn1, insn2, "load",
-					dsc);
-
-  if (debug_displaced)
-    fprintf_unfiltered (gdb_stdlog,
-			"displaced: copying ldr r%d [r%d] insn %.4x%.4x\n",
-			 rt, rn, insn1, insn2);
-
-  install_load_store (gdbarch, regs, dsc, 1, immed, writeback, 4,
-		      0, rt, rm, rn);
-
-  dsc->u.ldst.restore_r4 = 0;
-
-  if (immed)
-    /* ldr[b]<cond> rt, [rn, #imm], etc.
-       ->
-       ldr[b]<cond> r0, [r2, #imm].  */
-    {
-      dsc->modinsn[0] = (insn1 & 0xfff0) | 0x2;
-      dsc->modinsn[1] = insn2 & 0x0fff;
-    }
-  else
-    /* ldr[b]<cond> rt, [rn, rm], etc.
-       ->
-       ldr[b]<cond> r0, [r2, r3].  */
-    {
-      dsc->modinsn[0] = (insn1 & 0xfff0) | 0x2;
-      dsc->modinsn[1] = (insn2 & 0x0ff0) | 0x3;
-    }
-
-  dsc->numinsns = 2;
-
-  return 0;
-}
-
-
-static int
-arm_copy_ldr_str_ldrb_strb (struct gdbarch *gdbarch, uint32_t insn,
-			    struct regcache *regs,
-			    struct displaced_step_closure *dsc,
-			    int load, int size, int usermode)
-{
-  int immed = !bit (insn, 25);
-  int writeback = (bit (insn, 24) == 0 || bit (insn, 21) != 0);
-  unsigned int rt = bits (insn, 12, 15);
-  unsigned int rn = bits (insn, 16, 19);
-  unsigned int rm = bits (insn, 0, 3);  /* Only valid if !immed.  */
-
-  if (!insn_references_pc (insn, 0x000ff00ful))
-    return arm_copy_unmodified (gdbarch, insn, "load/store", dsc);
-
-  if (debug_displaced)
-    fprintf_unfiltered (gdb_stdlog,
-			"displaced: copying %s%s r%d [r%d] insn %.8lx\n",
-			load ? (size == 1 ? "ldrb" : "ldr")
-			     : (size == 1 ? "strb" : "str"), usermode ? "t" : "",
-			rt, rn,
-			(unsigned long) insn);
-
-  install_load_store (gdbarch, regs, dsc, load, immed, writeback, size,
-		      usermode, rt, rm, rn);
-
-  if (load || rt != ARM_PC_REGNUM)
+  if (load || rt != 15)
     {
       dsc->u.ldst.restore_r4 = 0;
 
@@ -6703,8 +4019,9 @@ arm_copy_ldr_str_ldrb_strb (struct gdbarch *gdbarch, uint32_t insn,
     {
       /* We need to use r4 as scratch.  Make sure it's restored afterwards.  */
       dsc->u.ldst.restore_r4 = 1;
-      dsc->modinsn[0] = 0xe92d8000;  /* push {pc} */
-      dsc->modinsn[1] = 0xe8bd0010;  /* pop  {r4} */
+
+      dsc->modinsn[0] = 0xe58ff014;  /* str pc, [pc, #20].  */
+      dsc->modinsn[1] = 0xe59f4010;  /* ldr r4, [pc, #16].  */
       dsc->modinsn[2] = 0xe044400f;  /* sub r4, r4, pc.  */
       dsc->modinsn[3] = 0xe2844008;  /* add r4, r4, #8.  */
       dsc->modinsn[4] = 0xe0800004;  /* add r0, r0, r4.  */
@@ -6714,6 +4031,9 @@ arm_copy_ldr_str_ldrb_strb (struct gdbarch *gdbarch, uint32_t insn,
 	dsc->modinsn[5] = (insn & 0xfff00fff) | 0x20000;
       else
 	dsc->modinsn[5] = (insn & 0xfff00ff0) | 0x20003;
+
+      dsc->modinsn[6] = 0x0;  /* breakpoint location.  */
+      dsc->modinsn[7] = 0x0;  /* scratch space.  */
 
       dsc->numinsns = 6;
     }
@@ -6747,6 +4067,7 @@ static void
 cleanup_block_load_all (struct gdbarch *gdbarch, struct regcache *regs,
 			struct displaced_step_closure *dsc)
 {
+  ULONGEST from = dsc->insn_addr;
   int inc = dsc->u.block.increment;
   int bump_before = dsc->u.block.before ? (inc ? 4 : -4) : 0;
   int bump_after = dsc->u.block.before ? 0 : (inc ? 4 : -4);
@@ -6755,7 +4076,7 @@ cleanup_block_load_all (struct gdbarch *gdbarch, struct regcache *regs,
   CORE_ADDR xfer_addr = dsc->u.block.xfer_addr;
   int exception_return = dsc->u.block.load && dsc->u.block.user
 			 && (regmask & 0x8000) != 0;
-  uint32_t status = displaced_read_reg (regs, dsc, ARM_PS_REGNUM);
+  uint32_t status = displaced_read_reg (regs, from, ARM_PS_REGNUM);
   int do_transfer = condition_true (dsc->u.block.cond, status);
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
 
@@ -6781,7 +4102,7 @@ cleanup_block_load_all (struct gdbarch *gdbarch, struct regcache *regs,
       uint32_t memword;
 
       if (inc)
-	while (regno <= ARM_PC_REGNUM && (regmask & (1 << regno)) == 0)
+	while (regno <= 15 && (regmask & (1 << regno)) == 0)
 	  regno++;
       else
 	while (regno >= 0 && (regmask & (1 << regno)) == 0)
@@ -6808,7 +4129,8 @@ static void
 cleanup_block_store_pc (struct gdbarch *gdbarch, struct regcache *regs,
 			struct displaced_step_closure *dsc)
 {
-  uint32_t status = displaced_read_reg (regs, dsc, ARM_PS_REGNUM);
+  ULONGEST from = dsc->insn_addr;
+  uint32_t status = displaced_read_reg (regs, from, ARM_PS_REGNUM);
   int store_executed = condition_true (dsc->u.block.cond, status);
   CORE_ADDR pc_stored_at, transferred_regs = bitcount (dsc->u.block.regmask);
   CORE_ADDR stm_insn_addr;
@@ -6855,13 +4177,14 @@ cleanup_block_store_pc (struct gdbarch *gdbarch, struct regcache *regs,
    must undo that here.  */
 
 static void
-cleanup_block_load_pc (struct gdbarch *gdbarch,
+cleanup_block_load_pc (struct gdbarch *gdbarch ATTRIBUTE_UNUSED,
 		       struct regcache *regs,
 		       struct displaced_step_closure *dsc)
 {
-  uint32_t status = displaced_read_reg (regs, dsc, ARM_PS_REGNUM);
+  ULONGEST from = dsc->insn_addr;
+  uint32_t status = displaced_read_reg (regs, from, ARM_PS_REGNUM);
   int load_executed = condition_true (dsc->u.block.cond, status), i;
-  unsigned int mask = dsc->u.block.regmask, write_reg = ARM_PC_REGNUM;
+  unsigned int mask = dsc->u.block.regmask, write_reg = 15;
   unsigned int regs_loaded = bitcount (mask);
   unsigned int num_to_shuffle = regs_loaded, clobbered;
 
@@ -6882,7 +4205,7 @@ cleanup_block_load_pc (struct gdbarch *gdbarch,
 
 	  if (read_reg != write_reg)
 	    {
-	      ULONGEST rval = displaced_read_reg (regs, dsc, read_reg);
+	      ULONGEST rval = displaced_read_reg (regs, from, read_reg);
 	      displaced_write_reg (regs, dsc, write_reg, rval, LOAD_WRITE_PC);
 	      if (debug_displaced)
 		fprintf_unfiltered (gdb_stdlog, _("displaced: LDM: move "
@@ -6935,9 +4258,8 @@ cleanup_block_load_pc (struct gdbarch *gdbarch,
    in user-level code (in particular exception return, ldm rn, {...pc}^).  */
 
 static int
-arm_copy_block_xfer (struct gdbarch *gdbarch, uint32_t insn,
-		     struct regcache *regs,
-		     struct displaced_step_closure *dsc)
+copy_block_xfer (struct gdbarch *gdbarch, uint32_t insn, struct regcache *regs,
+		 struct displaced_step_closure *dsc)
 {
   int load = bit (insn, 20);
   int user = bit (insn, 22);
@@ -6945,24 +4267,23 @@ arm_copy_block_xfer (struct gdbarch *gdbarch, uint32_t insn,
   int before = bit (insn, 24);
   int writeback = bit (insn, 21);
   int rn = bits (insn, 16, 19);
+  CORE_ADDR from = dsc->insn_addr;
 
-  /* Block transfers which don't mention PC can be run directly
-     out-of-line.  */
-  if (rn != ARM_PC_REGNUM && (insn & 0x8000) == 0)
-    return arm_copy_unmodified (gdbarch, insn, "ldm/stm", dsc);
+  /* Block transfers which don't mention PC can be run directly out-of-line.  */
+  if (rn != 15 && (insn & 0x8000) == 0)
+    return copy_unmodified (gdbarch, insn, "ldm/stm", dsc);
 
-  if (rn == ARM_PC_REGNUM)
+  if (rn == 15)
     {
-      warning (_("displaced: Unpredictable LDM or STM with "
-		 "base register r15"));
-      return arm_copy_unmodified (gdbarch, insn, "unpredictable ldm/stm", dsc);
+      warning (_("displaced: Unpredictable LDM or STM with base register r15"));
+      return copy_unmodified (gdbarch, insn, "unpredictable ldm/stm", dsc);
     }
 
   if (debug_displaced)
     fprintf_unfiltered (gdb_stdlog, "displaced: copying block transfer insn "
 			"%.8lx\n", (unsigned long) insn);
 
-  dsc->u.block.xfer_addr = displaced_read_reg (regs, dsc, rn);
+  dsc->u.block.xfer_addr = displaced_read_reg (regs, from, rn);
   dsc->u.block.rn = rn;
 
   dsc->u.block.load = load;
@@ -6998,7 +4319,7 @@ arm_copy_block_xfer (struct gdbarch *gdbarch, uint32_t insn,
 	  unsigned int to = 0, from = 0, i, new_rn;
 
 	  for (i = 0; i < num_in_list; i++)
-	    dsc->tmp[i] = displaced_read_reg (regs, dsc, i);
+	    dsc->tmp[i] = displaced_read_reg (regs, from, i);
 
 	  /* Writeback makes things complicated.  We need to avoid clobbering
 	     the base register with one of the registers in our modified
@@ -7048,96 +4369,15 @@ arm_copy_block_xfer (struct gdbarch *gdbarch, uint32_t insn,
   return 0;
 }
 
-static int
-thumb2_copy_block_xfer (struct gdbarch *gdbarch, uint16_t insn1, uint16_t insn2,
-			struct regcache *regs,
-			struct displaced_step_closure *dsc)
-{
-  int rn = bits (insn1, 0, 3);
-  int load = bit (insn1, 4);
-  int writeback = bit (insn1, 5);
-
-  /* Block transfers which don't mention PC can be run directly
-     out-of-line.  */
-  if (rn != ARM_PC_REGNUM && (insn2 & 0x8000) == 0)
-    return thumb_copy_unmodified_32bit (gdbarch, insn1, insn2, "ldm/stm", dsc);
-
-  if (rn == ARM_PC_REGNUM)
-    {
-      warning (_("displaced: Unpredictable LDM or STM with "
-		 "base register r15"));
-      return thumb_copy_unmodified_32bit (gdbarch, insn1, insn2,
-					  "unpredictable ldm/stm", dsc);
-    }
-
-  if (debug_displaced)
-    fprintf_unfiltered (gdb_stdlog, "displaced: copying block transfer insn "
-			"%.4x%.4x\n", insn1, insn2);
-
-  /* Clear bit 13, since it should be always zero.  */
-  dsc->u.block.regmask = (insn2 & 0xdfff);
-  dsc->u.block.rn = rn;
-
-  dsc->u.block.load = load;
-  dsc->u.block.user = 0;
-  dsc->u.block.increment = bit (insn1, 7);
-  dsc->u.block.before = bit (insn1, 8);
-  dsc->u.block.writeback = writeback;
-  dsc->u.block.cond = INST_AL;
-  dsc->u.block.xfer_addr = displaced_read_reg (regs, dsc, rn);
-
-  if (load)
-    {
-      if (dsc->u.block.regmask == 0xffff)
-	{
-	  /* This branch is impossible to happen.  */
-	  gdb_assert (0);
-	}
-      else
-	{
-	  unsigned int regmask = dsc->u.block.regmask;
-	  unsigned int num_in_list = bitcount (regmask), new_regmask, bit = 1;
-	  unsigned int to = 0, from = 0, i, new_rn;
-
-	  for (i = 0; i < num_in_list; i++)
-	    dsc->tmp[i] = displaced_read_reg (regs, dsc, i);
-
-	  if (writeback)
-	    insn1 &= ~(1 << 5);
-
-	  new_regmask = (1 << num_in_list) - 1;
-
-	  if (debug_displaced)
-	    fprintf_unfiltered (gdb_stdlog, _("displaced: LDM r%d%s, "
-				"{..., pc}: original reg list %.4x, modified "
-				"list %.4x\n"), rn, writeback ? "!" : "",
-				(int) dsc->u.block.regmask, new_regmask);
-
-	  dsc->modinsn[0] = insn1;
-	  dsc->modinsn[1] = (new_regmask & 0xffff);
-	  dsc->numinsns = 2;
-
-	  dsc->cleanup = &cleanup_block_load_pc;
-	}
-    }
-  else
-    {
-      dsc->modinsn[0] = insn1;
-      dsc->modinsn[1] = insn2;
-      dsc->numinsns = 2;
-      dsc->cleanup = &cleanup_block_store_pc;
-    }
-  return 0;
-}
-
 /* Cleanup/copy SVC (SWI) instructions.  These two functions are overridden
    for Linux, where some SVC instructions must be treated specially.  */
 
 static void
-cleanup_svc (struct gdbarch *gdbarch, struct regcache *regs,
+cleanup_svc (struct gdbarch *gdbarch ATTRIBUTE_UNUSED, struct regcache *regs,
 	     struct displaced_step_closure *dsc)
 {
-  CORE_ADDR resume_addr = dsc->insn_addr + dsc->insn_size;
+  CORE_ADDR from = dsc->insn_addr;
+  CORE_ADDR resume_addr = from + 4;
 
   if (debug_displaced)
     fprintf_unfiltered (gdb_stdlog, "displaced: cleanup for svc, resume at "
@@ -7146,88 +4386,45 @@ cleanup_svc (struct gdbarch *gdbarch, struct regcache *regs,
   displaced_write_reg (regs, dsc, ARM_PC_REGNUM, resume_addr, BRANCH_WRITE_PC);
 }
 
-
-/* Common copy routine for svc instruciton.  */
-
 static int
-install_svc (struct gdbarch *gdbarch, struct regcache *regs,
-	     struct displaced_step_closure *dsc)
+copy_svc (struct gdbarch *gdbarch, uint32_t insn, CORE_ADDR to,
+	  struct regcache *regs, struct displaced_step_closure *dsc)
 {
-  /* Preparation: none.
-     Insn: unmodified svc.
-     Cleanup: pc <- insn_addr + insn_size.  */
-
-  /* Pretend we wrote to the PC, so cleanup doesn't set PC to the next
-     instruction.  */
-  dsc->wrote_to_pc = 1;
+  CORE_ADDR from = dsc->insn_addr;
 
   /* Allow OS-specific code to override SVC handling.  */
   if (dsc->u.svc.copy_svc_os)
-    return dsc->u.svc.copy_svc_os (gdbarch, regs, dsc);
-  else
-    {
-      dsc->cleanup = &cleanup_svc;
-      return 0;
-    }
-}
-
-static int
-arm_copy_svc (struct gdbarch *gdbarch, uint32_t insn,
-	      struct regcache *regs, struct displaced_step_closure *dsc)
-{
+    return dsc->u.svc.copy_svc_os (gdbarch, insn, to, regs, dsc);
 
   if (debug_displaced)
     fprintf_unfiltered (gdb_stdlog, "displaced: copying svc insn %.8lx\n",
 			(unsigned long) insn);
 
-  dsc->modinsn[0] = insn;
-
-  return install_svc (gdbarch, regs, dsc);
-}
-
-static int
-thumb_copy_svc (struct gdbarch *gdbarch, uint16_t insn,
-		struct regcache *regs, struct displaced_step_closure *dsc)
-{
-
-  if (debug_displaced)
-    fprintf_unfiltered (gdb_stdlog, "displaced: copying svc insn %.4x\n",
-			insn);
+  /* Preparation: none.
+     Insn: unmodified svc.
+     Cleanup: pc <- insn_addr + 4.  */
 
   dsc->modinsn[0] = insn;
 
-  return install_svc (gdbarch, regs, dsc);
+  dsc->cleanup = &cleanup_svc;
+  /* Pretend we wrote to the PC, so cleanup doesn't set PC to the next
+     instruction.  */
+  dsc->wrote_to_pc = 1;
+
+  return 0;
 }
 
 /* Copy undefined instructions.  */
 
 static int
-arm_copy_undef (struct gdbarch *gdbarch, uint32_t insn,
-		struct displaced_step_closure *dsc)
+copy_undef (struct gdbarch *gdbarch ATTRIBUTE_UNUSED, uint32_t insn,
+	    struct displaced_step_closure *dsc)
 {
   if (debug_displaced)
-    fprintf_unfiltered (gdb_stdlog,
-			"displaced: copying undefined insn %.8lx\n",
+    fprintf_unfiltered (gdb_stdlog, "displaced: copying undefined insn %.8lx\n",
 			(unsigned long) insn);
 
   dsc->modinsn[0] = insn;
-
-  return 0;
-}
-
-static int
-thumb_32bit_copy_undef (struct gdbarch *gdbarch, uint16_t insn1, uint16_t insn2,
-                       struct displaced_step_closure *dsc)
-{
-
-  if (debug_displaced)
-    fprintf_unfiltered (gdb_stdlog, "displaced: copying undefined insn "
-                       "%.4x %.4x\n", (unsigned short) insn1,
-                       (unsigned short) insn2);
-
-  dsc->modinsn[0] = insn1;
-  dsc->modinsn[1] = insn2;
-  dsc->numinsns = 2;
 
   return 0;
 }
@@ -7235,8 +4432,8 @@ thumb_32bit_copy_undef (struct gdbarch *gdbarch, uint16_t insn1, uint16_t insn2,
 /* Copy unpredictable instructions.  */
 
 static int
-arm_copy_unpred (struct gdbarch *gdbarch, uint32_t insn,
-		 struct displaced_step_closure *dsc)
+copy_unpred (struct gdbarch *gdbarch ATTRIBUTE_UNUSED, uint32_t insn,
+	     struct displaced_step_closure *dsc)
 {
   if (debug_displaced)
     fprintf_unfiltered (gdb_stdlog, "displaced: copying unpredictable insn "
@@ -7251,96 +4448,94 @@ arm_copy_unpred (struct gdbarch *gdbarch, uint32_t insn,
    the presentation in the ARM ARM.  */
 
 static int
-arm_decode_misc_memhint_neon (struct gdbarch *gdbarch, uint32_t insn,
-			      struct regcache *regs,
-			      struct displaced_step_closure *dsc)
+decode_misc_memhint_neon (struct gdbarch *gdbarch, uint32_t insn,
+			  struct regcache *regs,
+			  struct displaced_step_closure *dsc)
 {
   unsigned int op1 = bits (insn, 20, 26), op2 = bits (insn, 4, 7);
   unsigned int rn = bits (insn, 16, 19);
 
   if (op1 == 0x10 && (op2 & 0x2) == 0x0 && (rn & 0xe) == 0x0)
-    return arm_copy_unmodified (gdbarch, insn, "cps", dsc);
+    return copy_unmodified (gdbarch, insn, "cps", dsc);
   else if (op1 == 0x10 && op2 == 0x0 && (rn & 0xe) == 0x1)
-    return arm_copy_unmodified (gdbarch, insn, "setend", dsc);
+    return copy_unmodified (gdbarch, insn, "setend", dsc);
   else if ((op1 & 0x60) == 0x20)
-    return arm_copy_unmodified (gdbarch, insn, "neon dataproc", dsc);
+    return copy_unmodified (gdbarch, insn, "neon dataproc", dsc);
   else if ((op1 & 0x71) == 0x40)
-    return arm_copy_unmodified (gdbarch, insn, "neon elt/struct load/store",
-				dsc);
+    return copy_unmodified (gdbarch, insn, "neon elt/struct load/store", dsc);
   else if ((op1 & 0x77) == 0x41)
-    return arm_copy_unmodified (gdbarch, insn, "unallocated mem hint", dsc);
+    return copy_unmodified (gdbarch, insn, "unallocated mem hint", dsc);
   else if ((op1 & 0x77) == 0x45)
-    return arm_copy_preload (gdbarch, insn, regs, dsc);  /* pli.  */
+    return copy_preload (gdbarch, insn, regs, dsc);  /* pli.  */
   else if ((op1 & 0x77) == 0x51)
     {
       if (rn != 0xf)
-	return arm_copy_preload (gdbarch, insn, regs, dsc);  /* pld/pldw.  */
+	return copy_preload (gdbarch, insn, regs, dsc);  /* pld/pldw.  */
       else
-	return arm_copy_unpred (gdbarch, insn, dsc);
+	return copy_unpred (gdbarch, insn, dsc);
     }
   else if ((op1 & 0x77) == 0x55)
-    return arm_copy_preload (gdbarch, insn, regs, dsc);  /* pld/pldw.  */
+    return copy_preload (gdbarch, insn, regs, dsc);  /* pld/pldw.  */
   else if (op1 == 0x57)
     switch (op2)
       {
-      case 0x1: return arm_copy_unmodified (gdbarch, insn, "clrex", dsc);
-      case 0x4: return arm_copy_unmodified (gdbarch, insn, "dsb", dsc);
-      case 0x5: return arm_copy_unmodified (gdbarch, insn, "dmb", dsc);
-      case 0x6: return arm_copy_unmodified (gdbarch, insn, "isb", dsc);
-      default: return arm_copy_unpred (gdbarch, insn, dsc);
+      case 0x1: return copy_unmodified (gdbarch, insn, "clrex", dsc);
+      case 0x4: return copy_unmodified (gdbarch, insn, "dsb", dsc);
+      case 0x5: return copy_unmodified (gdbarch, insn, "dmb", dsc);
+      case 0x6: return copy_unmodified (gdbarch, insn, "isb", dsc);
+      default: return copy_unpred (gdbarch, insn, dsc);
       }
   else if ((op1 & 0x63) == 0x43)
-    return arm_copy_unpred (gdbarch, insn, dsc);
+    return copy_unpred (gdbarch, insn, dsc);
   else if ((op2 & 0x1) == 0x0)
     switch (op1 & ~0x80)
       {
       case 0x61:
-	return arm_copy_unmodified (gdbarch, insn, "unallocated mem hint", dsc);
+	return copy_unmodified (gdbarch, insn, "unallocated mem hint", dsc);
       case 0x65:
-	return arm_copy_preload_reg (gdbarch, insn, regs, dsc);  /* pli reg.  */
+	return copy_preload_reg (gdbarch, insn, regs, dsc);  /* pli reg.  */
       case 0x71: case 0x75:
         /* pld/pldw reg.  */
-	return arm_copy_preload_reg (gdbarch, insn, regs, dsc);
+	return copy_preload_reg (gdbarch, insn, regs, dsc);
       case 0x63: case 0x67: case 0x73: case 0x77:
-	return arm_copy_unpred (gdbarch, insn, dsc);
+	return copy_unpred (gdbarch, insn, dsc);
       default:
-	return arm_copy_undef (gdbarch, insn, dsc);
+	return copy_undef (gdbarch, insn, dsc);
       }
   else
-    return arm_copy_undef (gdbarch, insn, dsc);  /* Probably unreachable.  */
+    return copy_undef (gdbarch, insn, dsc);  /* Probably unreachable.  */
 }
 
 static int
-arm_decode_unconditional (struct gdbarch *gdbarch, uint32_t insn,
-			  struct regcache *regs,
-			  struct displaced_step_closure *dsc)
+decode_unconditional (struct gdbarch *gdbarch, uint32_t insn,
+		      struct regcache *regs, struct displaced_step_closure *dsc)
 {
   if (bit (insn, 27) == 0)
-    return arm_decode_misc_memhint_neon (gdbarch, insn, regs, dsc);
+    return decode_misc_memhint_neon (gdbarch, insn, regs, dsc);
   /* Switch on bits: 0bxxxxx321xxx0xxxxxxxxxxxxxxxxxxxx.  */
   else switch (((insn & 0x7000000) >> 23) | ((insn & 0x100000) >> 20))
     {
     case 0x0: case 0x2:
-      return arm_copy_unmodified (gdbarch, insn, "srs", dsc);
+      return copy_unmodified (gdbarch, insn, "srs", dsc);
 
     case 0x1: case 0x3:
-      return arm_copy_unmodified (gdbarch, insn, "rfe", dsc);
+      return copy_unmodified (gdbarch, insn, "rfe", dsc);
 
     case 0x4: case 0x5: case 0x6: case 0x7:
-      return arm_copy_b_bl_blx (gdbarch, insn, regs, dsc);
+      return copy_b_bl_blx (gdbarch, insn, regs, dsc);
 
     case 0x8:
       switch ((insn & 0xe00000) >> 21)
 	{
 	case 0x1: case 0x3: case 0x4: case 0x5: case 0x6: case 0x7:
 	  /* stc/stc2.  */
-	  return arm_copy_copro_load_store (gdbarch, insn, regs, dsc);
+	  return copy_copro_load_store (gdbarch, insn, regs, dsc);
 
 	case 0x2:
-	  return arm_copy_unmodified (gdbarch, insn, "mcrr/mcrr2", dsc);
+	  return copy_unmodified (gdbarch, insn, "mcrr/mcrr2", dsc);
 
 	default:
-	  return arm_copy_undef (gdbarch, insn, dsc);
+	  return copy_undef (gdbarch, insn, dsc);
 	}
 
     case 0x9:
@@ -7350,55 +4545,54 @@ arm_decode_unconditional (struct gdbarch *gdbarch, uint32_t insn,
 	  {
 	  case 0x1: case 0x3:
 	    /* ldc/ldc2 imm (undefined for rn == pc).  */
-	    return rn_f ? arm_copy_undef (gdbarch, insn, dsc)
-			: arm_copy_copro_load_store (gdbarch, insn, regs, dsc);
+	    return rn_f ? copy_undef (gdbarch, insn, dsc)
+			: copy_copro_load_store (gdbarch, insn, regs, dsc);
 
 	  case 0x2:
-	    return arm_copy_unmodified (gdbarch, insn, "mrrc/mrrc2", dsc);
+	    return copy_unmodified (gdbarch, insn, "mrrc/mrrc2", dsc);
 
 	  case 0x4: case 0x5: case 0x6: case 0x7:
 	    /* ldc/ldc2 lit (undefined for rn != pc).  */
-	    return rn_f ? arm_copy_copro_load_store (gdbarch, insn, regs, dsc)
-			: arm_copy_undef (gdbarch, insn, dsc);
+	    return rn_f ? copy_copro_load_store (gdbarch, insn, regs, dsc)
+			: copy_undef (gdbarch, insn, dsc);
 
 	  default:
-	    return arm_copy_undef (gdbarch, insn, dsc);
+	    return copy_undef (gdbarch, insn, dsc);
 	  }
       }
 
     case 0xa:
-      return arm_copy_unmodified (gdbarch, insn, "stc/stc2", dsc);
+      return copy_unmodified (gdbarch, insn, "stc/stc2", dsc);
 
     case 0xb:
       if (bits (insn, 16, 19) == 0xf)
         /* ldc/ldc2 lit.  */
-	return arm_copy_copro_load_store (gdbarch, insn, regs, dsc);
+	return copy_copro_load_store (gdbarch, insn, regs, dsc);
       else
-	return arm_copy_undef (gdbarch, insn, dsc);
+	return copy_undef (gdbarch, insn, dsc);
 
     case 0xc:
       if (bit (insn, 4))
-	return arm_copy_unmodified (gdbarch, insn, "mcr/mcr2", dsc);
+	return copy_unmodified (gdbarch, insn, "mcr/mcr2", dsc);
       else
-	return arm_copy_unmodified (gdbarch, insn, "cdp/cdp2", dsc);
+	return copy_unmodified (gdbarch, insn, "cdp/cdp2", dsc);
 
     case 0xd:
       if (bit (insn, 4))
-	return arm_copy_unmodified (gdbarch, insn, "mrc/mrc2", dsc);
+	return copy_unmodified (gdbarch, insn, "mrc/mrc2", dsc);
       else
-	return arm_copy_unmodified (gdbarch, insn, "cdp/cdp2", dsc);
+	return copy_unmodified (gdbarch, insn, "cdp/cdp2", dsc);
 
     default:
-      return arm_copy_undef (gdbarch, insn, dsc);
+      return copy_undef (gdbarch, insn, dsc);
     }
 }
 
 /* Decode miscellaneous instructions in dp/misc encoding space.  */
 
 static int
-arm_decode_miscellaneous (struct gdbarch *gdbarch, uint32_t insn,
-			  struct regcache *regs,
-			  struct displaced_step_closure *dsc)
+decode_miscellaneous (struct gdbarch *gdbarch, uint32_t insn,
+		      struct regcache *regs, struct displaced_step_closure *dsc)
 {
   unsigned int op2 = bits (insn, 4, 6);
   unsigned int op = bits (insn, 21, 22);
@@ -7407,85 +4601,83 @@ arm_decode_miscellaneous (struct gdbarch *gdbarch, uint32_t insn,
   switch (op2)
     {
     case 0x0:
-      return arm_copy_unmodified (gdbarch, insn, "mrs/msr", dsc);
+      return copy_unmodified (gdbarch, insn, "mrs/msr", dsc);
 
     case 0x1:
       if (op == 0x1)  /* bx.  */
-	return arm_copy_bx_blx_reg (gdbarch, insn, regs, dsc);
+	return copy_bx_blx_reg (gdbarch, insn, regs, dsc);
       else if (op == 0x3)
-	return arm_copy_unmodified (gdbarch, insn, "clz", dsc);
+	return copy_unmodified (gdbarch, insn, "clz", dsc);
       else
-	return arm_copy_undef (gdbarch, insn, dsc);
+	return copy_undef (gdbarch, insn, dsc);
 
     case 0x2:
       if (op == 0x1)
         /* Not really supported.  */
-	return arm_copy_unmodified (gdbarch, insn, "bxj", dsc);
+	return copy_unmodified (gdbarch, insn, "bxj", dsc);
       else
-	return arm_copy_undef (gdbarch, insn, dsc);
+	return copy_undef (gdbarch, insn, dsc);
 
     case 0x3:
       if (op == 0x1)
-	return arm_copy_bx_blx_reg (gdbarch, insn,
-				regs, dsc);  /* blx register.  */
+	return copy_bx_blx_reg (gdbarch, insn, regs, dsc);  /* blx register.  */
       else
-	return arm_copy_undef (gdbarch, insn, dsc);
+	return copy_undef (gdbarch, insn, dsc);
 
     case 0x5:
-      return arm_copy_unmodified (gdbarch, insn, "saturating add/sub", dsc);
+      return copy_unmodified (gdbarch, insn, "saturating add/sub", dsc);
 
     case 0x7:
       if (op == 0x1)
-	return arm_copy_unmodified (gdbarch, insn, "bkpt", dsc);
+	return copy_unmodified (gdbarch, insn, "bkpt", dsc);
       else if (op == 0x3)
         /* Not really supported.  */
-	return arm_copy_unmodified (gdbarch, insn, "smc", dsc);
+	return copy_unmodified (gdbarch, insn, "smc", dsc);
 
     default:
-      return arm_copy_undef (gdbarch, insn, dsc);
+      return copy_undef (gdbarch, insn, dsc);
     }
 }
 
 static int
-arm_decode_dp_misc (struct gdbarch *gdbarch, uint32_t insn,
-		    struct regcache *regs,
-		    struct displaced_step_closure *dsc)
+decode_dp_misc (struct gdbarch *gdbarch, uint32_t insn, struct regcache *regs,
+		struct displaced_step_closure *dsc)
 {
   if (bit (insn, 25))
     switch (bits (insn, 20, 24))
       {
       case 0x10:
-	return arm_copy_unmodified (gdbarch, insn, "movw", dsc);
+	return copy_unmodified (gdbarch, insn, "movw", dsc);
 
       case 0x14:
-	return arm_copy_unmodified (gdbarch, insn, "movt", dsc);
+	return copy_unmodified (gdbarch, insn, "movt", dsc);
 
       case 0x12: case 0x16:
-	return arm_copy_unmodified (gdbarch, insn, "msr imm", dsc);
+	return copy_unmodified (gdbarch, insn, "msr imm", dsc);
 
       default:
-	return arm_copy_alu_imm (gdbarch, insn, regs, dsc);
+	return copy_alu_imm (gdbarch, insn, regs, dsc);
       }
   else
     {
       uint32_t op1 = bits (insn, 20, 24), op2 = bits (insn, 4, 7);
 
       if ((op1 & 0x19) != 0x10 && (op2 & 0x1) == 0x0)
-	return arm_copy_alu_reg (gdbarch, insn, regs, dsc);
+	return copy_alu_reg (gdbarch, insn, regs, dsc);
       else if ((op1 & 0x19) != 0x10 && (op2 & 0x9) == 0x1)
-	return arm_copy_alu_shifted_reg (gdbarch, insn, regs, dsc);
+	return copy_alu_shifted_reg (gdbarch, insn, regs, dsc);
       else if ((op1 & 0x19) == 0x10 && (op2 & 0x8) == 0x0)
-	return arm_decode_miscellaneous (gdbarch, insn, regs, dsc);
+	return decode_miscellaneous (gdbarch, insn, regs, dsc);
       else if ((op1 & 0x19) == 0x10 && (op2 & 0x9) == 0x8)
-	return arm_copy_unmodified (gdbarch, insn, "halfword mul/mla", dsc);
+	return copy_unmodified (gdbarch, insn, "halfword mul/mla", dsc);
       else if ((op1 & 0x10) == 0x00 && op2 == 0x9)
-	return arm_copy_unmodified (gdbarch, insn, "mul/mla", dsc);
+	return copy_unmodified (gdbarch, insn, "mul/mla", dsc);
       else if ((op1 & 0x10) == 0x10 && op2 == 0x9)
-	return arm_copy_unmodified (gdbarch, insn, "synch", dsc);
+	return copy_unmodified (gdbarch, insn, "synch", dsc);
       else if (op2 == 0xb || (op2 & 0xd) == 0xd)
 	/* 2nd arg means "unpriveleged".  */
-	return arm_copy_extra_ld_st (gdbarch, insn, (op1 & 0x12) == 0x02, regs,
-				     dsc);
+	return copy_extra_ld_st (gdbarch, insn, (op1 & 0x12) == 0x02, regs,
+				 dsc);
     }
 
   /* Should be unreachable.  */
@@ -7493,9 +4685,9 @@ arm_decode_dp_misc (struct gdbarch *gdbarch, uint32_t insn,
 }
 
 static int
-arm_decode_ld_st_word_ubyte (struct gdbarch *gdbarch, uint32_t insn,
-			     struct regcache *regs,
-			     struct displaced_step_closure *dsc)
+decode_ld_st_word_ubyte (struct gdbarch *gdbarch, uint32_t insn,
+			 struct regcache *regs,
+			 struct displaced_step_closure *dsc)
 {
   int a = bit (insn, 25), b = bit (insn, 4);
   uint32_t op1 = bits (insn, 20, 24);
@@ -7503,83 +4695,83 @@ arm_decode_ld_st_word_ubyte (struct gdbarch *gdbarch, uint32_t insn,
 
   if ((!a && (op1 & 0x05) == 0x00 && (op1 & 0x17) != 0x02)
       || (a && (op1 & 0x05) == 0x00 && (op1 & 0x17) != 0x02 && !b))
-    return arm_copy_ldr_str_ldrb_strb (gdbarch, insn, regs, dsc, 0, 4, 0);
+    return copy_ldr_str_ldrb_strb (gdbarch, insn, regs, dsc, 0, 0, 0);
   else if ((!a && (op1 & 0x17) == 0x02)
 	    || (a && (op1 & 0x17) == 0x02 && !b))
-    return arm_copy_ldr_str_ldrb_strb (gdbarch, insn, regs, dsc, 0, 4, 1);
+    return copy_ldr_str_ldrb_strb (gdbarch, insn, regs, dsc, 0, 0, 1);
   else if ((!a && (op1 & 0x05) == 0x01 && (op1 & 0x17) != 0x03)
 	    || (a && (op1 & 0x05) == 0x01 && (op1 & 0x17) != 0x03 && !b))
-    return arm_copy_ldr_str_ldrb_strb (gdbarch, insn, regs, dsc, 1, 4, 0);
+    return copy_ldr_str_ldrb_strb (gdbarch, insn, regs, dsc, 1, 0, 0);
   else if ((!a && (op1 & 0x17) == 0x03)
 	   || (a && (op1 & 0x17) == 0x03 && !b))
-    return arm_copy_ldr_str_ldrb_strb (gdbarch, insn, regs, dsc, 1, 4, 1);
+    return copy_ldr_str_ldrb_strb (gdbarch, insn, regs, dsc, 1, 0, 1);
   else if ((!a && (op1 & 0x05) == 0x04 && (op1 & 0x17) != 0x06)
 	    || (a && (op1 & 0x05) == 0x04 && (op1 & 0x17) != 0x06 && !b))
-    return arm_copy_ldr_str_ldrb_strb (gdbarch, insn, regs, dsc, 0, 1, 0);
+    return copy_ldr_str_ldrb_strb (gdbarch, insn, regs, dsc, 0, 1, 0);
   else if ((!a && (op1 & 0x17) == 0x06)
 	   || (a && (op1 & 0x17) == 0x06 && !b))
-    return arm_copy_ldr_str_ldrb_strb (gdbarch, insn, regs, dsc, 0, 1, 1);
+    return copy_ldr_str_ldrb_strb (gdbarch, insn, regs, dsc, 0, 1, 1);
   else if ((!a && (op1 & 0x05) == 0x05 && (op1 & 0x17) != 0x07)
 	   || (a && (op1 & 0x05) == 0x05 && (op1 & 0x17) != 0x07 && !b))
-    return arm_copy_ldr_str_ldrb_strb (gdbarch, insn, regs, dsc, 1, 1, 0);
+    return copy_ldr_str_ldrb_strb (gdbarch, insn, regs, dsc, 1, 1, 0);
   else if ((!a && (op1 & 0x17) == 0x07)
 	   || (a && (op1 & 0x17) == 0x07 && !b))
-    return arm_copy_ldr_str_ldrb_strb (gdbarch, insn, regs, dsc, 1, 1, 1);
+    return copy_ldr_str_ldrb_strb (gdbarch, insn, regs, dsc, 1, 1, 1);
 
   /* Should be unreachable.  */
   return 1;
 }
 
 static int
-arm_decode_media (struct gdbarch *gdbarch, uint32_t insn,
-		  struct displaced_step_closure *dsc)
+decode_media (struct gdbarch *gdbarch, uint32_t insn,
+	      struct displaced_step_closure *dsc)
 {
   switch (bits (insn, 20, 24))
     {
     case 0x00: case 0x01: case 0x02: case 0x03:
-      return arm_copy_unmodified (gdbarch, insn, "parallel add/sub signed", dsc);
+      return copy_unmodified (gdbarch, insn, "parallel add/sub signed", dsc);
 
     case 0x04: case 0x05: case 0x06: case 0x07:
-      return arm_copy_unmodified (gdbarch, insn, "parallel add/sub unsigned", dsc);
+      return copy_unmodified (gdbarch, insn, "parallel add/sub unsigned", dsc);
 
     case 0x08: case 0x09: case 0x0a: case 0x0b:
     case 0x0c: case 0x0d: case 0x0e: case 0x0f:
-      return arm_copy_unmodified (gdbarch, insn,
+      return copy_unmodified (gdbarch, insn,
 			      "decode/pack/unpack/saturate/reverse", dsc);
 
     case 0x18:
       if (bits (insn, 5, 7) == 0)  /* op2.  */
 	 {
 	  if (bits (insn, 12, 15) == 0xf)
-	    return arm_copy_unmodified (gdbarch, insn, "usad8", dsc);
+	    return copy_unmodified (gdbarch, insn, "usad8", dsc);
 	  else
-	    return arm_copy_unmodified (gdbarch, insn, "usada8", dsc);
+	    return copy_unmodified (gdbarch, insn, "usada8", dsc);
 	}
       else
-	 return arm_copy_undef (gdbarch, insn, dsc);
+	 return copy_undef (gdbarch, insn, dsc);
 
     case 0x1a: case 0x1b:
       if (bits (insn, 5, 6) == 0x2)  /* op2[1:0].  */
-	return arm_copy_unmodified (gdbarch, insn, "sbfx", dsc);
+	return copy_unmodified (gdbarch, insn, "sbfx", dsc);
       else
-	return arm_copy_undef (gdbarch, insn, dsc);
+	return copy_undef (gdbarch, insn, dsc);
 
     case 0x1c: case 0x1d:
       if (bits (insn, 5, 6) == 0x0)  /* op2[1:0].  */
 	 {
 	  if (bits (insn, 0, 3) == 0xf)
-	    return arm_copy_unmodified (gdbarch, insn, "bfc", dsc);
+	    return copy_unmodified (gdbarch, insn, "bfc", dsc);
 	  else
-	    return arm_copy_unmodified (gdbarch, insn, "bfi", dsc);
+	    return copy_unmodified (gdbarch, insn, "bfi", dsc);
 	}
       else
-	return arm_copy_undef (gdbarch, insn, dsc);
+	return copy_undef (gdbarch, insn, dsc);
 
     case 0x1e: case 0x1f:
       if (bits (insn, 5, 6) == 0x2)  /* op2[1:0].  */
-	return arm_copy_unmodified (gdbarch, insn, "ubfx", dsc);
+	return copy_unmodified (gdbarch, insn, "ubfx", dsc);
       else
-	return arm_copy_undef (gdbarch, insn, dsc);
+	return copy_undef (gdbarch, insn, dsc);
     }
 
   /* Should be unreachable.  */
@@ -7587,100 +4779,39 @@ arm_decode_media (struct gdbarch *gdbarch, uint32_t insn,
 }
 
 static int
-arm_decode_b_bl_ldmstm (struct gdbarch *gdbarch, int32_t insn,
-			struct regcache *regs,
-			struct displaced_step_closure *dsc)
+decode_b_bl_ldmstm (struct gdbarch *gdbarch, int32_t insn,
+		    struct regcache *regs, struct displaced_step_closure *dsc)
 {
   if (bit (insn, 25))
-    return arm_copy_b_bl_blx (gdbarch, insn, regs, dsc);
+    return copy_b_bl_blx (gdbarch, insn, regs, dsc);
   else
-    return arm_copy_block_xfer (gdbarch, insn, regs, dsc);
+    return copy_block_xfer (gdbarch, insn, regs, dsc);
 }
 
 static int
-arm_decode_ext_reg_ld_st (struct gdbarch *gdbarch, uint32_t insn,
-			  struct regcache *regs,
-			  struct displaced_step_closure *dsc)
+decode_ext_reg_ld_st (struct gdbarch *gdbarch, uint32_t insn,
+		      struct regcache *regs, struct displaced_step_closure *dsc)
 {
   unsigned int opcode = bits (insn, 20, 24);
 
   switch (opcode)
     {
     case 0x04: case 0x05:  /* VFP/Neon mrrc/mcrr.  */
-      return arm_copy_unmodified (gdbarch, insn, "vfp/neon mrrc/mcrr", dsc);
+      return copy_unmodified (gdbarch, insn, "vfp/neon mrrc/mcrr", dsc);
 
     case 0x08: case 0x0a: case 0x0c: case 0x0e:
     case 0x12: case 0x16:
-      return arm_copy_unmodified (gdbarch, insn, "vfp/neon vstm/vpush", dsc);
+      return copy_unmodified (gdbarch, insn, "vfp/neon vstm/vpush", dsc);
 
     case 0x09: case 0x0b: case 0x0d: case 0x0f:
     case 0x13: case 0x17:
-      return arm_copy_unmodified (gdbarch, insn, "vfp/neon vldm/vpop", dsc);
+      return copy_unmodified (gdbarch, insn, "vfp/neon vldm/vpop", dsc);
 
     case 0x10: case 0x14: case 0x18: case 0x1c:  /* vstr.  */
     case 0x11: case 0x15: case 0x19: case 0x1d:  /* vldr.  */
       /* Note: no writeback for these instructions.  Bit 25 will always be
 	 zero though (via caller), so the following works OK.  */
-      return arm_copy_copro_load_store (gdbarch, insn, regs, dsc);
-    }
-
-  /* Should be unreachable.  */
-  return 1;
-}
-
-/* Decode shifted register instructions.  */
-
-static int
-thumb2_decode_dp_shift_reg (struct gdbarch *gdbarch, uint16_t insn1,
-			    uint16_t insn2,  struct regcache *regs,
-			    struct displaced_step_closure *dsc)
-{
-  /* PC is only allowed to be used in instruction MOV.  */
-
-  unsigned int op = bits (insn1, 5, 8);
-  unsigned int rn = bits (insn1, 0, 3);
-
-  if (op == 0x2 && rn == 0xf) /* MOV */
-    return thumb2_copy_alu_imm (gdbarch, insn1, insn2, regs, dsc);
-  else
-    return thumb_copy_unmodified_32bit (gdbarch, insn1, insn2,
-					"dp (shift reg)", dsc);
-}
-
-
-/* Decode extension register load/store.  Exactly the same as
-   arm_decode_ext_reg_ld_st.  */
-
-static int
-thumb2_decode_ext_reg_ld_st (struct gdbarch *gdbarch, uint16_t insn1,
-			     uint16_t insn2,  struct regcache *regs,
-			     struct displaced_step_closure *dsc)
-{
-  unsigned int opcode = bits (insn1, 4, 8);
-
-  switch (opcode)
-    {
-    case 0x04: case 0x05:
-      return thumb_copy_unmodified_32bit (gdbarch, insn1, insn2,
-					  "vfp/neon vmov", dsc);
-
-    case 0x08: case 0x0c: /* 01x00 */
-    case 0x0a: case 0x0e: /* 01x10 */
-    case 0x12: case 0x16: /* 10x10 */
-      return thumb_copy_unmodified_32bit (gdbarch, insn1, insn2,
-					  "vfp/neon vstm/vpush", dsc);
-
-    case 0x09: case 0x0d: /* 01x01 */
-    case 0x0b: case 0x0f: /* 01x11 */
-    case 0x13: case 0x17: /* 10x11 */
-      return thumb_copy_unmodified_32bit (gdbarch, insn1, insn2,
-					  "vfp/neon vldm/vpop", dsc);
-
-    case 0x10: case 0x14: case 0x18: case 0x1c:  /* vstr.  */
-      return thumb_copy_unmodified_32bit (gdbarch, insn1, insn2,
-					  "vstr", dsc);
-    case 0x11: case 0x15: case 0x19: case 0x1d:  /* vldr.  */
-      return thumb2_copy_copro_load_store (gdbarch, insn1, insn2, regs, dsc);
+      return copy_copro_load_store (gdbarch, insn, regs, dsc);
     }
 
   /* Should be unreachable.  */
@@ -7688,8 +4819,8 @@ thumb2_decode_ext_reg_ld_st (struct gdbarch *gdbarch, uint16_t insn1,
 }
 
 static int
-arm_decode_svc_copro (struct gdbarch *gdbarch, uint32_t insn, CORE_ADDR to,
-		      struct regcache *regs, struct displaced_step_closure *dsc)
+decode_svc_copro (struct gdbarch *gdbarch, uint32_t insn, CORE_ADDR to,
+		  struct regcache *regs, struct displaced_step_closure *dsc)
 {
   unsigned int op1 = bits (insn, 20, 25);
   int op = bit (insn, 4);
@@ -7697,738 +4828,51 @@ arm_decode_svc_copro (struct gdbarch *gdbarch, uint32_t insn, CORE_ADDR to,
   unsigned int rn = bits (insn, 16, 19);
 
   if ((op1 & 0x20) == 0x00 && (op1 & 0x3a) != 0x00 && (coproc & 0xe) == 0xa)
-    return arm_decode_ext_reg_ld_st (gdbarch, insn, regs, dsc);
+    return decode_ext_reg_ld_st (gdbarch, insn, regs, dsc);
   else if ((op1 & 0x21) == 0x00 && (op1 & 0x3a) != 0x00
 	   && (coproc & 0xe) != 0xa)
     /* stc/stc2.  */
-    return arm_copy_copro_load_store (gdbarch, insn, regs, dsc);
+    return copy_copro_load_store (gdbarch, insn, regs, dsc);
   else if ((op1 & 0x21) == 0x01 && (op1 & 0x3a) != 0x00
 	   && (coproc & 0xe) != 0xa)
     /* ldc/ldc2 imm/lit.  */
-    return arm_copy_copro_load_store (gdbarch, insn, regs, dsc);
+    return copy_copro_load_store (gdbarch, insn, regs, dsc);
   else if ((op1 & 0x3e) == 0x00)
-    return arm_copy_undef (gdbarch, insn, dsc);
+    return copy_undef (gdbarch, insn, dsc);
   else if ((op1 & 0x3e) == 0x04 && (coproc & 0xe) == 0xa)
-    return arm_copy_unmodified (gdbarch, insn, "neon 64bit xfer", dsc);
+    return copy_unmodified (gdbarch, insn, "neon 64bit xfer", dsc);
   else if (op1 == 0x04 && (coproc & 0xe) != 0xa)
-    return arm_copy_unmodified (gdbarch, insn, "mcrr/mcrr2", dsc);
+    return copy_unmodified (gdbarch, insn, "mcrr/mcrr2", dsc);
   else if (op1 == 0x05 && (coproc & 0xe) != 0xa)
-    return arm_copy_unmodified (gdbarch, insn, "mrrc/mrrc2", dsc);
+    return copy_unmodified (gdbarch, insn, "mrrc/mrrc2", dsc);
   else if ((op1 & 0x30) == 0x20 && !op)
     {
       if ((coproc & 0xe) == 0xa)
-	return arm_copy_unmodified (gdbarch, insn, "vfp dataproc", dsc);
+	return copy_unmodified (gdbarch, insn, "vfp dataproc", dsc);
       else
-	return arm_copy_unmodified (gdbarch, insn, "cdp/cdp2", dsc);
+	return copy_unmodified (gdbarch, insn, "cdp/cdp2", dsc);
     }
   else if ((op1 & 0x30) == 0x20 && op)
-    return arm_copy_unmodified (gdbarch, insn, "neon 8/16/32 bit xfer", dsc);
+    return copy_unmodified (gdbarch, insn, "neon 8/16/32 bit xfer", dsc);
   else if ((op1 & 0x31) == 0x20 && op && (coproc & 0xe) != 0xa)
-    return arm_copy_unmodified (gdbarch, insn, "mcr/mcr2", dsc);
+    return copy_unmodified (gdbarch, insn, "mcr/mcr2", dsc);
   else if ((op1 & 0x31) == 0x21 && op && (coproc & 0xe) != 0xa)
-    return arm_copy_unmodified (gdbarch, insn, "mrc/mrc2", dsc);
+    return copy_unmodified (gdbarch, insn, "mrc/mrc2", dsc);
   else if ((op1 & 0x30) == 0x30)
-    return arm_copy_svc (gdbarch, insn, regs, dsc);
+    return copy_svc (gdbarch, insn, to, regs, dsc);
   else
-    return arm_copy_undef (gdbarch, insn, dsc);  /* Possibly unreachable.  */
-}
-
-static int
-thumb2_decode_svc_copro (struct gdbarch *gdbarch, uint16_t insn1,
-			 uint16_t insn2, struct regcache *regs,
-			 struct displaced_step_closure *dsc)
-{
-  unsigned int coproc = bits (insn2, 8, 11);
-  unsigned int op1 = bits (insn1, 4, 9);
-  unsigned int bit_5_8 = bits (insn1, 5, 8);
-  unsigned int bit_9 = bit (insn1, 9);
-  unsigned int bit_4 = bit (insn1, 4);
-  unsigned int rn = bits (insn1, 0, 3);
-
-  if (bit_9 == 0)
-    {
-      if (bit_5_8 == 2)
-	return thumb_copy_unmodified_32bit (gdbarch, insn1, insn2,
-					    "neon 64bit xfer/mrrc/mrrc2/mcrr/mcrr2",
-					    dsc);
-      else if (bit_5_8 == 0) /* UNDEFINED.  */
-	return thumb_32bit_copy_undef (gdbarch, insn1, insn2, dsc);
-      else
-	{
-	   /*coproc is 101x.  SIMD/VFP, ext registers load/store.  */
-	  if ((coproc & 0xe) == 0xa)
-	    return thumb2_decode_ext_reg_ld_st (gdbarch, insn1, insn2, regs,
-						dsc);
-	  else /* coproc is not 101x.  */
-	    {
-	      if (bit_4 == 0) /* STC/STC2.  */
-		return thumb_copy_unmodified_32bit (gdbarch, insn1, insn2,
-						    "stc/stc2", dsc);
-	      else /* LDC/LDC2 {literal, immeidate}.  */
-		return thumb2_copy_copro_load_store (gdbarch, insn1, insn2,
-						     regs, dsc);
-	    }
-	}
-    }
-  else
-    return thumb_copy_unmodified_32bit (gdbarch, insn1, insn2, "coproc", dsc);
-
-  return 0;
-}
-
-static void
-install_pc_relative (struct gdbarch *gdbarch, struct regcache *regs,
-		     struct displaced_step_closure *dsc, int rd)
-{
-  /* ADR Rd, #imm
-
-     Rewrite as:
-
-     Preparation: Rd <- PC
-     Insn: ADD Rd, #imm
-     Cleanup: Null.
-  */
-
-  /* Rd <- PC */
-  int val = displaced_read_reg (regs, dsc, ARM_PC_REGNUM);
-  displaced_write_reg (regs, dsc, rd, val, CANNOT_WRITE_PC);
-}
-
-static int
-thumb_copy_pc_relative_16bit (struct gdbarch *gdbarch, struct regcache *regs,
-			      struct displaced_step_closure *dsc,
-			      int rd, unsigned int imm)
-{
-
-  /* Encoding T2: ADDS Rd, #imm */
-  dsc->modinsn[0] = (0x3000 | (rd << 8) | imm);
-
-  install_pc_relative (gdbarch, regs, dsc, rd);
-
-  return 0;
-}
-
-static int
-thumb_decode_pc_relative_16bit (struct gdbarch *gdbarch, uint16_t insn,
-				struct regcache *regs,
-				struct displaced_step_closure *dsc)
-{
-  unsigned int rd = bits (insn, 8, 10);
-  unsigned int imm8 = bits (insn, 0, 7);
-
-  if (debug_displaced)
-    fprintf_unfiltered (gdb_stdlog,
-			"displaced: copying thumb adr r%d, #%d insn %.4x\n",
-			rd, imm8, insn);
-
-  return thumb_copy_pc_relative_16bit (gdbarch, regs, dsc, rd, imm8);
-}
-
-static int
-thumb_copy_pc_relative_32bit (struct gdbarch *gdbarch, uint16_t insn1,
-			      uint16_t insn2, struct regcache *regs,
-			      struct displaced_step_closure *dsc)
-{
-  unsigned int rd = bits (insn2, 8, 11);
-  /* Since immediate has the same encoding in ADR ADD and SUB, so we simply
-     extract raw immediate encoding rather than computing immediate.  When
-     generating ADD or SUB instruction, we can simply perform OR operation to
-     set immediate into ADD.  */
-  unsigned int imm_3_8 = insn2 & 0x70ff;
-  unsigned int imm_i = insn1 & 0x0400; /* Clear all bits except bit 10.  */
-
-  if (debug_displaced)
-    fprintf_unfiltered (gdb_stdlog,
-			"displaced: copying thumb adr r%d, #%d:%d insn %.4x%.4x\n",
-			rd, imm_i, imm_3_8, insn1, insn2);
-
-  if (bit (insn1, 7)) /* Encoding T2 */
-    {
-      /* Encoding T3: SUB Rd, Rd, #imm */
-      dsc->modinsn[0] = (0xf1a0 | rd | imm_i);
-      dsc->modinsn[1] = ((rd << 8) | imm_3_8);
-    }
-  else /* Encoding T3 */
-    {
-      /* Encoding T3: ADD Rd, Rd, #imm */
-      dsc->modinsn[0] = (0xf100 | rd | imm_i);
-      dsc->modinsn[1] = ((rd << 8) | imm_3_8);
-    }
-  dsc->numinsns = 2;
-
-  install_pc_relative (gdbarch, regs, dsc, rd);
-
-  return 0;
-}
-
-static int
-thumb_copy_16bit_ldr_literal (struct gdbarch *gdbarch, unsigned short insn1,
-			      struct regcache *regs,
-			      struct displaced_step_closure *dsc)
-{
-  unsigned int rt = bits (insn1, 8, 10);
-  unsigned int pc;
-  int imm8 = (bits (insn1, 0, 7) << 2);
-  CORE_ADDR from = dsc->insn_addr;
-
-  /* LDR Rd, #imm8
-
-     Rwrite as:
-
-     Preparation: tmp0 <- R0, tmp2 <- R2, tmp3 <- R3, R2 <- PC, R3 <- #imm8;
-
-     Insn: LDR R0, [R2, R3];
-     Cleanup: R2 <- tmp2, R3 <- tmp3, Rd <- R0, R0 <- tmp0 */
-
-  if (debug_displaced)
-    fprintf_unfiltered (gdb_stdlog,
-			"displaced: copying thumb ldr r%d [pc #%d]\n"
-			, rt, imm8);
-
-  dsc->tmp[0] = displaced_read_reg (regs, dsc, 0);
-  dsc->tmp[2] = displaced_read_reg (regs, dsc, 2);
-  dsc->tmp[3] = displaced_read_reg (regs, dsc, 3);
-  pc = displaced_read_reg (regs, dsc, ARM_PC_REGNUM);
-  /* The assembler calculates the required value of the offset from the
-     Align(PC,4) value of this instruction to the label.  */
-  pc = pc & 0xfffffffc;
-
-  displaced_write_reg (regs, dsc, 2, pc, CANNOT_WRITE_PC);
-  displaced_write_reg (regs, dsc, 3, imm8, CANNOT_WRITE_PC);
-
-  dsc->rd = rt;
-  dsc->u.ldst.xfersize = 4;
-  dsc->u.ldst.rn = 0;
-  dsc->u.ldst.immed = 0;
-  dsc->u.ldst.writeback = 0;
-  dsc->u.ldst.restore_r4 = 0;
-
-  dsc->modinsn[0] = 0x58d0; /* ldr r0, [r2, r3]*/
-
-  dsc->cleanup = &cleanup_load;
-
-  return 0;
-}
-
-/* Copy Thumb cbnz/cbz insruction.  */
-
-static int
-thumb_copy_cbnz_cbz (struct gdbarch *gdbarch, uint16_t insn1,
-		     struct regcache *regs,
-		     struct displaced_step_closure *dsc)
-{
-  int non_zero = bit (insn1, 11);
-  unsigned int imm5 = (bit (insn1, 9) << 6) | (bits (insn1, 3, 7) << 1);
-  CORE_ADDR from = dsc->insn_addr;
-  int rn = bits (insn1, 0, 2);
-  int rn_val = displaced_read_reg (regs, dsc, rn);
-
-  dsc->u.branch.cond = (rn_val && non_zero) || (!rn_val && !non_zero);
-  /* CBNZ and CBZ do not affect the condition flags.  If condition is true,
-     set it INST_AL, so cleanup_branch will know branch is taken, otherwise,
-     condition is false, let it be, cleanup_branch will do nothing.  */
-  if (dsc->u.branch.cond)
-    {
-      dsc->u.branch.cond = INST_AL;
-      dsc->u.branch.dest = from + 4 + imm5;
-    }
-  else
-      dsc->u.branch.dest = from + 2;
-
-  dsc->u.branch.link = 0;
-  dsc->u.branch.exchange = 0;
-
-  if (debug_displaced)
-    fprintf_unfiltered (gdb_stdlog, "displaced: copying %s [r%d = 0x%x]"
-			" insn %.4x to %.8lx\n", non_zero ? "cbnz" : "cbz",
-			rn, rn_val, insn1, dsc->u.branch.dest);
-
-  dsc->modinsn[0] = THUMB_NOP;
-
-  dsc->cleanup = &cleanup_branch;
-  return 0;
-}
-
-/* Copy Table Branch Byte/Halfword */
-static int
-thumb2_copy_table_branch (struct gdbarch *gdbarch, uint16_t insn1,
-			  uint16_t insn2, struct regcache *regs,
-			  struct displaced_step_closure *dsc)
-{
-  ULONGEST rn_val, rm_val;
-  int is_tbh = bit (insn2, 4);
-  CORE_ADDR halfwords = 0;
-  enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
-
-  rn_val = displaced_read_reg (regs, dsc, bits (insn1, 0, 3));
-  rm_val = displaced_read_reg (regs, dsc, bits (insn2, 0, 3));
-
-  if (is_tbh)
-    {
-      gdb_byte buf[2];
-
-      target_read_memory (rn_val + 2 * rm_val, buf, 2);
-      halfwords = extract_unsigned_integer (buf, 2, byte_order);
-    }
-  else
-    {
-      gdb_byte buf[1];
-
-      target_read_memory (rn_val + rm_val, buf, 1);
-      halfwords = extract_unsigned_integer (buf, 1, byte_order);
-    }
-
-  if (debug_displaced)
-    fprintf_unfiltered (gdb_stdlog, "displaced: %s base 0x%x offset 0x%x"
-			" offset 0x%x\n", is_tbh ? "tbh" : "tbb",
-			(unsigned int) rn_val, (unsigned int) rm_val,
-			(unsigned int) halfwords);
-
-  dsc->u.branch.cond = INST_AL;
-  dsc->u.branch.link = 0;
-  dsc->u.branch.exchange = 0;
-  dsc->u.branch.dest = dsc->insn_addr + 4 + 2 * halfwords;
-
-  dsc->cleanup = &cleanup_branch;
-
-  return 0;
-}
-
-static void
-cleanup_pop_pc_16bit_all (struct gdbarch *gdbarch, struct regcache *regs,
-			  struct displaced_step_closure *dsc)
-{
-  /* PC <- r7 */
-  int val = displaced_read_reg (regs, dsc, 7);
-  displaced_write_reg (regs, dsc, ARM_PC_REGNUM, val, BX_WRITE_PC);
-
-  /* r7 <- r8 */
-  val = displaced_read_reg (regs, dsc, 8);
-  displaced_write_reg (regs, dsc, 7, val, CANNOT_WRITE_PC);
-
-  /* r8 <- tmp[0] */
-  displaced_write_reg (regs, dsc, 8, dsc->tmp[0], CANNOT_WRITE_PC);
-
-}
-
-static int
-thumb_copy_pop_pc_16bit (struct gdbarch *gdbarch, unsigned short insn1,
-			 struct regcache *regs,
-			 struct displaced_step_closure *dsc)
-{
-  dsc->u.block.regmask = insn1 & 0x00ff;
-
-  /* Rewrite instruction: POP {rX, rY, ...,rZ, PC}
-     to :
-
-     (1) register list is full, that is, r0-r7 are used.
-     Prepare: tmp[0] <- r8
-
-     POP {r0, r1, ...., r6, r7}; remove PC from reglist
-     MOV r8, r7; Move value of r7 to r8;
-     POP {r7}; Store PC value into r7.
-
-     Cleanup: PC <- r7, r7 <- r8, r8 <-tmp[0]
-
-     (2) register list is not full, supposing there are N registers in
-     register list (except PC, 0 <= N <= 7).
-     Prepare: for each i, 0 - N, tmp[i] <- ri.
-
-     POP {r0, r1, ...., rN};
-
-     Cleanup: Set registers in original reglist from r0 - rN.  Restore r0 - rN
-     from tmp[] properly.
-  */
-  if (debug_displaced)
-    fprintf_unfiltered (gdb_stdlog,
-			"displaced: copying thumb pop {%.8x, pc} insn %.4x\n",
-			dsc->u.block.regmask, insn1);
-
-  if (dsc->u.block.regmask == 0xff)
-    {
-      dsc->tmp[0] = displaced_read_reg (regs, dsc, 8);
-
-      dsc->modinsn[0] = (insn1 & 0xfeff); /* POP {r0,r1,...,r6, r7} */
-      dsc->modinsn[1] = 0x46b8; /* MOV r8, r7 */
-      dsc->modinsn[2] = 0xbc80; /* POP {r7} */
-
-      dsc->numinsns = 3;
-      dsc->cleanup = &cleanup_pop_pc_16bit_all;
-    }
-  else
-    {
-      unsigned int num_in_list = bitcount (dsc->u.block.regmask);
-      unsigned int new_regmask, bit = 1;
-      unsigned int to = 0, from = 0, i, new_rn;
-
-      for (i = 0; i < num_in_list + 1; i++)
-	dsc->tmp[i] = displaced_read_reg (regs, dsc, i);
-
-      new_regmask = (1 << (num_in_list + 1)) - 1;
-
-      if (debug_displaced)
-	fprintf_unfiltered (gdb_stdlog, _("displaced: POP "
-					  "{..., pc}: original reg list %.4x,"
-					  " modified list %.4x\n"),
-			    (int) dsc->u.block.regmask, new_regmask);
-
-      dsc->u.block.regmask |= 0x8000;
-      dsc->u.block.writeback = 0;
-      dsc->u.block.cond = INST_AL;
-
-      dsc->modinsn[0] = (insn1 & ~0x1ff) | (new_regmask & 0xff);
-
-      dsc->cleanup = &cleanup_block_load_pc;
-    }
-
-  return 0;
-}
-
-static void
-thumb_process_displaced_16bit_insn (struct gdbarch *gdbarch, uint16_t insn1,
-				    struct regcache *regs,
-				    struct displaced_step_closure *dsc)
-{
-  unsigned short op_bit_12_15 = bits (insn1, 12, 15);
-  unsigned short op_bit_10_11 = bits (insn1, 10, 11);
-  int err = 0;
-
-  /* 16-bit thumb instructions.  */
-  switch (op_bit_12_15)
-    {
-      /* Shift (imme), add, subtract, move and compare.  */
-    case 0: case 1: case 2: case 3:
-      err = thumb_copy_unmodified_16bit (gdbarch, insn1,
-					 "shift/add/sub/mov/cmp",
-					 dsc);
-      break;
-    case 4:
-      switch (op_bit_10_11)
-	{
-	case 0: /* Data-processing */
-	  err = thumb_copy_unmodified_16bit (gdbarch, insn1,
-					     "data-processing",
-					     dsc);
-	  break;
-	case 1: /* Special data instructions and branch and exchange.  */
-	  {
-	    unsigned short op = bits (insn1, 7, 9);
-	    if (op == 6 || op == 7) /* BX or BLX */
-	      err = thumb_copy_bx_blx_reg (gdbarch, insn1, regs, dsc);
-	    else if (bits (insn1, 6, 7) != 0) /* ADD/MOV/CMP high registers.  */
-	      err = thumb_copy_alu_reg (gdbarch, insn1, regs, dsc);
-	    else
-	      err = thumb_copy_unmodified_16bit (gdbarch, insn1, "special data",
-						 dsc);
-	  }
-	  break;
-	default: /* LDR (literal) */
-	  err = thumb_copy_16bit_ldr_literal (gdbarch, insn1, regs, dsc);
-	}
-      break;
-    case 5: case 6: case 7: case 8: case 9: /* Load/Store single data item */
-      err = thumb_copy_unmodified_16bit (gdbarch, insn1, "ldr/str", dsc);
-      break;
-    case 10:
-      if (op_bit_10_11 < 2) /* Generate PC-relative address */
-	err = thumb_decode_pc_relative_16bit (gdbarch, insn1, regs, dsc);
-      else /* Generate SP-relative address */
-	err = thumb_copy_unmodified_16bit (gdbarch, insn1, "sp-relative", dsc);
-      break;
-    case 11: /* Misc 16-bit instructions */
-      {
-	switch (bits (insn1, 8, 11))
-	  {
-	  case 1: case 3:  case 9: case 11: /* CBNZ, CBZ */
-	    err = thumb_copy_cbnz_cbz (gdbarch, insn1, regs, dsc);
-	    break;
-	  case 12: case 13: /* POP */
-	    if (bit (insn1, 8)) /* PC is in register list.  */
-	      err = thumb_copy_pop_pc_16bit (gdbarch, insn1, regs, dsc);
-	    else
-	      err = thumb_copy_unmodified_16bit (gdbarch, insn1, "pop", dsc);
-	    break;
-	  case 15: /* If-Then, and hints */
-	    if (bits (insn1, 0, 3))
-	      /* If-Then makes up to four following instructions conditional.
-		 IT instruction itself is not conditional, so handle it as a
-		 common unmodified instruction.  */
-	      err = thumb_copy_unmodified_16bit (gdbarch, insn1, "If-Then",
-						 dsc);
-	    else
-	      err = thumb_copy_unmodified_16bit (gdbarch, insn1, "hints", dsc);
-	    break;
-	  default:
-	    err = thumb_copy_unmodified_16bit (gdbarch, insn1, "misc", dsc);
-	  }
-      }
-      break;
-    case 12:
-      if (op_bit_10_11 < 2) /* Store multiple registers */
-	err = thumb_copy_unmodified_16bit (gdbarch, insn1, "stm", dsc);
-      else /* Load multiple registers */
-	err = thumb_copy_unmodified_16bit (gdbarch, insn1, "ldm", dsc);
-      break;
-    case 13: /* Conditional branch and supervisor call */
-      if (bits (insn1, 9, 11) != 7) /* conditional branch */
-	err = thumb_copy_b (gdbarch, insn1, dsc);
-      else
-	err = thumb_copy_svc (gdbarch, insn1, regs, dsc);
-      break;
-    case 14: /* Unconditional branch */
-      err = thumb_copy_b (gdbarch, insn1, dsc);
-      break;
-    default:
-      err = 1;
-    }
-
-  if (err)
-    internal_error (__FILE__, __LINE__,
-		    _("thumb_process_displaced_16bit_insn: Instruction decode error"));
-}
-
-static int
-decode_thumb_32bit_ld_mem_hints (struct gdbarch *gdbarch,
-				 uint16_t insn1, uint16_t insn2,
-				 struct regcache *regs,
-				 struct displaced_step_closure *dsc)
-{
-  int rt = bits (insn2, 12, 15);
-  int rn = bits (insn1, 0, 3);
-  int op1 = bits (insn1, 7, 8);
-  int err = 0;
-
-  switch (bits (insn1, 5, 6))
-    {
-    case 0: /* Load byte and memory hints */
-      if (rt == 0xf) /* PLD/PLI */
-	{
-	  if (rn == 0xf)
-	    /* PLD literal or Encoding T3 of PLI(immediate, literal).  */
-	    return thumb2_copy_preload (gdbarch, insn1, insn2, regs, dsc);
-	  else
-	    return thumb_copy_unmodified_32bit (gdbarch, insn1, insn2,
-						"pli/pld", dsc);
-	}
-      else
-	{
-	  if (rn == 0xf) /* LDRB/LDRSB (literal) */
-	    return thumb2_copy_load_literal (gdbarch, insn1, insn2, regs, dsc,
-					     1);
-	  else
-	    return thumb_copy_unmodified_32bit (gdbarch, insn1, insn2,
-						"ldrb{reg, immediate}/ldrbt",
-						dsc);
-	}
-
-      break;
-    case 1: /* Load halfword and memory hints.  */
-      if (rt == 0xf) /* PLD{W} and Unalloc memory hint.  */
-	return thumb_copy_unmodified_32bit (gdbarch, insn1, insn2,
-					    "pld/unalloc memhint", dsc);
-      else
-	{
-	  if (rn == 0xf)
-	    return thumb2_copy_load_literal (gdbarch, insn1, insn2, regs, dsc,
-					     2);
-	  else
-	    return thumb_copy_unmodified_32bit (gdbarch, insn1, insn2,
-						"ldrh/ldrht", dsc);
-	}
-      break;
-    case 2: /* Load word */
-      {
-	int insn2_bit_8_11 = bits (insn2, 8, 11);
-
-	if (rn == 0xf)
-	  return thumb2_copy_load_literal (gdbarch, insn1, insn2, regs, dsc, 4);
-	else if (op1 == 0x1) /* Encoding T3 */
-	  return thumb2_copy_load_reg_imm (gdbarch, insn1, insn2, regs, dsc,
-					   0, 1);
-	else /* op1 == 0x0 */
-	  {
-	    if (insn2_bit_8_11 == 0xc || (insn2_bit_8_11 & 0x9) == 0x9)
-	      /* LDR (immediate) */
-	      return thumb2_copy_load_reg_imm (gdbarch, insn1, insn2, regs,
-					       dsc, bit (insn2, 8), 1);
-	    else if (insn2_bit_8_11 == 0xe) /* LDRT */
-	      return thumb_copy_unmodified_32bit (gdbarch, insn1, insn2,
-						  "ldrt", dsc);
-	    else
-	      /* LDR (register) */
-	      return thumb2_copy_load_reg_imm (gdbarch, insn1, insn2, regs,
-					       dsc, 0, 0);
-	  }
-	break;
-      }
-    default:
-      return thumb_32bit_copy_undef (gdbarch, insn1, insn2, dsc);
-      break;
-    }
-  return 0;
-}
-
-static void
-thumb_process_displaced_32bit_insn (struct gdbarch *gdbarch, uint16_t insn1,
-				    uint16_t insn2, struct regcache *regs,
-				    struct displaced_step_closure *dsc)
-{
-  int err = 0;
-  unsigned short op = bit (insn2, 15);
-  unsigned int op1 = bits (insn1, 11, 12);
-
-  switch (op1)
-    {
-    case 1:
-      {
-	switch (bits (insn1, 9, 10))
-	  {
-	  case 0:
-	    if (bit (insn1, 6))
-	      {
-		/* Load/store {dual, execlusive}, table branch.  */
-		if (bits (insn1, 7, 8) == 1 && bits (insn1, 4, 5) == 1
-		    && bits (insn2, 5, 7) == 0)
-		  err = thumb2_copy_table_branch (gdbarch, insn1, insn2, regs,
-						  dsc);
-		else
-		  /* PC is not allowed to use in load/store {dual, exclusive}
-		     instructions.  */
-		  err = thumb_copy_unmodified_32bit (gdbarch, insn1, insn2,
-						     "load/store dual/ex", dsc);
-	      }
-	    else /* load/store multiple */
-	      {
-		switch (bits (insn1, 7, 8))
-		  {
-		  case 0: case 3: /* SRS, RFE */
-		    err = thumb_copy_unmodified_32bit (gdbarch, insn1, insn2,
-						       "srs/rfe", dsc);
-		    break;
-		  case 1: case 2: /* LDM/STM/PUSH/POP */
-		    err = thumb2_copy_block_xfer (gdbarch, insn1, insn2, regs, dsc);
-		    break;
-		  }
-	      }
-	    break;
-
-	  case 1:
-	    /* Data-processing (shift register).  */
-	    err = thumb2_decode_dp_shift_reg (gdbarch, insn1, insn2, regs,
-					      dsc);
-	    break;
-	  default: /* Coprocessor instructions.  */
-	    err = thumb2_decode_svc_copro (gdbarch, insn1, insn2, regs, dsc);
-	    break;
-	  }
-      break;
-      }
-    case 2: /* op1 = 2 */
-      if (op) /* Branch and misc control.  */
-	{
-	  if (bit (insn2, 14)  /* BLX/BL */
-	      || bit (insn2, 12) /* Unconditional branch */
-	      || (bits (insn1, 7, 9) != 0x7)) /* Conditional branch */
-	    err = thumb2_copy_b_bl_blx (gdbarch, insn1, insn2, regs, dsc);
-	  else
-	    err = thumb_copy_unmodified_32bit (gdbarch, insn1, insn2,
-					       "misc ctrl", dsc);
-	}
-      else
-	{
-	  if (bit (insn1, 9)) /* Data processing (plain binary imm).  */
-	    {
-	      int op = bits (insn1, 4, 8);
-	      int rn = bits (insn1, 0, 3);
-	      if ((op == 0 || op == 0xa) && rn == 0xf)
-		err = thumb_copy_pc_relative_32bit (gdbarch, insn1, insn2,
-						    regs, dsc);
-	      else
-		err = thumb_copy_unmodified_32bit (gdbarch, insn1, insn2,
-						   "dp/pb", dsc);
-	    }
-	  else /* Data processing (modified immeidate) */
-	    err = thumb_copy_unmodified_32bit (gdbarch, insn1, insn2,
-					       "dp/mi", dsc);
-	}
-      break;
-    case 3: /* op1 = 3 */
-      switch (bits (insn1, 9, 10))
-	{
-	case 0:
-	  if (bit (insn1, 4))
-	    err = decode_thumb_32bit_ld_mem_hints (gdbarch, insn1, insn2,
-						   regs, dsc);
-	  else /* NEON Load/Store and Store single data item */
-	    err = thumb_copy_unmodified_32bit (gdbarch, insn1, insn2,
-					       "neon elt/struct load/store",
-					       dsc);
-	  break;
-	case 1: /* op1 = 3, bits (9, 10) == 1 */
-	  switch (bits (insn1, 7, 8))
-	    {
-	    case 0: case 1: /* Data processing (register) */
-	      err = thumb_copy_unmodified_32bit (gdbarch, insn1, insn2,
-						 "dp(reg)", dsc);
-	      break;
-	    case 2: /* Multiply and absolute difference */
-	      err = thumb_copy_unmodified_32bit (gdbarch, insn1, insn2,
-						 "mul/mua/diff", dsc);
-	      break;
-	    case 3: /* Long multiply and divide */
-	      err = thumb_copy_unmodified_32bit (gdbarch, insn1, insn2,
-						 "lmul/lmua", dsc);
-	      break;
-	    }
-	  break;
-	default: /* Coprocessor instructions */
-	  err = thumb2_decode_svc_copro (gdbarch, insn1, insn2, regs, dsc);
-	  break;
-	}
-      break;
-    default:
-      err = 1;
-    }
-
-  if (err)
-    internal_error (__FILE__, __LINE__,
-		    _("thumb_process_displaced_32bit_insn: Instruction decode error"));
-
-}
-
-static void
-thumb_process_displaced_insn (struct gdbarch *gdbarch, CORE_ADDR from,
-			      CORE_ADDR to, struct regcache *regs,
-			      struct displaced_step_closure *dsc)
-{
-  enum bfd_endian byte_order_for_code = gdbarch_byte_order_for_code (gdbarch);
-  uint16_t insn1
-    = read_memory_unsigned_integer (from, 2, byte_order_for_code);
-
-  if (debug_displaced)
-    fprintf_unfiltered (gdb_stdlog, "displaced: process thumb insn %.4x "
-			"at %.8lx\n", insn1, (unsigned long) from);
-
-  dsc->is_thumb = 1;
-  dsc->insn_size = thumb_insn_size (insn1);
-  if (thumb_insn_size (insn1) == 4)
-    {
-      uint16_t insn2
-	= read_memory_unsigned_integer (from + 2, 2, byte_order_for_code);
-      thumb_process_displaced_32bit_insn (gdbarch, insn1, insn2, regs, dsc);
-    }
-  else
-    thumb_process_displaced_16bit_insn (gdbarch, insn1, regs, dsc);
+    return copy_undef (gdbarch, insn, dsc);  /* Possibly unreachable.  */
 }
 
 void
-arm_process_displaced_insn (struct gdbarch *gdbarch, CORE_ADDR from,
-			    CORE_ADDR to, struct regcache *regs,
+arm_process_displaced_insn (struct gdbarch *gdbarch, uint32_t insn,
+			    CORE_ADDR from, CORE_ADDR to, struct regcache *regs,
 			    struct displaced_step_closure *dsc)
 {
   int err = 0;
-  enum bfd_endian byte_order_for_code = gdbarch_byte_order_for_code (gdbarch);
-  uint32_t insn;
+
+  if (!displaced_in_arm_mode (regs))
+    error (_("Displaced stepping is only supported in ARM mode"));
 
   /* Most displaced instructions use a 1-instruction scratch space, so set this
      here and override below if/when necessary.  */
@@ -8438,39 +4882,28 @@ arm_process_displaced_insn (struct gdbarch *gdbarch, CORE_ADDR from,
   dsc->cleanup = NULL;
   dsc->wrote_to_pc = 0;
 
-  if (!displaced_in_arm_mode (regs))
-    return thumb_process_displaced_insn (gdbarch, from, to, regs, dsc);
-
-  dsc->is_thumb = 0;
-  dsc->insn_size = 4;
-  insn = read_memory_unsigned_integer (from, 4, byte_order_for_code);
-  if (debug_displaced)
-    fprintf_unfiltered (gdb_stdlog, "displaced: stepping insn %.8lx "
-			"at %.8lx\n", (unsigned long) insn,
-			(unsigned long) from);
-
   if ((insn & 0xf0000000) == 0xf0000000)
-    err = arm_decode_unconditional (gdbarch, insn, regs, dsc);
+    err = decode_unconditional (gdbarch, insn, regs, dsc);
   else switch (((insn & 0x10) >> 4) | ((insn & 0xe000000) >> 24))
     {
     case 0x0: case 0x1: case 0x2: case 0x3:
-      err = arm_decode_dp_misc (gdbarch, insn, regs, dsc);
+      err = decode_dp_misc (gdbarch, insn, regs, dsc);
       break;
 
     case 0x4: case 0x5: case 0x6:
-      err = arm_decode_ld_st_word_ubyte (gdbarch, insn, regs, dsc);
+      err = decode_ld_st_word_ubyte (gdbarch, insn, regs, dsc);
       break;
 
     case 0x7:
-      err = arm_decode_media (gdbarch, insn, dsc);
+      err = decode_media (gdbarch, insn, dsc);
       break;
 
     case 0x8: case 0x9: case 0xa: case 0xb:
-      err = arm_decode_b_bl_ldmstm (gdbarch, insn, regs, dsc);
+      err = decode_b_bl_ldmstm (gdbarch, insn, regs, dsc);
       break;
 
     case 0xc: case 0xd: case 0xe: case 0xf:
-      err = arm_decode_svc_copro (gdbarch, insn, to, regs, dsc);
+      err = decode_svc_copro (gdbarch, insn, to, regs, dsc);
       break;
     }
 
@@ -8486,49 +4919,23 @@ arm_displaced_init_closure (struct gdbarch *gdbarch, CORE_ADDR from,
 			    CORE_ADDR to, struct displaced_step_closure *dsc)
 {
   struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
-  unsigned int i, len, offset;
+  unsigned int i;
   enum bfd_endian byte_order_for_code = gdbarch_byte_order_for_code (gdbarch);
-  int size = dsc->is_thumb? 2 : 4;
-  const unsigned char *bkp_insn;
 
-  offset = 0;
   /* Poke modified instruction(s).  */
   for (i = 0; i < dsc->numinsns; i++)
     {
       if (debug_displaced)
-	{
-	  fprintf_unfiltered (gdb_stdlog, "displaced: writing insn ");
-	  if (size == 4)
-	    fprintf_unfiltered (gdb_stdlog, "%.8lx",
-				dsc->modinsn[i]);
-	  else if (size == 2)
-	    fprintf_unfiltered (gdb_stdlog, "%.4x",
-				(unsigned short)dsc->modinsn[i]);
-
-	  fprintf_unfiltered (gdb_stdlog, " at %.8lx\n",
-			      (unsigned long) to + offset);
-
-	}
-      write_memory_unsigned_integer (to + offset, size,
-				     byte_order_for_code,
+	fprintf_unfiltered (gdb_stdlog, "displaced: writing insn %.8lx at "
+			    "%.8lx\n", (unsigned long) dsc->modinsn[i],
+			    (unsigned long) to + i * 4);
+      write_memory_unsigned_integer (to + i * 4, 4, byte_order_for_code,
 				     dsc->modinsn[i]);
-      offset += size;
-    }
-
-  /* Choose the correct breakpoint instruction.  */
-  if (dsc->is_thumb)
-    {
-      bkp_insn = tdep->thumb_breakpoint;
-      len = tdep->thumb_breakpoint_size;
-    }
-  else
-    {
-      bkp_insn = tdep->arm_breakpoint;
-      len = tdep->arm_breakpoint_size;
     }
 
   /* Put breakpoint afterwards.  */
-  write_memory (to + offset, bkp_insn, len);
+  write_memory (to + dsc->numinsns * 4, tdep->arm_breakpoint,
+		tdep->arm_breakpoint_size);
 
   if (debug_displaced)
     fprintf_unfiltered (gdb_stdlog, "displaced: copy %s->%s: ",
@@ -8545,7 +4952,15 @@ arm_displaced_step_copy_insn (struct gdbarch *gdbarch,
 {
   struct displaced_step_closure *dsc
     = xmalloc (sizeof (struct displaced_step_closure));
-  arm_process_displaced_insn (gdbarch, from, to, regs, dsc);
+  enum bfd_endian byte_order_for_code = gdbarch_byte_order_for_code (gdbarch);
+  uint32_t insn = read_memory_unsigned_integer (from, 4, byte_order_for_code);
+
+  if (debug_displaced)
+    fprintf_unfiltered (gdb_stdlog, "displaced: stepping insn %.8lx "
+			"at %.8lx\n", (unsigned long) insn,
+			(unsigned long) from);
+
+  arm_process_displaced_insn (gdbarch, insn, from, to, regs, dsc);
   arm_displaced_init_closure (gdbarch, from, to, dsc);
 
   return dsc;
@@ -8564,9 +4979,7 @@ arm_displaced_step_fixup (struct gdbarch *gdbarch,
     dsc->cleanup (gdbarch, regs, dsc);
 
   if (!dsc->wrote_to_pc)
-    regcache_cooked_write_unsigned (regs, ARM_PC_REGNUM,
-				    dsc->insn_addr + dsc->insn_size);
-
+    regcache_cooked_write_unsigned (regs, ARM_PC_REGNUM, dsc->insn_addr + 4);
 }
 
 #include "bfd-in2.h"
@@ -8575,9 +4988,7 @@ arm_displaced_step_fixup (struct gdbarch *gdbarch,
 static int
 gdb_print_insn_arm (bfd_vma memaddr, disassemble_info *info)
 {
-  struct gdbarch *gdbarch = info->application_data;
-
-  if (arm_pc_is_thumb (gdbarch, memaddr))
+  if (arm_pc_is_thumb (memaddr))
     {
       static asymbol *asym;
       static combined_entry_type ce;
@@ -8635,7 +5046,7 @@ gdb_print_insn_arm (bfd_vma memaddr, disassemble_info *info)
    1 0 9 8 7 6 5 4 3 2 1 0 9 8 7 6 5 4 3 2 1 0 9 8 7 6 5 4 3 2 1 0
    C C C C 0 1 1 x x x x x x x x x x x x x x x x x x x x 1 x x x x
    
-   Even this may only true if the condition predicate is true.  The
+   Even this may only true if the condition predicate is true. The
    following use a condition predicate of ALWAYS so it is always TRUE.
    
    There are other ways of forcing a breakpoint.  GNU/Linux, RISC iX,
@@ -8667,7 +5078,7 @@ arm_breakpoint_from_pc (struct gdbarch *gdbarch, CORE_ADDR *pcptr, int *lenptr)
   struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
   enum bfd_endian byte_order_for_code = gdbarch_byte_order_for_code (gdbarch);
 
-  if (arm_pc_is_thumb (gdbarch, *pcptr))
+  if (arm_pc_is_thumb (*pcptr))
     {
       *pcptr = UNMAKE_THUMB_ADDR (*pcptr);
 
@@ -8680,7 +5091,7 @@ arm_breakpoint_from_pc (struct gdbarch *gdbarch, CORE_ADDR *pcptr, int *lenptr)
 	    {
 	      unsigned short inst1;
 	      inst1 = extract_unsigned_integer (buf, 2, byte_order_for_code);
-	      if (thumb_insn_size (inst1) == 4)
+	      if ((inst1 & 0xe000) == 0xe000 && (inst1 & 0x1800) != 0)
 		{
 		  *lenptr = tdep->thumb2_breakpoint_size;
 		  return tdep->thumb2_breakpoint;
@@ -8706,7 +5117,7 @@ arm_remote_breakpoint_from_pc (struct gdbarch *gdbarch, CORE_ADDR *pcptr,
 
   arm_breakpoint_from_pc (gdbarch, pcptr, kindptr);
 
-  if (arm_pc_is_thumb (gdbarch, *pcptr) && *kindptr == 4)
+  if (arm_pc_is_thumb (*pcptr) && *kindptr == 4)
     /* The documented magic value for a 32-bit Thumb-2 breakpoint, so
        that this is not confused with a 32-bit ARM breakpoint.  */
     *kindptr = 3;
@@ -8752,9 +5163,9 @@ arm_extract_return_value (struct type *type, struct regcache *regs,
 	  break;
 
 	default:
-	  internal_error (__FILE__, __LINE__,
-			  _("arm_extract_return_value: "
-			    "Floating point model not supported"));
+	  internal_error
+	    (__FILE__, __LINE__,
+	     _("arm_extract_return_value: Floating point model not supported"));
 	  break;
 	}
     }
@@ -8765,9 +5176,8 @@ arm_extract_return_value (struct type *type, struct regcache *regs,
 	   || TYPE_CODE (type) == TYPE_CODE_REF
 	   || TYPE_CODE (type) == TYPE_CODE_ENUM)
     {
-      /* If the type is a plain integer, then the access is
-	 straight-forward.  Otherwise we have to play around a bit
-	 more.  */
+      /* If the the type is a plain integer, then the access is
+	 straight-forward.  Otherwise we have to play around a bit more.  */
       int len = TYPE_LENGTH (type);
       int regno = ARM_A1_REGNUM;
       ULONGEST tmp;
@@ -8880,8 +5290,7 @@ arm_return_in_memory (struct gdbarch *gdbarch, struct type *type)
       for (i = 0; i < TYPE_NFIELDS (type); i++)
 	{
 	  enum type_code field_type_code;
-	  field_type_code = TYPE_CODE (check_typedef (TYPE_FIELD_TYPE (type,
-								       i)));
+	  field_type_code = TYPE_CODE (check_typedef (TYPE_FIELD_TYPE (type, i)));
 
 	  /* Is it a floating point type field?  */
 	  if (field_type_code == TYPE_CODE_FLT)
@@ -8943,9 +5352,9 @@ arm_store_return_value (struct type *type, struct regcache *regs,
 	  break;
 
 	default:
-	  internal_error (__FILE__, __LINE__,
-			  _("arm_store_return_value: Floating "
-			    "point model not supported"));
+	  internal_error
+	    (__FILE__, __LINE__,
+	     _("arm_store_return_value: Floating point model not supported"));
 	  break;
 	}
     }
@@ -9059,12 +5468,6 @@ arm_return_value (struct gdbarch *gdbarch, struct type *func_type,
 	  || arm_return_in_memory (gdbarch, valtype))
 	return RETURN_VALUE_STRUCT_CONVENTION;
     }
-
-  /* AAPCS returns complex types longer than a register in memory.  */
-  if (tdep->arm_abi != ARM_ABI_APCS
-      && TYPE_CODE (valtype) == TYPE_CODE_COMPLEX
-      && TYPE_LENGTH (valtype) > INT_REGISTER_SIZE)
-    return RETURN_VALUE_STRUCT_CONVENTION;
 
   if (writebuf)
     arm_store_return_value (valtype, regcache, writebuf);
@@ -9197,7 +5600,7 @@ arm_update_current_architecture (void)
   gdbarch_info_init (&info);
 
   if (!gdbarch_update_p (info))
-    internal_error (__FILE__, __LINE__, _("could not update architecture"));
+    internal_error (__FILE__, __LINE__, "could not update architecture");
 }
 
 static void
@@ -9279,9 +5682,8 @@ arm_show_fallback_mode (struct ui_file *file, int from_tty,
 {
   struct gdbarch_tdep *tdep = gdbarch_tdep (target_gdbarch);
 
-  fprintf_filtered (file,
-		    _("The current execution mode assumed "
-		      "(when symbols are unavailable) is \"%s\".\n"),
+  fprintf_filtered (file, _("\
+The current execution mode assumed (when symbols are unavailable) is \"%s\".\n"),
 		    arm_fallback_mode_string);
 }
 
@@ -9291,9 +5693,8 @@ arm_show_force_mode (struct ui_file *file, int from_tty,
 {
   struct gdbarch_tdep *tdep = gdbarch_tdep (target_gdbarch);
 
-  fprintf_filtered (file,
-		    _("The current execution mode assumed "
-		      "(even when symbols are available) is \"%s\".\n"),
+  fprintf_filtered (file, _("\
+The current execution mode assumed (even when symbols are available) is \"%s\".\n"),
 		    arm_force_mode_string);
 }
 
@@ -9385,8 +5786,10 @@ coff_sym_is_thumb (int val)
 static void
 arm_elf_make_msymbol_special(asymbol *sym, struct minimal_symbol *msym)
 {
-  if (ARM_SYM_BRANCH_TYPE (&((elf_symbol_type *)sym)->internal_elf_sym)
-      == ST_BRANCH_TO_THUMB)
+  /* Thumb symbols are of type STT_LOPROC, (synonymous with
+     STT_ARM_TFUNC).  */
+  if (ELF_ST_TYPE (((elf_symbol_type *)sym)->internal_elf_sym.st_info)
+      == STT_LOPROC)
     MSYMBOL_SET_SPECIAL (msym);
 }
 
@@ -9459,21 +5862,18 @@ arm_record_special_symbol (struct gdbarch *gdbarch, struct objfile *objfile,
 static void
 arm_write_pc (struct regcache *regcache, CORE_ADDR pc)
 {
-  struct gdbarch *gdbarch = get_regcache_arch (regcache);
   regcache_cooked_write_unsigned (regcache, ARM_PC_REGNUM, pc);
 
   /* If necessary, set the T bit.  */
   if (arm_apcs_32)
     {
-      ULONGEST val, t_bit;
+      ULONGEST val;
       regcache_cooked_read_unsigned (regcache, ARM_PS_REGNUM, &val);
-      t_bit = arm_psr_thumb_bit (gdbarch);
-      if (arm_pc_is_thumb (gdbarch, pc))
-	regcache_cooked_write_unsigned (regcache, ARM_PS_REGNUM,
-					val | t_bit);
+      if (arm_pc_is_thumb (pc))
+	regcache_cooked_write_unsigned (regcache, ARM_PS_REGNUM, val | CPSR_T);
       else
 	regcache_cooked_write_unsigned (regcache, ARM_PS_REGNUM,
-					val & ~t_bit);
+					val & ~(ULONGEST) CPSR_T);
     }
 }
 
@@ -9484,14 +5884,13 @@ arm_write_pc (struct regcache *regcache, CORE_ADDR pc)
    ABI, even if a NEON unit is not present.  REGNUM is the index of
    the quad register, in [0, 15].  */
 
-static enum register_status
+static void
 arm_neon_quad_read (struct gdbarch *gdbarch, struct regcache *regcache,
 		    int regnum, gdb_byte *buf)
 {
   char name_buf[4];
   gdb_byte reg_buf[8];
   int offset, double_regnum;
-  enum register_status status;
 
   sprintf (name_buf, "d%d", regnum << 1);
   double_regnum = user_reg_map_name_to_regnum (gdbarch, name_buf,
@@ -9503,21 +5902,15 @@ arm_neon_quad_read (struct gdbarch *gdbarch, struct regcache *regcache,
   else
     offset = 0;
 
-  status = regcache_raw_read (regcache, double_regnum, reg_buf);
-  if (status != REG_VALID)
-    return status;
+  regcache_raw_read (regcache, double_regnum, reg_buf);
   memcpy (buf + offset, reg_buf, 8);
 
   offset = 8 - offset;
-  status = regcache_raw_read (regcache, double_regnum + 1, reg_buf);
-  if (status != REG_VALID)
-    return status;
+  regcache_raw_read (regcache, double_regnum + 1, reg_buf);
   memcpy (buf + offset, reg_buf, 8);
-
-  return REG_VALID;
 }
 
-static enum register_status
+static void
 arm_pseudo_read (struct gdbarch *gdbarch, struct regcache *regcache,
 		 int regnum, gdb_byte *buf)
 {
@@ -9531,11 +5924,9 @@ arm_pseudo_read (struct gdbarch *gdbarch, struct regcache *regcache,
 
   if (gdbarch_tdep (gdbarch)->have_neon_pseudos && regnum >= 32 && regnum < 48)
     /* Quad-precision register.  */
-    return arm_neon_quad_read (gdbarch, regcache, regnum - 32, buf);
+    arm_neon_quad_read (gdbarch, regcache, regnum - 32, buf);
   else
     {
-      enum register_status status;
-
       /* Single-precision register.  */
       gdb_assert (regnum < 32);
 
@@ -9549,10 +5940,8 @@ arm_pseudo_read (struct gdbarch *gdbarch, struct regcache *regcache,
       double_regnum = user_reg_map_name_to_regnum (gdbarch, name_buf,
 						   strlen (name_buf));
 
-      status = regcache_raw_read (regcache, double_regnum, reg_buf);
-      if (status == REG_VALID)
-	memcpy (buf, reg_buf + offset, 4);
-      return status;
+      regcache_raw_read (regcache, double_regnum, reg_buf);
+      memcpy (buf, reg_buf + offset, 4);
     }
 }
 
@@ -9648,22 +6037,6 @@ arm_elf_osabi_sniffer (bfd *abfd)
   return osabi;
 }
 
-static int
-arm_register_reggroup_p (struct gdbarch *gdbarch, int regnum,
-			  struct reggroup *group)
-{
-  /* FPS register's type is INT, but belongs to float_reggroup.  Beside
-     this, FPS register belongs to save_regroup, restore_reggroup, and
-     all_reggroup, of course.  */
-  if (regnum == ARM_FPS_REGNUM)
-    return (group == float_reggroup
-	    || group == save_reggroup
-	    || group == restore_reggroup
-	    || group == all_reggroup);
-  else
-    return default_register_reggroup_p (gdbarch, regnum, group);
-}
-
 
 /* Initialize the current architecture based on INFO.  If possible,
    re-use an architecture from ARCHES, which is a list of
@@ -9681,11 +6054,165 @@ arm_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   enum arm_abi_kind arm_abi = arm_abi_global;
   enum arm_float_model fp_model = arm_fp_model;
   struct tdesc_arch_data *tdesc_data = NULL;
-  int i, is_m = 0;
+  int i;
   int have_vfp_registers = 0, have_vfp_pseudos = 0, have_neon_pseudos = 0;
   int have_neon = 0;
   int have_fpa_registers = 1;
-  const struct target_desc *tdesc = info.target_desc;
+
+  /* Check any target description for validity.  */
+  if (tdesc_has_registers (info.target_desc))
+    {
+      /* For most registers we require GDB's default names; but also allow
+	 the numeric names for sp / lr / pc, as a convenience.  */
+      static const char *const arm_sp_names[] = { "r13", "sp", NULL };
+      static const char *const arm_lr_names[] = { "r14", "lr", NULL };
+      static const char *const arm_pc_names[] = { "r15", "pc", NULL };
+
+      const struct tdesc_feature *feature;
+      int valid_p;
+
+      feature = tdesc_find_feature (info.target_desc,
+				    "org.gnu.gdb.arm.core");
+      if (feature == NULL)
+	return NULL;
+
+      tdesc_data = tdesc_data_alloc ();
+
+      valid_p = 1;
+      for (i = 0; i < ARM_SP_REGNUM; i++)
+	valid_p &= tdesc_numbered_register (feature, tdesc_data, i,
+					    arm_register_names[i]);
+      valid_p &= tdesc_numbered_register_choices (feature, tdesc_data,
+						  ARM_SP_REGNUM,
+						  arm_sp_names);
+      valid_p &= tdesc_numbered_register_choices (feature, tdesc_data,
+						  ARM_LR_REGNUM,
+						  arm_lr_names);
+      valid_p &= tdesc_numbered_register_choices (feature, tdesc_data,
+						  ARM_PC_REGNUM,
+						  arm_pc_names);
+      valid_p &= tdesc_numbered_register (feature, tdesc_data,
+					  ARM_PS_REGNUM, "cpsr");
+
+      if (!valid_p)
+	{
+	  tdesc_data_cleanup (tdesc_data);
+	  return NULL;
+	}
+
+      feature = tdesc_find_feature (info.target_desc,
+				    "org.gnu.gdb.arm.fpa");
+      if (feature != NULL)
+	{
+	  valid_p = 1;
+	  for (i = ARM_F0_REGNUM; i <= ARM_FPS_REGNUM; i++)
+	    valid_p &= tdesc_numbered_register (feature, tdesc_data, i,
+						arm_register_names[i]);
+	  if (!valid_p)
+	    {
+	      tdesc_data_cleanup (tdesc_data);
+	      return NULL;
+	    }
+	}
+      else
+	have_fpa_registers = 0;
+
+      feature = tdesc_find_feature (info.target_desc,
+				    "org.gnu.gdb.xscale.iwmmxt");
+      if (feature != NULL)
+	{
+	  static const char *const iwmmxt_names[] = {
+	    "wR0", "wR1", "wR2", "wR3", "wR4", "wR5", "wR6", "wR7",
+	    "wR8", "wR9", "wR10", "wR11", "wR12", "wR13", "wR14", "wR15",
+	    "wCID", "wCon", "wCSSF", "wCASF", "", "", "", "",
+	    "wCGR0", "wCGR1", "wCGR2", "wCGR3", "", "", "", "",
+	  };
+
+	  valid_p = 1;
+	  for (i = ARM_WR0_REGNUM; i <= ARM_WR15_REGNUM; i++)
+	    valid_p
+	      &= tdesc_numbered_register (feature, tdesc_data, i,
+					  iwmmxt_names[i - ARM_WR0_REGNUM]);
+
+	  /* Check for the control registers, but do not fail if they
+	     are missing.  */
+	  for (i = ARM_WC0_REGNUM; i <= ARM_WCASF_REGNUM; i++)
+	    tdesc_numbered_register (feature, tdesc_data, i,
+				     iwmmxt_names[i - ARM_WR0_REGNUM]);
+
+	  for (i = ARM_WCGR0_REGNUM; i <= ARM_WCGR3_REGNUM; i++)
+	    valid_p
+	      &= tdesc_numbered_register (feature, tdesc_data, i,
+					  iwmmxt_names[i - ARM_WR0_REGNUM]);
+
+	  if (!valid_p)
+	    {
+	      tdesc_data_cleanup (tdesc_data);
+	      return NULL;
+	    }
+	}
+
+      /* If we have a VFP unit, check whether the single precision registers
+	 are present.  If not, then we will synthesize them as pseudo
+	 registers.  */
+      feature = tdesc_find_feature (info.target_desc,
+				    "org.gnu.gdb.arm.vfp");
+      if (feature != NULL)
+	{
+	  static const char *const vfp_double_names[] = {
+	    "d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7",
+	    "d8", "d9", "d10", "d11", "d12", "d13", "d14", "d15",
+	    "d16", "d17", "d18", "d19", "d20", "d21", "d22", "d23",
+	    "d24", "d25", "d26", "d27", "d28", "d29", "d30", "d31",
+	  };
+
+	  /* Require the double precision registers.  There must be either
+	     16 or 32.  */
+	  valid_p = 1;
+	  for (i = 0; i < 32; i++)
+	    {
+	      valid_p &= tdesc_numbered_register (feature, tdesc_data,
+						  ARM_D0_REGNUM + i,
+						  vfp_double_names[i]);
+	      if (!valid_p)
+		break;
+	    }
+
+	  if (!valid_p && i != 16)
+	    {
+	      tdesc_data_cleanup (tdesc_data);
+	      return NULL;
+	    }
+
+	  if (tdesc_unnumbered_register (feature, "s0") == 0)
+	    have_vfp_pseudos = 1;
+
+	  have_vfp_registers = 1;
+
+	  /* If we have VFP, also check for NEON.  The architecture allows
+	     NEON without VFP (integer vector operations only), but GDB
+	     does not support that.  */
+	  feature = tdesc_find_feature (info.target_desc,
+					"org.gnu.gdb.arm.neon");
+	  if (feature != NULL)
+	    {
+	      /* NEON requires 32 double-precision registers.  */
+	      if (i != 32)
+		{
+		  tdesc_data_cleanup (tdesc_data);
+		  return NULL;
+		}
+
+	      /* If there are quad registers defined by the stub, use
+		 their type; otherwise (normally) provide them with
+		 the default type.  */
+	      if (tdesc_unnumbered_register (feature, "q0") == 0)
+		have_neon_pseudos = 1;
+
+	      have_neon = 1;
+	    }
+	}
+    }
 
   /* If we have an object to base this architecture on, try to determine
      its ABI.  */
@@ -9721,7 +6248,6 @@ arm_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 	  else if (ei_osabi == ELFOSABI_NONE)
 	    {
 	      int eabi_ver = EF_ARM_EABI_VERSION (e_flags);
-	      int attr_arch, attr_profile;
 
 	      switch (eabi_ver)
 		{
@@ -9779,27 +6305,6 @@ arm_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 		  warning (_("unknown ARM EABI version 0x%x"), eabi_ver);
 		  break;
 		}
-
-#ifdef HAVE_ELF
-	      /* Detect M-profile programs.  This only works if the
-		 executable file includes build attributes; GCC does
-		 copy them to the executable, but e.g. RealView does
-		 not.  */
-	      attr_arch = bfd_elf_get_obj_attr_int (info.abfd, OBJ_ATTR_PROC,
-						    Tag_CPU_arch);
-	      attr_profile = bfd_elf_get_obj_attr_int (info.abfd,
-						       OBJ_ATTR_PROC,
-						       Tag_CPU_arch_profile);
-	      /* GCC specifies the profile for v6-M; RealView only
-		 specifies the profile for architectures starting with
-		 V7 (as opposed to architectures with a tag
-		 numerically greater than TAG_CPU_ARCH_V7).  */
-	      if (!tdesc_has_registers (tdesc)
-		  && (attr_arch == TAG_CPU_ARCH_V6_M
-		      || attr_arch == TAG_CPU_ARCH_V6S_M
-		      || attr_profile == 'M'))
-		tdesc = tdesc_arm_with_m;
-#endif
 	    }
 
 	  if (fp_model == ARM_FLOAT_AUTO)
@@ -9837,177 +6342,6 @@ arm_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 	}
     }
 
-  /* Check any target description for validity.  */
-  if (tdesc_has_registers (tdesc))
-    {
-      /* For most registers we require GDB's default names; but also allow
-	 the numeric names for sp / lr / pc, as a convenience.  */
-      static const char *const arm_sp_names[] = { "r13", "sp", NULL };
-      static const char *const arm_lr_names[] = { "r14", "lr", NULL };
-      static const char *const arm_pc_names[] = { "r15", "pc", NULL };
-
-      const struct tdesc_feature *feature;
-      int valid_p;
-
-      feature = tdesc_find_feature (tdesc,
-				    "org.gnu.gdb.arm.core");
-      if (feature == NULL)
-	{
-	  feature = tdesc_find_feature (tdesc,
-					"org.gnu.gdb.arm.m-profile");
-	  if (feature == NULL)
-	    return NULL;
-	  else
-	    is_m = 1;
-	}
-
-      tdesc_data = tdesc_data_alloc ();
-
-      valid_p = 1;
-      for (i = 0; i < ARM_SP_REGNUM; i++)
-	valid_p &= tdesc_numbered_register (feature, tdesc_data, i,
-					    arm_register_names[i]);
-      valid_p &= tdesc_numbered_register_choices (feature, tdesc_data,
-						  ARM_SP_REGNUM,
-						  arm_sp_names);
-      valid_p &= tdesc_numbered_register_choices (feature, tdesc_data,
-						  ARM_LR_REGNUM,
-						  arm_lr_names);
-      valid_p &= tdesc_numbered_register_choices (feature, tdesc_data,
-						  ARM_PC_REGNUM,
-						  arm_pc_names);
-      if (is_m)
-	valid_p &= tdesc_numbered_register (feature, tdesc_data,
-					    ARM_PS_REGNUM, "xpsr");
-      else
-	valid_p &= tdesc_numbered_register (feature, tdesc_data,
-					    ARM_PS_REGNUM, "cpsr");
-
-      if (!valid_p)
-	{
-	  tdesc_data_cleanup (tdesc_data);
-	  return NULL;
-	}
-
-      feature = tdesc_find_feature (tdesc,
-				    "org.gnu.gdb.arm.fpa");
-      if (feature != NULL)
-	{
-	  valid_p = 1;
-	  for (i = ARM_F0_REGNUM; i <= ARM_FPS_REGNUM; i++)
-	    valid_p &= tdesc_numbered_register (feature, tdesc_data, i,
-						arm_register_names[i]);
-	  if (!valid_p)
-	    {
-	      tdesc_data_cleanup (tdesc_data);
-	      return NULL;
-	    }
-	}
-      else
-	have_fpa_registers = 0;
-
-      feature = tdesc_find_feature (tdesc,
-				    "org.gnu.gdb.xscale.iwmmxt");
-      if (feature != NULL)
-	{
-	  static const char *const iwmmxt_names[] = {
-	    "wR0", "wR1", "wR2", "wR3", "wR4", "wR5", "wR6", "wR7",
-	    "wR8", "wR9", "wR10", "wR11", "wR12", "wR13", "wR14", "wR15",
-	    "wCID", "wCon", "wCSSF", "wCASF", "", "", "", "",
-	    "wCGR0", "wCGR1", "wCGR2", "wCGR3", "", "", "", "",
-	  };
-
-	  valid_p = 1;
-	  for (i = ARM_WR0_REGNUM; i <= ARM_WR15_REGNUM; i++)
-	    valid_p
-	      &= tdesc_numbered_register (feature, tdesc_data, i,
-					  iwmmxt_names[i - ARM_WR0_REGNUM]);
-
-	  /* Check for the control registers, but do not fail if they
-	     are missing.  */
-	  for (i = ARM_WC0_REGNUM; i <= ARM_WCASF_REGNUM; i++)
-	    tdesc_numbered_register (feature, tdesc_data, i,
-				     iwmmxt_names[i - ARM_WR0_REGNUM]);
-
-	  for (i = ARM_WCGR0_REGNUM; i <= ARM_WCGR3_REGNUM; i++)
-	    valid_p
-	      &= tdesc_numbered_register (feature, tdesc_data, i,
-					  iwmmxt_names[i - ARM_WR0_REGNUM]);
-
-	  if (!valid_p)
-	    {
-	      tdesc_data_cleanup (tdesc_data);
-	      return NULL;
-	    }
-	}
-
-      /* If we have a VFP unit, check whether the single precision registers
-	 are present.  If not, then we will synthesize them as pseudo
-	 registers.  */
-      feature = tdesc_find_feature (tdesc,
-				    "org.gnu.gdb.arm.vfp");
-      if (feature != NULL)
-	{
-	  static const char *const vfp_double_names[] = {
-	    "d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7",
-	    "d8", "d9", "d10", "d11", "d12", "d13", "d14", "d15",
-	    "d16", "d17", "d18", "d19", "d20", "d21", "d22", "d23",
-	    "d24", "d25", "d26", "d27", "d28", "d29", "d30", "d31",
-	  };
-
-	  /* Require the double precision registers.  There must be either
-	     16 or 32.  */
-	  valid_p = 1;
-	  for (i = 0; i < 32; i++)
-	    {
-	      valid_p &= tdesc_numbered_register (feature, tdesc_data,
-						  ARM_D0_REGNUM + i,
-						  vfp_double_names[i]);
-	      if (!valid_p)
-		break;
-	    }
-	  if (!valid_p && i == 16)
-	    valid_p = 1;
-
-	  /* Also require FPSCR.  */
-	  valid_p &= tdesc_numbered_register (feature, tdesc_data,
-					      ARM_FPSCR_REGNUM, "fpscr");
-	  if (!valid_p)
-	    {
-	      tdesc_data_cleanup (tdesc_data);
-	      return NULL;
-	    }
-
-	  if (tdesc_unnumbered_register (feature, "s0") == 0)
-	    have_vfp_pseudos = 1;
-
-	  have_vfp_registers = 1;
-
-	  /* If we have VFP, also check for NEON.  The architecture allows
-	     NEON without VFP (integer vector operations only), but GDB
-	     does not support that.  */
-	  feature = tdesc_find_feature (tdesc,
-					"org.gnu.gdb.arm.neon");
-	  if (feature != NULL)
-	    {
-	      /* NEON requires 32 double-precision registers.  */
-	      if (i != 32)
-		{
-		  tdesc_data_cleanup (tdesc_data);
-		  return NULL;
-		}
-
-	      /* If there are quad registers defined by the stub, use
-		 their type; otherwise (normally) provide them with
-		 the default type.  */
-	      if (tdesc_unnumbered_register (feature, "q0") == 0)
-		have_neon_pseudos = 1;
-
-	      have_neon = 1;
-	    }
-	}
-    }
-
   /* If there is already a candidate, use it.  */
   for (best_arch = gdbarch_list_lookup_by_info (arches, &info);
        best_arch != NULL;
@@ -10025,10 +6359,6 @@ arm_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 	 need to check here: those derived from a target description,
 	 since gdbarches with a different target description are
 	 automatically disqualified.  */
-
-      /* Do check is_m, though, since it might come from the binary.  */
-      if (is_m != gdbarch_tdep (best_arch->gdbarch)->is_m)
-	continue;
 
       /* Found a match.  */
       break;
@@ -10048,7 +6378,6 @@ arm_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
      These are gdbarch discriminators, like the OSABI.  */
   tdep->arm_abi = arm_abi;
   tdep->fp_model = fp_model;
-  tdep->is_m = is_m;
   tdep->have_fpa_registers = have_fpa_registers;
   tdep->have_vfp_registers = have_vfp_registers;
   tdep->have_vfp_pseudos = have_vfp_pseudos;
@@ -10114,9 +6443,6 @@ arm_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   /* Advance PC across function entry code.  */
   set_gdbarch_skip_prologue (gdbarch, arm_skip_prologue);
 
-  /* Detect whether PC is in function epilogue.  */
-  set_gdbarch_in_function_epilogue_p (gdbarch, arm_in_function_epilogue_p);
-
   /* Skip trampolines.  */
   set_gdbarch_skip_trampoline_code (gdbarch, arm_skip_stub);
 
@@ -10129,11 +6455,11 @@ arm_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 					 arm_remote_breakpoint_from_pc);
 
   /* Information about registers, etc.  */
+  set_gdbarch_deprecated_fp_regnum (gdbarch, ARM_FP_REGNUM);	/* ??? */
   set_gdbarch_sp_regnum (gdbarch, ARM_SP_REGNUM);
   set_gdbarch_pc_regnum (gdbarch, ARM_PC_REGNUM);
   set_gdbarch_num_regs (gdbarch, ARM_NUM_REGS);
   set_gdbarch_register_type (gdbarch, arm_register_type);
-  set_gdbarch_register_reggroup_p (gdbarch, arm_register_reggroup_p);
 
   /* This "info float" is FPA-specific.  Use the generic version if we
      do not have FPA.  */
@@ -10173,7 +6499,6 @@ arm_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   /* Add some default predicates.  */
   frame_unwind_append_unwinder (gdbarch, &arm_stub_unwind);
   dwarf2_append_unwinders (gdbarch);
-  frame_unwind_append_unwinder (gdbarch, &arm_exidx_unwind);
   frame_unwind_append_unwinder (gdbarch, &arm_prologue_unwind);
 
   /* Now we have tuned the configuration, set a few final things,
@@ -10183,9 +6508,6 @@ arm_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
      binaries are always marked.  */
   if (tdep->arm_abi == ARM_ABI_AUTO)
     tdep->arm_abi = ARM_ABI_APCS;
-
-  /* Watchpoints are not steppable.  */
-  set_gdbarch_have_nonsteppable_watchpoint (gdbarch, 1);
 
   /* We used to default to FPA for generic ARM, but almost nobody
      uses that now, and we now provide a way for the user to force
@@ -10229,7 +6551,7 @@ arm_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
     {
       set_tdesc_pseudo_register_name (gdbarch, arm_register_name);
 
-      tdesc_use_registers (gdbarch, tdesc, tdesc_data);
+      tdesc_use_registers (gdbarch, info.target_desc, tdesc_data);
 
       /* Override tdesc_register_type to adjust the types of VFP
 	 registers for NEON.  */
@@ -10279,22 +6601,10 @@ _initialize_arm_tdep (void)
   arm_objfile_data_key
     = register_objfile_data_with_cleanup (NULL, arm_objfile_data_free);
 
-  /* Add ourselves to objfile event chain.  */
-  observer_attach_new_objfile (arm_exidx_new_objfile);
-  arm_exidx_data_key
-    = register_objfile_data_with_cleanup (NULL, arm_exidx_data_free);
-
   /* Register an ELF OS ABI sniffer for ARM binaries.  */
   gdbarch_register_osabi_sniffer (bfd_arch_arm,
 				  bfd_target_elf_flavour,
 				  arm_elf_osabi_sniffer);
-
-  /* Initialize the standard target descriptions.  */
-  initialize_tdesc_arm_with_m ();
-  initialize_tdesc_arm_with_iwmmxt ();
-  initialize_tdesc_arm_with_vfpv2 ();
-  initialize_tdesc_arm_with_vfpv3 ();
-  initialize_tdesc_arm_with_neon ();
 
   /* Get the number of possible sets of register names defined in opcodes.  */
   num_disassembly_options = get_arm_regname_num_options ();
@@ -10348,8 +6658,7 @@ _initialize_arm_tdep (void)
 		       _("Show the disassembly style."),
 		       helptext,
 		       set_disassembly_style_sfunc,
-		       NULL, /* FIXME: i18n: The disassembly style is
-				\"%s\".  */
+		       NULL, /* FIXME: i18n: The disassembly style is \"%s\".  */
 		       &setarmcmdlist, &showarmcmdlist);
 
   add_setshow_boolean_cmd ("apcs32", no_class, &arm_apcs_32,
@@ -10357,8 +6666,7 @@ _initialize_arm_tdep (void)
 			   _("Show usage of ARM 32-bit mode."),
 			   _("When off, a 26-bit PC will be used."),
 			   NULL,
-			   NULL, /* FIXME: i18n: Usage of ARM 32-bit
-				    mode is %s.  */
+			   NULL, /* FIXME: i18n: Usage of ARM 32-bit mode is %s.  */
 			   &setarmcmdlist, &showarmcmdlist);
 
   /* Add a command to allow the user to force the FPU model.  */
