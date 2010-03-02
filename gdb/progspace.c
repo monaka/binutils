@@ -1,6 +1,6 @@
 /* Program and address space management, for GDB, the GNU debugger.
 
-   Copyright (C) 2009-2012 Free Software Foundation, Inc.
+   Copyright (C) 2009, 2010 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -186,6 +186,7 @@ remove_program_space (struct program_space *pspace)
 struct program_space *
 clone_program_space (struct program_space *dest, struct program_space *src)
 {
+  struct program_space *new_pspace;
   struct cleanup *old_chain;
 
   old_chain = save_current_program_space ();
@@ -227,7 +228,6 @@ static void
 restore_program_space (void *arg)
 {
   struct program_space *saved_pspace = arg;
-
   set_current_program_space (saved_pspace);
 }
 
@@ -240,7 +240,6 @@ save_current_program_space (void)
 {
   struct cleanup *old_chain = make_cleanup (restore_program_space,
 					    current_program_space);
-
   return old_chain;
 }
 
@@ -249,6 +248,8 @@ save_current_program_space (void)
 static int
 pspace_empty_p (struct program_space *pspace)
 {
+  struct inferior *inf;
+
   if (find_inferior_for_program_space (pspace) != NULL)
       return 0;
 
@@ -397,7 +398,7 @@ maintenance_info_program_spaces_command (char *args, int from_tty)
 	error (_("program space ID %d not known."), requested);
     }
 
-  print_program_space (current_uiout, requested);
+  print_program_space (uiout, requested);
 }
 
 /* Simply returns the count of program spaces.  */
@@ -437,7 +438,6 @@ update_address_spaces (void)
   if (shared_aspace)
     {
       struct address_space *aspace = new_address_space ();
-
       free_address_space (current_program_space->aspace);
       ALL_PSPACES (pspace)
 	pspace->aspace = aspace;
@@ -596,8 +596,7 @@ set_program_space_data (struct program_space *pspace,
 }
 
 void *
-program_space_data (struct program_space *pspace,
-		    const struct program_space_data *data)
+program_space_data (struct program_space *pspace, const struct program_space_data *data)
 {
   gdb_assert (data->index < pspace->num_data);
   return pspace->data[data->index];
@@ -609,8 +608,8 @@ void
 initialize_progspace (void)
 {
   add_cmd ("program-spaces", class_maintenance,
-	   maintenance_info_program_spaces_command,
-	   _("Info about currently known program spaces."),
+	   maintenance_info_program_spaces_command, _("\
+Info about currently known program spaces."),
 	   &maintenanceinfolist);
 
   /* There's always one program space.  Note that this function isn't
