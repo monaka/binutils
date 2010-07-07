@@ -654,20 +654,16 @@ SER_HARDWIRE
 WERROR_CFLAGS
 WARN_CFLAGS
 SYSTEM_GDBINIT
+TARGET_SYSTEM_ROOT_DEFINE
 TARGET_SYSTEM_ROOT
 CONFIG_LDFLAGS
 RDYNAMIC
 ALLOCA
-PYTHON_LIBS
-PYTHON_CPPFLAGS
 PYTHON_CFLAGS
 python_prog_path
 LTLIBEXPAT
 LIBEXPAT
 HAVE_LIBEXPAT
-JIT_READER_DIR
-TARGET_PTR
-READLINE_TEXI_INCFLAG
 READLINE_CFLAGS
 READLINE_DEPS
 READLINE
@@ -701,6 +697,7 @@ MKDIR_P
 INSTALL_STRIP_PROGRAM
 STRIP
 install_sh
+MAKEINFO
 AUTOHEADER
 AUTOMAKE
 AUTOCONF
@@ -711,9 +708,6 @@ am__isrc
 INSTALL_DATA
 INSTALL_SCRIPT
 INSTALL_PROGRAM
-MAKEINFO_EXTRA_FLAGS
-MAKEINFOFLAGS
-MAKEINFO
 PACKAGE
 GNULIB_STDINT_H
 LIBGNU_LTLIBDEPS
@@ -964,9 +958,7 @@ with_pkgversion
 with_bugurl
 with_zlib
 with_libiconv_prefix
-with_iconv_bin
 with_system_readline
-with_jit_reader_dir
 with_expat
 with_gnu_ld
 enable_rpath
@@ -983,7 +975,6 @@ with_tk
 with_x
 enable_sim
 enable_multi_ice
-enable_gdbserver
 '
       ac_precious_vars='build_alias
 host_alias
@@ -997,7 +988,7 @@ CPP
 YACC
 YFLAGS
 XMKMF'
-ac_subdirs_all='testsuite
+ac_subdirs_all='doc testsuite
 gdbtk
 multi-ice
 gdbserver'
@@ -1644,8 +1635,6 @@ Optional Features:
                           gcc is used
   --enable-sim            link gdb with simulator
   --enable-multi-ice      build the multi-ice-gdb-server
-  --enable-gdbserver      automatically build gdbserver (yes/no/auto, default
-                          is auto)
 
 Optional Packages:
   --with-PACKAGE[=ARG]    use PACKAGE [ARG=yes]
@@ -1665,10 +1654,7 @@ Optional Packages:
   --with-zlib             include zlib support (auto/yes/no) default=auto
   --with-libiconv-prefix=DIR
                           search for libiconv in DIR/include and DIR/lib
-  --with-iconv-bin=PATH   specify where to find the iconv program
   --with-system-readline  use installed readline library
-  --with-jit-reader-dir=PATH
-                          directory to load the JIT readers from
   --with-expat            include expat support (auto/yes/no)
   --with-gnu-ld           assume the C compiler uses GNU ld default=no
   --with-libexpat-prefix[=DIR]  search for libexpat in DIR/include and DIR/lib
@@ -7157,81 +7143,6 @@ _ACEOF
 
 
 
-# Do we have a single-tree copy of texinfo?  Even if we do, we can't
-# rely on it - libiberty is built before texinfo.
-# Extract the first word of "makeinfo", so it can be a program name with args.
-set dummy makeinfo; ac_word=$2
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
-$as_echo_n "checking for $ac_word... " >&6; }
-if test "${ac_cv_prog_MAKEINFO+set}" = set; then :
-  $as_echo_n "(cached) " >&6
-else
-  if test -n "$MAKEINFO"; then
-  ac_cv_prog_MAKEINFO="$MAKEINFO" # Let the user override the test.
-else
-as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
-for as_dir in $PATH
-do
-  IFS=$as_save_IFS
-  test -z "$as_dir" && as_dir=.
-    for ac_exec_ext in '' $ac_executable_extensions; do
-  if { test -f "$as_dir/$ac_word$ac_exec_ext" && $as_test_x "$as_dir/$ac_word$ac_exec_ext"; }; then
-    ac_cv_prog_MAKEINFO="makeinfo"
-    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
-    break 2
-  fi
-done
-  done
-IFS=$as_save_IFS
-
-fi
-fi
-MAKEINFO=$ac_cv_prog_MAKEINFO
-if test -n "$MAKEINFO"; then
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $MAKEINFO" >&5
-$as_echo "$MAKEINFO" >&6; }
-else
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
-$as_echo "no" >&6; }
-fi
-
-
-if test "x$MAKEINFO" = "x"; then
-  as_fn_error "makeinfo is required for compilation" "$LINENO" 5
-else
-  case "$MAKEINFO" in
-    */missing\ makeinfo*)
-      as_fn_error "makeinfo is required for compilation" "$LINENO" 5
-      ;;
-  esac
-fi
-
-
-# --split-size=5000000 may be already in $MAKEINFO from parent configure.
-# Re-running configure in gdb/ would lose it so ensure it stays present.
-MAKEINFOFLAGS=${MAKEINFOFLAGS---split-size=5000000}
-
-
-MAKEINFO_EXTRA_FLAGS=""
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking whether $MAKEINFO supports @click" >&5
-$as_echo_n "checking whether $MAKEINFO supports @click... " >&6; }
-if test "${gdb_cv_have_makeinfo_click+set}" = set; then :
-  $as_echo_n "(cached) " >&6
-else
-  echo '@clicksequence{a @click{} b}' >conftest.texinfo
-  if eval "$MAKEINFO conftest.texinfo >&5 2>&5"; then
-    gdb_cv_have_makeinfo_click=yes
-  else
-    gdb_cv_have_makeinfo_click=no
-  fi
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $gdb_cv_have_makeinfo_click" >&5
-$as_echo "$gdb_cv_have_makeinfo_click" >&6; }
-if test x"$gdb_cv_have_makeinfo_click" = xyes; then
-  MAKEINFO_EXTRA_FLAGS="$MAKEINFO_EXTRA_FLAGS -DHAVE_MAKEINFO_CLICK"
-fi
-
-
 # GDB does not use automake, but gnulib does.  This line lets us
 # generate its Makefile.in.
 am__api_version='1.11'
@@ -7899,24 +7810,6 @@ _ACEOF
 
 
 
-# We can't pass paths as command line arguments.
-# Mingw32 tries to be clever and will convert the paths for us.
-# For example -DBINDIR="/usr/local/bin" passed on the command line may get
-# converted to -DBINDIR="E:/msys/mingw32/msys/1.0/local/bin".
-# This breaks GDB's relocatable path conversions since paths passed in
-# config.h would not get so translated, the path prefixes no longer match.
-
-  test "x$prefix" = xNONE && prefix="$ac_default_prefix"
-  test "x$exec_prefix" = xNONE && exec_prefix='${prefix}'
-  ac_define_dir=`eval echo $bindir`
-  ac_define_dir=`eval echo $ac_define_dir`
-
-cat >>confdefs.h <<_ACEOF
-#define BINDIR "$ac_define_dir"
-_ACEOF
-
-
-
 # GDB's datadir relocation
 
 
@@ -7987,7 +7880,7 @@ fi
 
 
 
-subdirs="$subdirs testsuite"
+subdirs="$subdirs doc testsuite"
 
 
 # Check whether to support alternative target configurations
@@ -9624,57 +9517,6 @@ _ACEOF
   fi
 
 
-# GDB may fork/exec the iconv program to get the list of supported character
-# sets.  Allow the user to specify where to find it.
-# There are several factors affecting the choice of option name:
-# - There is already --with-libiconv-prefix but we can't use it, it specifies
-#   the build-time location of libiconv files.
-# - The program we need to find is iconv, which comes with glibc.  The user
-#   doesn't necessarily have libiconv installed.  Therefore naming this
-#   --with-libiconv-foo feels wrong.
-# - We want the path to be relocatable, but GDB_AC_DEFINE_RELOCATABLE is
-#   defined to work on directories not files (though it really doesn't know
-#   the difference).
-# - Calling this --with-iconv-prefix is perceived to cause too much confusion
-#   with --with-libiconv-prefix.
-# Putting these together is why the option name is --with-iconv-bin.
-
-
-# Check whether --with-iconv-bin was given.
-if test "${with_iconv_bin+set}" = set; then :
-  withval=$with_iconv_bin; iconv_bin="${withval}"
-
-cat >>confdefs.h <<_ACEOF
-#define ICONV_BIN "${iconv_bin}"
-_ACEOF
-
-
-  if test "x$exec_prefix" = xNONE || test "x$exec_prefix" = 'x${prefix}'; then
-     if test "x$prefix" = xNONE; then
-     	test_prefix=/usr/local
-     else
-	test_prefix=$prefix
-     fi
-  else
-     test_prefix=$exec_prefix
-  fi
-  value=0
-  case ${iconv_bin} in
-     "${test_prefix}"|"${test_prefix}/"*|\
-	'${exec_prefix}'|'${exec_prefix}/'*)
-     value=1
-     ;;
-  esac
-
-cat >>confdefs.h <<_ACEOF
-#define ICONV_BIN_RELOCATABLE $value
-_ACEOF
-
-
-
-fi
-
-
 # On alpha-osf, it appears that libtermcap and libcurses are not compatible.
 # There is a very specific comment in /usr/include/curses.h explaining that
 # termcap routines built into libcurses must not be used.
@@ -9787,6 +9629,10 @@ if test x"$enable_tui" != xno; then
       CONFIG_DEPS="$CONFIG_DEPS \$(SUBDIR_TUI_DEPS)"
       CONFIG_SRCS="$CONFIG_SRCS \$(SUBDIR_TUI_SRCS)"
       ENABLE_CFLAGS="$ENABLE_CFLAGS \$(SUBDIR_TUI_CFLAGS)"
+      CONFIG_ALL="${CONFIG_ALL} all-tui"
+      CONFIG_CLEAN="${CONFIG_CLEAN} clean-tui"
+      CONFIG_INSTALL="${CONFIG_INSTALL} install-tui"
+      CONFIG_UNINSTALL="${CONFIG_UNINSTALL} uninstall-tui"
     else
       if test x"$enable_tui" = xyes; then
 	as_fn_error "no enhanced curses library found; disable TUI" "$LINENO" 5
@@ -9890,240 +9736,44 @@ if test "$with_system_readline" = yes; then
   READLINE=-lreadline
   READLINE_DEPS=
   READLINE_CFLAGS=
-  READLINE_TEXI_INCFLAG=
-else
-  READLINE='$(READLINE_DIR)/libreadline.a'
-  READLINE_DEPS='$(READLINE)'
-  READLINE_CFLAGS='-I$(READLINE_SRC)/..'
-  READLINE_TEXI_INCFLAG='-I $(READLINE_DIR)'
-fi
 
+  # readline-6.0 started to use the name `_rl_echoing_p'.
+  # `$(READLINE_DIR)/' of bundled readline would not resolve in configure.
 
-
-
-
-# Generate jit-reader.h
-
-# This is typedeffed to GDB_CORE_ADDR in jit-reader.h
-TARGET_PTR=
-
-# The cast to long int works around a bug in the HP C Compiler
-# version HP92453-01 B.11.11.23709.GP, which incorrectly rejects
-# declarations like `int a3[[(sizeof (unsigned char)) >= 0]];'.
-# This bug is HP SR number 8606223364.
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking size of unsigned long long" >&5
-$as_echo_n "checking size of unsigned long long... " >&6; }
-if test "${ac_cv_sizeof_unsigned_long_long+set}" = set; then :
-  $as_echo_n "(cached) " >&6
-else
-  if ac_fn_c_compute_int "$LINENO" "(long int) (sizeof (unsigned long long))" "ac_cv_sizeof_unsigned_long_long"        "$ac_includes_default"; then :
-
-else
-  if test "$ac_cv_type_unsigned_long_long" = yes; then
-     { { $as_echo "$as_me:${as_lineno-$LINENO}: error: in \`$ac_pwd':" >&5
-$as_echo "$as_me: error: in \`$ac_pwd':" >&2;}
-{ as_fn_set_status 77
-as_fn_error "cannot compute sizeof (unsigned long long)
-See \`config.log' for more details." "$LINENO" 5; }; }
-   else
-     ac_cv_sizeof_unsigned_long_long=0
-   fi
-fi
-
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_sizeof_unsigned_long_long" >&5
-$as_echo "$ac_cv_sizeof_unsigned_long_long" >&6; }
-
-
-
-cat >>confdefs.h <<_ACEOF
-#define SIZEOF_UNSIGNED_LONG_LONG $ac_cv_sizeof_unsigned_long_long
-_ACEOF
-
-
-# The cast to long int works around a bug in the HP C Compiler
-# version HP92453-01 B.11.11.23709.GP, which incorrectly rejects
-# declarations like `int a3[[(sizeof (unsigned char)) >= 0]];'.
-# This bug is HP SR number 8606223364.
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking size of unsigned long" >&5
-$as_echo_n "checking size of unsigned long... " >&6; }
-if test "${ac_cv_sizeof_unsigned_long+set}" = set; then :
-  $as_echo_n "(cached) " >&6
-else
-  if ac_fn_c_compute_int "$LINENO" "(long int) (sizeof (unsigned long))" "ac_cv_sizeof_unsigned_long"        "$ac_includes_default"; then :
-
-else
-  if test "$ac_cv_type_unsigned_long" = yes; then
-     { { $as_echo "$as_me:${as_lineno-$LINENO}: error: in \`$ac_pwd':" >&5
-$as_echo "$as_me: error: in \`$ac_pwd':" >&2;}
-{ as_fn_set_status 77
-as_fn_error "cannot compute sizeof (unsigned long)
-See \`config.log' for more details." "$LINENO" 5; }; }
-   else
-     ac_cv_sizeof_unsigned_long=0
-   fi
-fi
-
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_sizeof_unsigned_long" >&5
-$as_echo "$ac_cv_sizeof_unsigned_long" >&6; }
-
-
-
-cat >>confdefs.h <<_ACEOF
-#define SIZEOF_UNSIGNED_LONG $ac_cv_sizeof_unsigned_long
-_ACEOF
-
-
-# The cast to long int works around a bug in the HP C Compiler
-# version HP92453-01 B.11.11.23709.GP, which incorrectly rejects
-# declarations like `int a3[[(sizeof (unsigned char)) >= 0]];'.
-# This bug is HP SR number 8606223364.
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking size of unsigned __int128" >&5
-$as_echo_n "checking size of unsigned __int128... " >&6; }
-if test "${ac_cv_sizeof_unsigned___int128+set}" = set; then :
-  $as_echo_n "(cached) " >&6
-else
-  if ac_fn_c_compute_int "$LINENO" "(long int) (sizeof (unsigned __int128))" "ac_cv_sizeof_unsigned___int128"        "$ac_includes_default"; then :
-
-else
-  if test "$ac_cv_type_unsigned___int128" = yes; then
-     { { $as_echo "$as_me:${as_lineno-$LINENO}: error: in \`$ac_pwd':" >&5
-$as_echo "$as_me: error: in \`$ac_pwd':" >&2;}
-{ as_fn_set_status 77
-as_fn_error "cannot compute sizeof (unsigned __int128)
-See \`config.log' for more details." "$LINENO" 5; }; }
-   else
-     ac_cv_sizeof_unsigned___int128=0
-   fi
-fi
-
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_sizeof_unsigned___int128" >&5
-$as_echo "$ac_cv_sizeof_unsigned___int128" >&6; }
-
-
-
-cat >>confdefs.h <<_ACEOF
-#define SIZEOF_UNSIGNED___INT128 $ac_cv_sizeof_unsigned___int128
-_ACEOF
-
-
-
-if test "x${ac_cv_sizeof_unsigned_long}" = "x8"; then
-  TARGET_PTR="unsigned long"
-elif test "x${ac_cv_sizeof_unsigned_long_long}" = "x8"; then
-  TARGET_PTR="unsigned long long"
-elif test "x${ac_cv_sizeof_unsigned___int128}" = "x16"; then
-  TARGET_PTR="unsigned __int128"
-else
-  TARGET_PTR="unsigned long"
-fi
-
-
-ac_config_files="$ac_config_files jit-reader.h:jit-reader.in"
-
-
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing dlopen" >&5
-$as_echo_n "checking for library containing dlopen... " >&6; }
-if test "${ac_cv_search_dlopen+set}" = set; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_func_search_save_LIBS=$LIBS
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+  { $as_echo "$as_me:${as_lineno-$LINENO}: checking for readline_echoing_p" >&5
+$as_echo_n "checking for readline_echoing_p... " >&6; }
+  save_LIBS=$LIBS
+  LIBS="$LIBS $READLINE"
+  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char dlopen ();
 int
 main ()
 {
-return dlopen ();
+extern int readline_echoing_p;
+				    return readline_echoing_p;
   ;
   return 0;
 }
 _ACEOF
-for ac_lib in '' dl; do
-  if test -z "$ac_lib"; then
-    ac_res="none required"
-  else
-    ac_res=-l$ac_lib
-    LIBS="-l$ac_lib  $ac_func_search_save_LIBS"
-  fi
-  if ac_fn_c_try_link "$LINENO"; then :
-  ac_cv_search_dlopen=$ac_res
+if ac_fn_c_try_link "$LINENO"; then :
+  READLINE_ECHOING_P=yes
+else
+  READLINE_ECHOING_P=no
+
+$as_echo "#define readline_echoing_p _rl_echoing_p" >>confdefs.h
+
 fi
 rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext
-  if test "${ac_cv_search_dlopen+set}" = set; then :
-  break
-fi
-done
-if test "${ac_cv_search_dlopen+set}" = set; then :
-
+    conftest$ac_exeext conftest.$ac_ext
+  LIBS="$save_LIBS"
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $READLINE_ECHOING_P" >&5
+$as_echo "$READLINE_ECHOING_P" >&6; }
 else
-  ac_cv_search_dlopen=no
+  READLINE='$(READLINE_DIR)/libreadline.a'
+  READLINE_DEPS='$(READLINE)'
+  READLINE_CFLAGS='-I$(READLINE_SRC)/..'
 fi
-rm conftest.$ac_ext
-LIBS=$ac_func_search_save_LIBS
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_search_dlopen" >&5
-$as_echo "$ac_cv_search_dlopen" >&6; }
-ac_res=$ac_cv_search_dlopen
-if test "$ac_res" != no; then :
-  test "$ac_res" = "none required" || LIBS="$ac_res $LIBS"
-
-fi
-
-
-
-
-# Check whether --with-jit-reader-dir was given.
-if test "${with_jit_reader_dir+set}" = set; then :
-  withval=$with_jit_reader_dir;
-    JIT_READER_DIR=$withval
-else
-  JIT_READER_DIR=${libdir}/gdb
-fi
-
-
-  test "x$prefix" = xNONE && prefix="$ac_default_prefix"
-  test "x$exec_prefix" = xNONE && exec_prefix='${prefix}'
-  ac_define_dir=`eval echo $JIT_READER_DIR`
-  ac_define_dir=`eval echo $ac_define_dir`
-
-cat >>confdefs.h <<_ACEOF
-#define JIT_READER_DIR "$ac_define_dir"
-_ACEOF
-
-
-
-
-  if test "x$exec_prefix" = xNONE || test "x$exec_prefix" = 'x${prefix}'; then
-     if test "x$prefix" = xNONE; then
-     	test_prefix=/usr/local
-     else
-	test_prefix=$prefix
-     fi
-  else
-     test_prefix=$exec_prefix
-  fi
-  value=0
-  case ${ac_define_dir} in
-     "${test_prefix}"|"${test_prefix}/"*|\
-	'${exec_prefix}'|'${exec_prefix}/'*)
-     value=1
-     ;;
-  esac
-
-cat >>confdefs.h <<_ACEOF
-#define JIT_READER_DIR_RELOCATABLE $value
-_ACEOF
 
 
 
@@ -10819,13 +10469,6 @@ else
       # Assume the python binary is ${with_python}/bin/python.
       python_prog="${with_python}/bin/python"
       python_prefix=
-      # If python does not exit ${with_python}/bin, then try in
-      # ${with_python}.  On Windows/MinGW, this is where the Python
-      # executable is.
-      if test ! -x "${python_prog}"; then
-        python_prog="${with_python}/python"
-        python_prefix=
-      fi
       if test ! -x "${python_prog}"; then
         # Fall back to gdb 7.0/7.1 behaviour.
         python_prog=missing
@@ -10983,15 +10626,25 @@ fi
       fi
     fi
   else
-    # We do not have a python executable we can use to determine where
-    # to find the Python headers and libs.  We cannot guess the include
-    # path from the python_prefix either, because that include path
-    # depends on the Python version.  So, there is nothing much we can
-    # do except assume that the compiler will be able to find those files.
-    python_includes=
-    python_libs=
+    # Fall back to gdb 7.0/7.1 behaviour.
+    if test -z ${python_prefix}; then
+      python_includes=
+      python_libs=
+    else
+      python_includes="-I${python_prefix}/include"
+      python_libs="-L${python_prefix}/lib"
+    fi
     have_python_config=no
   fi
+
+  # Having "/pythonX.Y" in the include path is awkward.
+  # All those python headers get bubbled up to the top inviting lots
+  # of random collisions.  GDB originally didn't use python-config to
+  # find the compilation parameters and includes "pythonX.Y/" in the
+  # path of the, umm, include file.  So strip away this part of the
+  # output of python-config --includes.
+  python_includes=`echo "${python_includes} " \
+                        | sed -e 's,/python[0-9]*[.][0-9]* , ,g'`
 
   # If we have python-config, only try the configuration it provides.
   # Otherwise fallback on the old way of trying different versions of
@@ -10999,23 +10652,8 @@ fi
 
   have_libpython=no
   if test "${have_python_config}" = yes; then
-    # Determine the Python version by extracting "-lpython<version>"
-    # part of the python_libs. <version> is usually X.Y with X and Y
-    # being decimal numbers, but can also be XY (seen on Windows).
-    #
-    # The extraction is performed using sed with a regular expression.
-    # Initially, the regexp used was using the '?' quantifier to make
-    # the dot in the version number optional.  Unfortunately, this
-    # does not work with non-GNU versions of sed because, because of
-    # what looks like a limitation (the '?' quantifier does not work
-    # with back-references).  We work around this limitation by using
-    # the '*' quantifier instead.  It means that, in theory, we might
-    # match unexpected version strings such as "-lpython2..7", but
-    # this seems unlikely in practice.  And even if that happens,
-    # an error will be triggered later on, when checking that version
-    # number.
     python_version=`echo " ${python_libs} " \
-                         | sed -e 's,^.* -l\(python[0-9]*[.]*[0-9]*\).*$,\1,'`
+                         | sed -e 's,^.* -l\(python[0-9]*[.][0-9]*\) .*$,\1,'`
     case "${python_version}" in
     python*)
 
@@ -11032,7 +10670,7 @@ $as_echo_n "checking for ${version}... " >&6; }
   found_usable_python=no
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
-#include "Python.h"
+#include "${version}/Python.h"
 int
 main ()
 {
@@ -11044,13 +10682,12 @@ _ACEOF
 if ac_fn_c_try_link "$LINENO"; then :
   have_libpython=${version}
                   found_usable_python=yes
-                  PYTHON_CPPFLAGS=$new_CPPFLAGS
-                  PYTHON_LIBS=$new_LIBS
+else
+  CPPFLAGS=$save_CPPFLAGS
+                  LIBS=$save_LIBS
 fi
 rm -f core conftest.err conftest.$ac_objext \
     conftest$ac_exeext conftest.$ac_ext
-  CPPFLAGS=$save_CPPFLAGS
-  LIBS=$save_LIBS
   { $as_echo "$as_me:${as_lineno-$LINENO}: result: ${found_usable_python}" >&5
 $as_echo "${found_usable_python}" >&6; }
 
@@ -11060,44 +10697,6 @@ $as_echo "${found_usable_python}" >&6; }
       ;;
     esac
   elif test "${have_python_config}" != failed; then
-    if test "${have_libpython}" = no; then
-
-  version=python2.7
-
-  new_CPPFLAGS=${python_includes}
-  new_LIBS="${python_libs} -lpython2.7"
-  { $as_echo "$as_me:${as_lineno-$LINENO}: checking for ${version}" >&5
-$as_echo_n "checking for ${version}... " >&6; }
-  save_CPPFLAGS=$CPPFLAGS
-  save_LIBS=$LIBS
-  CPPFLAGS="$CPPFLAGS $new_CPPFLAGS"
-  LIBS="$LIBS $new_LIBS"
-  found_usable_python=no
-  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-#include "Python.h"
-int
-main ()
-{
-Py_Initialize ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"; then :
-  have_libpython=${version}
-                  found_usable_python=yes
-                  PYTHON_CPPFLAGS=$new_CPPFLAGS
-                  PYTHON_LIBS=$new_LIBS
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext conftest.$ac_ext
-  CPPFLAGS=$save_CPPFLAGS
-  LIBS=$save_LIBS
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: ${found_usable_python}" >&5
-$as_echo "${found_usable_python}" >&6; }
-
-    fi
     if test "${have_libpython}" = no; then
 
   version=python2.6
@@ -11113,7 +10712,7 @@ $as_echo_n "checking for ${version}... " >&6; }
   found_usable_python=no
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
-#include "Python.h"
+#include "${version}/Python.h"
 int
 main ()
 {
@@ -11125,13 +10724,12 @@ _ACEOF
 if ac_fn_c_try_link "$LINENO"; then :
   have_libpython=${version}
                   found_usable_python=yes
-                  PYTHON_CPPFLAGS=$new_CPPFLAGS
-                  PYTHON_LIBS=$new_LIBS
+else
+  CPPFLAGS=$save_CPPFLAGS
+                  LIBS=$save_LIBS
 fi
 rm -f core conftest.err conftest.$ac_objext \
     conftest$ac_exeext conftest.$ac_ext
-  CPPFLAGS=$save_CPPFLAGS
-  LIBS=$save_LIBS
   { $as_echo "$as_me:${as_lineno-$LINENO}: result: ${found_usable_python}" >&5
 $as_echo "${found_usable_python}" >&6; }
 
@@ -11151,7 +10749,7 @@ $as_echo_n "checking for ${version}... " >&6; }
   found_usable_python=no
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
-#include "Python.h"
+#include "${version}/Python.h"
 int
 main ()
 {
@@ -11163,13 +10761,12 @@ _ACEOF
 if ac_fn_c_try_link "$LINENO"; then :
   have_libpython=${version}
                   found_usable_python=yes
-                  PYTHON_CPPFLAGS=$new_CPPFLAGS
-                  PYTHON_LIBS=$new_LIBS
+else
+  CPPFLAGS=$save_CPPFLAGS
+                  LIBS=$save_LIBS
 fi
 rm -f core conftest.err conftest.$ac_objext \
     conftest$ac_exeext conftest.$ac_ext
-  CPPFLAGS=$save_CPPFLAGS
-  LIBS=$save_LIBS
   { $as_echo "$as_me:${as_lineno-$LINENO}: result: ${found_usable_python}" >&5
 $as_echo "${found_usable_python}" >&6; }
 
@@ -11189,7 +10786,7 @@ $as_echo_n "checking for ${version}... " >&6; }
   found_usable_python=no
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
-#include "Python.h"
+#include "${version}/Python.h"
 int
 main ()
 {
@@ -11201,31 +10798,30 @@ _ACEOF
 if ac_fn_c_try_link "$LINENO"; then :
   have_libpython=${version}
                   found_usable_python=yes
-                  PYTHON_CPPFLAGS=$new_CPPFLAGS
-                  PYTHON_LIBS=$new_LIBS
+else
+  CPPFLAGS=$save_CPPFLAGS
+                  LIBS=$save_LIBS
 fi
 rm -f core conftest.err conftest.$ac_objext \
     conftest$ac_exeext conftest.$ac_ext
-  CPPFLAGS=$save_CPPFLAGS
-  LIBS=$save_LIBS
   { $as_echo "$as_me:${as_lineno-$LINENO}: result: ${found_usable_python}" >&5
 $as_echo "${found_usable_python}" >&6; }
 
     fi
   fi
-  if test "${have_libpython}" = python2.7 -o "${have_libpython}" = python27; then
+  if test "${have_libpython}" = python2.7; then
 
 $as_echo "#define HAVE_LIBPYTHON2_7 1" >>confdefs.h
 
-  elif test "${have_libpython}" = python2.6 -o "${have_libpython}" = python26; then
+  elif test "${have_libpython}" = python2.6; then
 
 $as_echo "#define HAVE_LIBPYTHON2_6 1" >>confdefs.h
 
-  elif test "${have_libpython}" = python2.5 -o "${have_libpython}" = python25; then
+  elif test "${have_libpython}" = python2.5; then
 
 $as_echo "#define HAVE_LIBPYTHON2_5 1" >>confdefs.h
 
-  elif test "${have_libpython}" = python2.4 -o "${have_libpython}" = python24; then
+  elif test "${have_libpython}" = python2.4; then
 
 $as_echo "#define HAVE_LIBPYTHON2_4 1" >>confdefs.h
 
@@ -11285,7 +10881,6 @@ $as_echo "#define HAVE_PYTHON 1" >>confdefs.h
   CONFIG_OBS="$CONFIG_OBS \$(SUBDIR_PYTHON_OBS)"
   CONFIG_DEPS="$CONFIG_DEPS \$(SUBDIR_PYTHON_DEPS)"
   CONFIG_SRCS="$CONFIG_SRCS \$(SUBDIR_PYTHON_SRCS)"
-  CONFIG_INSTALL="$CONFIG_INSTALL install-python"
   ENABLE_CFLAGS="$ENABLE_CFLAGS \$(SUBDIR_PYTHON_CFLAGS)"
 
   # Flags needed to compile Python code (taken from python-config --cflags).
@@ -11324,21 +10919,6 @@ rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
     { $as_echo "$as_me:${as_lineno-$LINENO}: result: ${PYTHON_CFLAGS}" >&5
 $as_echo "${PYTHON_CFLAGS}" >&6; }
   fi
-
-  # On IRIX, type siginfo is not defined.  Instead, sys/siginfo.h provides:
-  #    #if _SGIAPI
-  #    #define siginfo __siginfo
-  #    #endif
-  # The problem is that including Python causes some XOPEN macros to be
-  # unilaterally defined, and that in turn causes _SGIAPI to evaluate
-  # to false.  So, we work around this issue by defining siginfo ourself
-  # though the command-line.
-  case "$gdb_host" in
-    irix*) if test "${GCC}" = yes; then
-             CPPFLAGS="$CPPFLAGS -Dsiginfo=__siginfo"
-           fi
-           ;;
-  esac
 else
   # Even if Python support is not compiled in, we need to have these files
   # included.
@@ -11346,8 +10926,6 @@ else
   CONFIG_SRCS="$CONFIG_SRCS python/python.c python/py-value.c \
 	python/py-prettyprint.c python/py-auto-load.c"
 fi
-
-
 
 
 # ------------------------- #
@@ -11677,8 +11255,7 @@ for ac_header in nlist.h machine/reg.h poll.h sys/poll.h proc_service.h \
 		  sys/resource.h sys/procfs.h sys/ptrace.h ptrace.h \
 		  sys/reg.h sys/debugreg.h sys/select.h sys/syscall.h \
 		  sys/types.h sys/wait.h wait.h termios.h termio.h \
-		  sgtty.h unistd.h elf_hp.h ctype.h time.h locale.h \
-		  dlfcn.h
+		  sgtty.h unistd.h elf_hp.h ctype.h time.h locale.h
 do :
   as_ac_Header=`$as_echo "ac_cv_header_$ac_header" | $as_tr_sh`
 ac_fn_c_check_header_mongrel "$LINENO" "$ac_header" "$as_ac_Header" "$ac_includes_default"
@@ -12931,12 +12508,11 @@ $as_echo "#define HAVE_WORKING_FORK 1" >>confdefs.h
 
 fi
 
-for ac_func in canonicalize_file_name realpath getrusage getuid getgid \
-		pipe poll pread pread64 pwrite readlink resize_term \
-		sbrk setpgid setpgrp setsid \
+for ac_func in canonicalize_file_name realpath getrusage getuid \
+		getgid pipe poll pread64 sbrk setpgid setpgrp setsid \
 		sigaction sigprocmask sigsetmask socketpair syscall \
-		ttrace wborder wresize setlocale iconvlist libiconvlist btowc \
-		setrlimit getrlimit posix_madvise waitpid lstat
+		ttrace wborder setlocale iconvlist libiconvlist btowc \
+		setrlimit getrlimit posix_madvise
 do :
   as_ac_var=`$as_echo "ac_cv_func_$ac_func" | $as_tr_sh`
 ac_fn_c_check_func "$LINENO" "$ac_func" "$as_ac_var"
@@ -14692,6 +14268,27 @@ $as_echo "$found" >&6; }
 
 if test ${build} = ${host} -a ${host} = ${target} ; then
    case ${host_os} in
+   hpux*)
+      { $as_echo "$as_me:${as_lineno-$LINENO}: checking for HPUX/OSF thread support" >&5
+$as_echo_n "checking for HPUX/OSF thread support... " >&6; }
+      if test -f /usr/include/dce/cma_config.h ; then
+         if test "$GCC" = "yes" ; then
+            { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+$as_echo "yes" >&6; }
+
+$as_echo "#define HAVE_HPUX_THREAD_SUPPORT 1" >>confdefs.h
+
+            CONFIG_OBS="${CONFIG_OBS} hpux-thread.o"
+            CONFIG_SRCS="${CONFIG_SRCS} hpux-thread.c"
+         else
+            { $as_echo "$as_me:${as_lineno-$LINENO}: result: no (suppressed because you are not using GCC)" >&5
+$as_echo "no (suppressed because you are not using GCC)" >&6; }
+         fi
+      else
+         { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+      fi
+      ;;
    solaris*)
       # See if thread_db library is around for Solaris thread debugging.
       # Note that we must explicitly test for version 1 of the library
@@ -14830,22 +14427,6 @@ $as_echo "$gdb_cv_have_aix_thread_debug" >&6; }
          CONFIG_SRCS="${CONFIG_SRCS} aix-thread.c"
          CONFIG_OBS="${CONFIG_OBS} aix-thread.o"
          CONFIG_LDFLAGS="${CONFIG_LDFLAGS} -lpthdebug"
-
-         # Older versions of AIX do not provide the declaration for
-         # the getthrds function (it appears that it was introduced
-         # with AIX 6.x).
-         ac_fn_c_check_decl "$LINENO" "getthrds" "ac_cv_have_decl_getthrds" "#include <procinfo.h>
-"
-if test "x$ac_cv_have_decl_getthrds" = x""yes; then :
-  ac_have_decl=1
-else
-  ac_have_decl=0
-fi
-
-cat >>confdefs.h <<_ACEOF
-#define HAVE_DECL_GETTHRDS $ac_have_decl
-_ACEOF
-
       fi
       ;;
    esac
@@ -15061,53 +14642,45 @@ $as_echo "#define HAVE_PERSONALITY 1" >>confdefs.h
 fi
 
 
-# Support for --with-sysroot is a copy of GDB_AC_WITH_DIR,
-# except that the argument to --with-sysroot is optional.
-# --with-sysroot (or --with-sysroot=yes) sets the default sysroot path.
-if test "x$with_sysroot" = xyes; then
-  with_sysroot="${exec_prefix}/${target_alias}/sys-root"
-fi
+target_sysroot_reloc=0
 
 # Check whether --with-sysroot was given.
 if test "${with_sysroot+set}" = set; then :
-  withval=$with_sysroot; TARGET_SYSTEM_ROOT=$withval
+  withval=$with_sysroot;
+ case ${with_sysroot} in
+ yes) TARGET_SYSTEM_ROOT='${exec_prefix}/${target_alias}/sys-root' ;;
+ *) TARGET_SYSTEM_ROOT=$with_sysroot ;;
+ esac
+
+ TARGET_SYSTEM_ROOT_DEFINE='-DTARGET_SYSTEM_ROOT=\"$(TARGET_SYSTEM_ROOT)\"'
+
+ if test "x$prefix" = xNONE; then
+  test_prefix=/usr/local
+ else
+  test_prefix=$prefix
+ fi
+ if test "x$exec_prefix" = xNONE || test "x$exec_prefix" = 'x${prefix}'; then
+  test_exec_prefix=$test_prefix
+ else
+  test_exec_prefix=$exec_prefix
+ fi
+ case ${TARGET_SYSTEM_ROOT} in
+ "${test_prefix}"|"${test_prefix}/"*|\
+ "${test_exec_prefix}"|"${test_exec_prefix}/"*|\
+ '${prefix}'|'${prefix}/'*|\
+ '${exec_prefix}'|'${exec_prefix}/'*)
+   target_sysroot_reloc=1
+   ;;
+ esac
+
 else
-  TARGET_SYSTEM_ROOT=
+
+ TARGET_SYSTEM_ROOT=
+ TARGET_SYSTEM_ROOT_DEFINE='-DTARGET_SYSTEM_ROOT=\"\"'
+
 fi
 
-
-  test "x$prefix" = xNONE && prefix="$ac_default_prefix"
-  test "x$exec_prefix" = xNONE && exec_prefix='${prefix}'
-  ac_define_dir=`eval echo $TARGET_SYSTEM_ROOT`
-  ac_define_dir=`eval echo $ac_define_dir`
-
-cat >>confdefs.h <<_ACEOF
-#define TARGET_SYSTEM_ROOT "$ac_define_dir"
-_ACEOF
-
-
-
-
-  if test "x$exec_prefix" = xNONE || test "x$exec_prefix" = 'x${prefix}'; then
-     if test "x$prefix" = xNONE; then
-     	test_prefix=/usr/local
-     else
-	test_prefix=$prefix
-     fi
-  else
-     test_prefix=$exec_prefix
-  fi
-  value=0
-  case ${ac_define_dir} in
-     "${test_prefix}"|"${test_prefix}/"*|\
-	'${exec_prefix}'|'${exec_prefix}/'*)
-     value=1
-     ;;
-  esac
-
-cat >>confdefs.h <<_ACEOF
-#define TARGET_SYSTEM_ROOT_RELOCATABLE $value
-_ACEOF
+TARGET_SYSTEM_ROOT_DEFINE="$TARGET_SYSTEM_ROOT_DEFINE -DTARGET_SYSTEM_ROOT_RELOCATABLE=$target_sysroot_reloc"
 
 
 
@@ -15167,11 +14740,6 @@ if test "${enable_werror+set}" = set; then :
    esac
 fi
 
-
-# Enable -Werror by default when using gcc
-if test "${GCC}" = yes -a -z "${ERROR_ON_WARNING}" ; then
-    ERROR_ON_WARNING=yes
-fi
 
 WERROR_CFLAGS=""
 if test "${ERROR_ON_WARNING}" = yes ; then
@@ -15323,10 +14891,6 @@ OLD_LIBS=$LIBS
 CFLAGS="$CFLAGS -I${srcdir}/../include -I../bfd -I${srcdir}/../bfd"
 LDFLAGS="$LDFLAGS -L../bfd -L../libiberty"
 intl=`echo $LIBINTL | sed 's,${top_builddir}/,,g'`
-# -ldl is provided by bfd/Makfile.am (LIBDL) <PLUGINS>.
-if test "$plugins" = "yes"; then
-  LIBS="-ldl $LIBS"
-fi
 LIBS="-lbfd -liberty $intl $LIBS"
 { $as_echo "$as_me:${as_lineno-$LINENO}: checking for ELF support in BFD" >&5
 $as_echo_n "checking for ELF support in BFD... " >&6; }
@@ -15362,10 +14926,6 @@ if test $gdb_cv_var_elf = yes; then
 
 $as_echo "#define HAVE_ELF 1" >>confdefs.h
 
-  # -ldl is provided by bfd/Makfile.am (LIBDL) <PLUGINS>.
-  if test "$plugins" = "yes"; then
-    OLD_LIBS="-ldl $OLD_LIBS"
-  fi
 fi
 CFLAGS=$OLD_CFLAGS
 LDFLAGS=$OLD_LDFLAGS
@@ -16213,20 +15773,8 @@ if test "x$enable_multi_ice" = xyes; then
 
 fi
 
-# Check whether --enable-gdbserver was given.
-if test "${enable_gdbserver+set}" = set; then :
-  enableval=$enable_gdbserver; case "${enableval}" in
-  yes| no|auto) ;;
-  *) as_fn_error "bad value ${enableval} for --enable-gdbserver option" "$LINENO" 5 ;;
-esac
-else
-  enable_gdbserver=auto
-fi
-
-
-# We only build gdbserver automatically in a native configuration, and
-# only if the user did not explicitly disable its build.
-if test "$gdb_native" = "yes" -a "$enable_gdbserver" != "no"; then
+# We only build gdbserver automatically in a native configuration.
+if test "$gdb_native" = "yes"; then
   { $as_echo "$as_me:${as_lineno-$LINENO}: checking whether gdbserver is supported on this host" >&5
 $as_echo_n "checking whether gdbserver is supported on this host... " >&6; }
   if test "x$build_gdbserver" = xyes; then
@@ -16234,17 +15782,10 @@ $as_echo_n "checking whether gdbserver is supported on this host... " >&6; }
 $as_echo "yes" >&6; }
     subdirs="$subdirs gdbserver"
 
-    gdbserver_build_enabled=yes
   else
     { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
 $as_echo "no" >&6; }
   fi
-fi
-
-# If the user explicitly request the gdbserver to be built, verify that
-# we were in fact able to enable it.
-if test "$enable_gdbserver" = "yes" -a "$gdbserver_build_enabled" != "yes"; then
-  as_fn_error "Automatic gdbserver build is not supported for this configuration" "$LINENO" 5
 fi
 
 # If nativefile (NAT_FILE) is not set in config/*/*.m[ht] files, we link
@@ -16285,7 +15826,7 @@ ac_config_links="$ac_config_links $ac_config_links_1"
 $as_echo "#define GDB_DEFAULT_HOST_CHARSET \"UTF-8\"" >>confdefs.h
 
 
-ac_config_files="$ac_config_files Makefile .gdbinit:gdbinit.in doc/Makefile gnulib/Makefile data-directory/Makefile"
+ac_config_files="$ac_config_files Makefile .gdbinit:gdbinit.in gnulib/Makefile"
 
 ac_config_commands="$ac_config_commands default"
 
@@ -17048,13 +16589,10 @@ do
     "config.h") CONFIG_HEADERS="$CONFIG_HEADERS config.h:config.in" ;;
     "depdir") CONFIG_COMMANDS="$CONFIG_COMMANDS depdir" ;;
     "depfiles") CONFIG_COMMANDS="$CONFIG_COMMANDS depfiles" ;;
-    "jit-reader.h") CONFIG_FILES="$CONFIG_FILES jit-reader.h:jit-reader.in" ;;
     "$ac_config_links_1") CONFIG_LINKS="$CONFIG_LINKS $ac_config_links_1" ;;
     "Makefile") CONFIG_FILES="$CONFIG_FILES Makefile" ;;
     ".gdbinit") CONFIG_FILES="$CONFIG_FILES .gdbinit:gdbinit.in" ;;
-    "doc/Makefile") CONFIG_FILES="$CONFIG_FILES doc/Makefile" ;;
     "gnulib/Makefile") CONFIG_FILES="$CONFIG_FILES gnulib/Makefile" ;;
-    "data-directory/Makefile") CONFIG_FILES="$CONFIG_FILES data-directory/Makefile" ;;
     "default") CONFIG_COMMANDS="$CONFIG_COMMANDS default" ;;
 
   *) as_fn_error "invalid argument: \`$ac_config_target'" "$LINENO" 5;;
