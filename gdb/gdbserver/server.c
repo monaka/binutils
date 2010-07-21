@@ -1,6 +1,6 @@
 /* Main code for remote server for GDB.
-   Copyright (C) 1989, 1993-1995, 1997-2000, 2002-2012 Free Software
-   Foundation, Inc.
+   Copyright (C) 1989, 1993, 1994, 1995, 1997, 1998, 1999, 2000, 2002, 2003,
+   2004, 2005, 2006, 2007, 2008, 2009, 2010 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -28,9 +28,13 @@
 #if HAVE_SYS_WAIT_H
 #include <sys/wait.h>
 #endif
+#if HAVE_MALLOC_H
+#include <malloc.h>
+#endif
 
 ptid_t cont_thread;
 ptid_t general_thread;
+ptid_t step_thread;
 
 int server_waiting;
 
@@ -38,15 +42,8 @@ static int extended_protocol;
 static int response_needed;
 static int exit_requested;
 
-/* --once: Exit after the first connection has closed.  */
-int run_once;
-
 int multi_process;
 int non_stop;
-
-/* Whether we should attempt to disable the operating system's address
-   space randomization feature before starting an inferior.  */
-int disable_randomization = 1;
 
 static char **program_argv, **wrapper_argv;
 
@@ -126,7 +123,7 @@ queue_stop_reply (ptid_t ptid, struct target_waitstatus *status)
 {
   struct vstop_notif *new_notif;
 
-  new_notif = xmalloc (sizeof (*new_notif));
+  new_notif = malloc (sizeof (*new_notif));
   new_notif->next = NULL;
   new_notif->ptid = ptid;
   new_notif->status = *status;
@@ -161,8 +158,6 @@ queue_stop_reply (ptid_t ptid, struct target_waitstatus *status)
 void
 push_event (ptid_t ptid, struct target_waitstatus *status)
 {
-  gdb_assert (status->kind != TARGET_WAITKIND_IGNORE);
-
   queue_stop_reply (ptid, status);
 
   /* If this is the first stop reply in the queue, then inform GDB
@@ -279,12 +274,13 @@ start_inferior (char **argv)
   if (wrapper_argv != NULL)
     {
       struct thread_resume resume_info;
+      ptid_t ptid;
 
       resume_info.thread = pid_to_ptid (signal_pid);
       resume_info.kind = resume_continue;
       resume_info.sig = 0;
 
-      last_ptid = mywait (pid_to_ptid (signal_pid), &last_status, 0, 0);
+      ptid = mywait (pid_to_ptid (signal_pid), &last_status, 0, 0);
 
       if (last_status.kind != TARGET_WAITKIND_STOPPED)
 	return signal_pid;
@@ -293,30 +289,18 @@ start_inferior (char **argv)
 	{
 	  (*the_target->resume) (&resume_info, 1);
 
- 	  last_ptid = mywait (pid_to_ptid (signal_pid), &last_status, 0, 0);
+ 	  mywait (pid_to_ptid (signal_pid), &last_status, 0, 0);
 	  if (last_status.kind != TARGET_WAITKIND_STOPPED)
 	    return signal_pid;
-
-	  current_inferior->last_resume_kind = resume_stop;
-	  current_inferior->last_status = last_status;
 	}
       while (last_status.value.sig != TARGET_SIGNAL_TRAP);
 
-      current_inferior->last_resume_kind = resume_stop;
-      current_inferior->last_status = last_status;
       return signal_pid;
     }
 
   /* Wait till we are at 1st instruction in program, return new pid
      (assuming success).  */
   last_ptid = mywait (pid_to_ptid (signal_pid), &last_status, 0, 0);
-
-  if (last_status.kind != TARGET_WAITKIND_EXITED
-      && last_status.kind != TARGET_WAITKIND_SIGNALLED)
-    {
-      current_inferior->last_resume_kind = resume_stop;
-      current_inferior->last_status = last_status;
-    }
 
   return signal_pid;
 }
@@ -338,10 +322,6 @@ attach_inferior (int pid)
      whichever we were told to attach to.  */
   signal_pid = pid;
 
-  /* Clear this so the backend doesn't get confused, thinking
-     CONT_THREAD died, and it needs to resume all threads.  */
-  cont_thread = null_ptid;
-
   if (!non_stop)
     {
       last_ptid = mywait (pid_to_ptid (pid), &last_status, 0, 0);
@@ -352,9 +332,6 @@ attach_inferior (int pid)
       if (last_status.kind == TARGET_WAITKIND_STOPPED
 	  && last_status.value.sig == TARGET_SIGNAL_STOP)
 	last_status.value.sig = TARGET_SIGNAL_TRAP;
-
-      current_inferior->last_resume_kind = resume_stop;
-      current_inferior->last_status = last_status;
     }
 
   return 0;
@@ -366,34 +343,8 @@ extern int remote_debug;
    or -1 otherwise.  */
 
 static int
-decode_xfer_read (char *buf, CORE_ADDR *ofs, unsigned int *len)
+decode_xfer_read (char *buf, char **annex, CORE_ADDR *ofs, unsigned int *len)
 {
-  /* After the read marker and annex, qXfer looks like a
-     traditional 'm' packet.  */
-  decode_m_packet (buf, ofs, len);
-
-  return 0;
-}
-
-static int
-decode_xfer (char *buf, char **object, char **rw, char **annex, char **offset)
-{
-  /* Extract and NUL-terminate the object.  */
-  *object = buf;
-  while (*buf && *buf != ':')
-    buf++;
-  if (*buf == '\0')
-    return -1;
-  *buf++ = 0;
-
-  /* Extract and NUL-terminate the read/write action.  */
-  *rw = buf;
-  while (*buf && *buf != ':')
-    buf++;
-  if (*buf == '\0')
-    return -1;
-  *buf++ = 0;
-
   /* Extract and NUL-terminate the annex.  */
   *annex = buf;
   while (*buf && *buf != ':')
@@ -402,7 +353,10 @@ decode_xfer (char *buf, char **object, char **rw, char **annex, char **offset)
     return -1;
   *buf++ = 0;
 
-  *offset = buf;
+  /* After the read marker and annex, qXfer looks like a
+     traditional 'm' packet.  */
+  decode_m_packet (buf, ofs, len);
+
   return 0;
 }
 
@@ -504,27 +458,6 @@ handle_general_set (char *own_buf)
       return;
     }
 
-  if (strncmp ("QDisableRandomization:", own_buf,
-	       strlen ("QDisableRandomization:")) == 0)
-    {
-      char *packet = own_buf + strlen ("QDisableRandomization:");
-      ULONGEST setting;
-
-      unpack_varlen_hex (packet, &setting);
-      disable_randomization = setting;
-
-      if (remote_debug)
-	{
-	  if (disable_randomization)
-	    fprintf (stderr, "[address space randomization disabled]\n");
-	  else
-	    fprintf (stderr, "[address space randomization enabled]\n");
-	}
-
-      write_ok (own_buf);
-      return;
-    }
-
   if (target_supports_tracepoints ()
       && handle_tracepoint_general_set (own_buf))
     return;
@@ -586,21 +519,11 @@ monitor_show_help (void)
   monitor_output ("    Quit GDBserver\n");
 }
 
-/* Read trace frame or inferior memory.  Returns the number of bytes
-   actually read, zero when no further transfer is possible, and -1 on
-   error.  Return of a positive value smaller than LEN does not
-   indicate there's no more to be read, only the end of the transfer.
-   E.g., when GDB reads memory from a traceframe, a first request may
-   be served from a memory block that does not cover the whole request
-   length.  A following request gets the rest served from either
-   another block (of the same traceframe) or from the read-only
-   regions.  */
+/* Read trace frame or inferior memory.  */
 
 static int
-gdb_read_memory (CORE_ADDR memaddr, unsigned char *myaddr, int len)
+read_memory (CORE_ADDR memaddr, unsigned char *myaddr, int len)
 {
-  int res;
-
   if (current_traceframe >= 0)
     {
       ULONGEST nbytes;
@@ -610,46 +533,27 @@ gdb_read_memory (CORE_ADDR memaddr, unsigned char *myaddr, int len)
 			       memaddr, myaddr, len, &nbytes))
 	return EIO;
       /* Data read from trace buffer, we're done.  */
-      if (nbytes > 0)
-	return nbytes;
+      if (nbytes == length)
+	return 0;
       if (!in_readonly_region (memaddr, length))
-	return -1;
+	return EIO;
       /* Otherwise we have a valid readonly case, fall through.  */
       /* (assume no half-trace half-real blocks for now) */
     }
 
-  res = prepare_to_access_memory ();
-  if (res == 0)
-    {
-      res = read_inferior_memory (memaddr, myaddr, len);
-      done_accessing_memory ();
-
-      return res == 0 ? len : -1;
-    }
-  else
-    return -1;
+  return read_inferior_memory (memaddr, myaddr, len);
 }
 
 /* Write trace frame or inferior memory.  Actually, writing to trace
    frames is forbidden.  */
 
 static int
-gdb_write_memory (CORE_ADDR memaddr, const unsigned char *myaddr, int len)
+write_memory (CORE_ADDR memaddr, const unsigned char *myaddr, int len)
 {
   if (current_traceframe >= 0)
     return EIO;
   else
-    {
-      int ret;
-
-      ret = prepare_to_access_memory ();
-      if (ret == 0)
-	{
-	  ret = write_inferior_memory (memaddr, myaddr, len);
-	  done_accessing_memory ();
-	}
-      return ret;
-    }
+    return write_inferior_memory (memaddr, myaddr, len);
 }
 
 /* Subroutine of handle_search_memory to simplify it.  */
@@ -663,8 +567,7 @@ handle_search_memory_1 (CORE_ADDR start_addr, CORE_ADDR search_space_len,
 {
   /* Prime the search buffer.  */
 
-  if (gdb_read_memory (start_addr, search_buf, search_buf_size)
-      != search_buf_size)
+  if (read_memory (start_addr, search_buf, search_buf_size) != 0)
     {
       warning ("Unable to access target memory at 0x%lx, halting search.",
 	       (long) start_addr);
@@ -715,11 +618,10 @@ handle_search_memory_1 (CORE_ADDR start_addr, CORE_ADDR search_space_len,
 			? search_space_len - keep_len
 			: chunk_size);
 
-	  if (gdb_read_memory (read_addr, search_buf + keep_len,
-			       nr_to_read) != search_buf_size)
+	  if (read_memory (read_addr, search_buf + keep_len,
+				    nr_to_read) != 0)
 	    {
-	      warning ("Unable to access target memory "
-		       "at 0x%lx, halting search.",
+	      warning ("Unable to access target memory at 0x%lx, halting search.",
 		       (long) read_addr);
 	      return -1;
 	    }
@@ -855,237 +757,8 @@ handle_monitor_command (char *mon)
     }
 }
 
-/* Associates a callback with each supported qXfer'able object.  */
-
-struct qxfer
-{
-  /* The object this handler handles.  */
-  const char *object;
-
-  /* Request that the target transfer up to LEN 8-bit bytes of the
-     target's OBJECT.  The OFFSET, for a seekable object, specifies
-     the starting point.  The ANNEX can be used to provide additional
-     data-specific information to the target.
-
-     Return the number of bytes actually transfered, zero when no
-     further transfer is possible, -1 on error, and -2 when the
-     transfer is not supported.  Return of a positive value smaller
-     than LEN does not indicate the end of the object, only the end of
-     the transfer.
-
-     One, and only one, of readbuf or writebuf must be non-NULL.  */
-  int (*xfer) (const char *annex,
-	       gdb_byte *readbuf, const gdb_byte *writebuf,
-	       ULONGEST offset, LONGEST len);
-};
-
-/* Handle qXfer:auxv:read.  */
-
-static int
-handle_qxfer_auxv (const char *annex,
-		   gdb_byte *readbuf, const gdb_byte *writebuf,
-		   ULONGEST offset, LONGEST len)
-{
-  if (the_target->read_auxv == NULL || writebuf != NULL)
-    return -2;
-
-  if (annex[0] != '\0' || !target_running ())
-    return -1;
-
-  return (*the_target->read_auxv) (offset, readbuf, len);
-}
-
-/* Handle qXfer:features:read.  */
-
-static int
-handle_qxfer_features (const char *annex,
-		       gdb_byte *readbuf, const gdb_byte *writebuf,
-		       ULONGEST offset, LONGEST len)
-{
-  const char *document;
-  size_t total_len;
-
-  if (writebuf != NULL)
-    return -2;
-
-  if (!target_running ())
-    return -1;
-
-  /* Grab the correct annex.  */
-  document = get_features_xml (annex);
-  if (document == NULL)
-    return -1;
-
-  total_len = strlen (document);
-
-  if (offset > total_len)
-    return -1;
-
-  if (offset + len > total_len)
-    len = total_len - offset;
-
-  memcpy (readbuf, document + offset, len);
-  return len;
-}
-
-/* Handle qXfer:libraries:read.  */
-
-static int
-handle_qxfer_libraries (const char *annex,
-			gdb_byte *readbuf, const gdb_byte *writebuf,
-			ULONGEST offset, LONGEST len)
-{
-  unsigned int total_len;
-  char *document, *p;
-  struct inferior_list_entry *dll_ptr;
-
-  if (writebuf != NULL)
-    return -2;
-
-  if (annex[0] != '\0' || !target_running ())
-    return -1;
-
-  /* Do not confuse this packet with qXfer:libraries-svr4:read.  */
-  if (the_target->qxfer_libraries_svr4 != NULL)
-    return 0;
-
-  /* Over-estimate the necessary memory.  Assume that every character
-     in the library name must be escaped.  */
-  total_len = 64;
-  for (dll_ptr = all_dlls.head; dll_ptr != NULL; dll_ptr = dll_ptr->next)
-    total_len += 128 + 6 * strlen (((struct dll_info *) dll_ptr)->name);
-
-  document = malloc (total_len);
-  if (document == NULL)
-    return -1;
-
-  strcpy (document, "<library-list>\n");
-  p = document + strlen (document);
-
-  for (dll_ptr = all_dlls.head; dll_ptr != NULL; dll_ptr = dll_ptr->next)
-    {
-      struct dll_info *dll = (struct dll_info *) dll_ptr;
-      char *name;
-
-      strcpy (p, "  <library name=\"");
-      p = p + strlen (p);
-      name = xml_escape_text (dll->name);
-      strcpy (p, name);
-      free (name);
-      p = p + strlen (p);
-      strcpy (p, "\"><segment address=\"");
-      p = p + strlen (p);
-      sprintf (p, "0x%lx", (long) dll->base_addr);
-      p = p + strlen (p);
-      strcpy (p, "\"/></library>\n");
-      p = p + strlen (p);
-    }
-
-  strcpy (p, "</library-list>\n");
-
-  total_len = strlen (document);
-
-  if (offset > total_len)
-    {
-      free (document);
-      return -1;
-    }
-
-  if (offset + len > total_len)
-    len = total_len - offset;
-
-  memcpy (readbuf, document + offset, len);
-  free (document);
-  return len;
-}
-
-/* Handle qXfer:libraries-svr4:read.  */
-
-static int
-handle_qxfer_libraries_svr4 (const char *annex,
-			     gdb_byte *readbuf, const gdb_byte *writebuf,
-			     ULONGEST offset, LONGEST len)
-{
-  if (writebuf != NULL)
-    return -2;
-
-  if (annex[0] != '\0' || !target_running ()
-      || the_target->qxfer_libraries_svr4 == NULL)
-    return -1;
-
-  return the_target->qxfer_libraries_svr4 (annex, readbuf, writebuf, offset, len);
-}
-
-/* Handle qXfer:osadata:read.  */
-
-static int
-handle_qxfer_osdata (const char *annex,
-		     gdb_byte *readbuf, const gdb_byte *writebuf,
-		     ULONGEST offset, LONGEST len)
-{
-  if (the_target->qxfer_osdata == NULL || writebuf != NULL)
-    return -2;
-
-  return (*the_target->qxfer_osdata) (annex, readbuf, NULL, offset, len);
-}
-
-/* Handle qXfer:siginfo:read and qXfer:siginfo:write.  */
-
-static int
-handle_qxfer_siginfo (const char *annex,
-		      gdb_byte *readbuf, const gdb_byte *writebuf,
-		      ULONGEST offset, LONGEST len)
-{
-  if (the_target->qxfer_siginfo == NULL)
-    return -2;
-
-  if (annex[0] != '\0' || !target_running ())
-    return -1;
-
-  return (*the_target->qxfer_siginfo) (annex, readbuf, writebuf, offset, len);
-}
-
-/* Handle qXfer:spu:read and qXfer:spu:write.  */
-
-static int
-handle_qxfer_spu (const char *annex,
-		  gdb_byte *readbuf, const gdb_byte *writebuf,
-		  ULONGEST offset, LONGEST len)
-{
-  if (the_target->qxfer_spu == NULL)
-    return -2;
-
-  if (!target_running ())
-    return -1;
-
-  return (*the_target->qxfer_spu) (annex, readbuf, writebuf, offset, len);
-}
-
-/* Handle qXfer:statictrace:read.  */
-
-static int
-handle_qxfer_statictrace (const char *annex,
-			  gdb_byte *readbuf, const gdb_byte *writebuf,
-			  ULONGEST offset, LONGEST len)
-{
-  ULONGEST nbytes;
-
-  if (writebuf != NULL)
-    return -2;
-
-  if (annex[0] != '\0' || !target_running () || current_traceframe == -1)
-    return -1;
-
-  if (traceframe_read_sdata (current_traceframe, offset,
-			     readbuf, len, &nbytes))
-    return -1;
-  return nbytes;
-}
-
-/* Helper for handle_qxfer_threads.  */
-
 static void
-handle_qxfer_threads_proper (struct buffer *buffer)
+handle_threads_qxfer_proper (struct buffer *buffer)
 {
   struct inferior_list_entry *thread;
 
@@ -1119,21 +792,16 @@ handle_qxfer_threads_proper (struct buffer *buffer)
   buffer_grow_str0 (buffer, "</threads>\n");
 }
 
-/* Handle qXfer:threads:read.  */
-
 static int
-handle_qxfer_threads (const char *annex,
-		      gdb_byte *readbuf, const gdb_byte *writebuf,
-		      ULONGEST offset, LONGEST len)
+handle_threads_qxfer (const char *annex,
+		      unsigned char *readbuf,
+		      CORE_ADDR offset, int length)
 {
   static char *result = 0;
   static unsigned int result_length = 0;
 
-  if (writebuf != NULL)
-    return -2;
-
-  if (!target_running () || annex[0] != '\0')
-    return -1;
+  if (annex && strcmp (annex, "") != 0)
+    return 0;
 
   if (offset == 0)
     {
@@ -1145,7 +813,7 @@ handle_qxfer_threads (const char *annex,
 
       buffer_init (&buffer);
 
-      handle_qxfer_threads_proper (&buffer);
+      handle_threads_qxfer_proper (&buffer);
 
       result = buffer_finish (&buffer);
       result_length = strlen (result);
@@ -1161,203 +829,13 @@ handle_qxfer_threads (const char *annex,
       return 0;
     }
 
-  if (len > result_length - offset)
-    len = result_length - offset;
+  if (length > result_length - offset)
+    length = result_length - offset;
 
-  memcpy (readbuf, result + offset, len);
+  memcpy (readbuf, result + offset, length);
 
-  return len;
-}
+  return length;
 
-/* Handle qXfer:traceframe-info:read.  */
-
-static int
-handle_qxfer_traceframe_info (const char *annex,
-			      gdb_byte *readbuf, const gdb_byte *writebuf,
-			      ULONGEST offset, LONGEST len)
-{
-  static char *result = 0;
-  static unsigned int result_length = 0;
-
-  if (writebuf != NULL)
-    return -2;
-
-  if (!target_running () || annex[0] != '\0' || current_traceframe == -1)
-    return -1;
-
-  if (offset == 0)
-    {
-      struct buffer buffer;
-
-      /* When asked for data at offset 0, generate everything and
-	 store into 'result'.  Successive reads will be served off
-	 'result'.  */
-      free (result);
-
-      buffer_init (&buffer);
-
-      traceframe_read_info (current_traceframe, &buffer);
-
-      result = buffer_finish (&buffer);
-      result_length = strlen (result);
-      buffer_free (&buffer);
-    }
-
-  if (offset >= result_length)
-    {
-      /* We're out of data.  */
-      free (result);
-      result = NULL;
-      result_length = 0;
-      return 0;
-    }
-
-  if (len > result_length - offset)
-    len = result_length - offset;
-
-  memcpy (readbuf, result + offset, len);
-  return len;
-}
-
-/* Handle qXfer:fdpic:read.  */
-
-static int
-handle_qxfer_fdpic (const char *annex, gdb_byte *readbuf,
-		    const gdb_byte *writebuf, ULONGEST offset, LONGEST len)
-{
-  if (the_target->read_loadmap == NULL)
-    return -2;
-
-  if (!target_running ())
-    return -1;
-
-  return (*the_target->read_loadmap) (annex, offset, readbuf, len);
-}
-
-static const struct qxfer qxfer_packets[] =
-  {
-    { "auxv", handle_qxfer_auxv },
-    { "fdpic", handle_qxfer_fdpic},
-    { "features", handle_qxfer_features },
-    { "libraries", handle_qxfer_libraries },
-    { "libraries-svr4", handle_qxfer_libraries_svr4 },
-    { "osdata", handle_qxfer_osdata },
-    { "siginfo", handle_qxfer_siginfo },
-    { "spu", handle_qxfer_spu },
-    { "statictrace", handle_qxfer_statictrace },
-    { "threads", handle_qxfer_threads },
-    { "traceframe-info", handle_qxfer_traceframe_info },
-  };
-
-static int
-handle_qxfer (char *own_buf, int packet_len, int *new_packet_len_p)
-{
-  int i;
-  char *object;
-  char *rw;
-  char *annex;
-  char *offset;
-
-  if (strncmp (own_buf, "qXfer:", 6) != 0)
-    return 0;
-
-  /* Grab the object, r/w and annex.  */
-  if (decode_xfer (own_buf + 6, &object, &rw, &annex, &offset) < 0)
-    {
-      write_enn (own_buf);
-      return 1;
-    }
-
-  for (i = 0;
-       i < sizeof (qxfer_packets) / sizeof (qxfer_packets[0]);
-       i++)
-    {
-      const struct qxfer *q = &qxfer_packets[i];
-
-      if (strcmp (object, q->object) == 0)
-	{
-	  if (strcmp (rw, "read") == 0)
-	    {
-	      unsigned char *data;
-	      int n;
-	      CORE_ADDR ofs;
-	      unsigned int len;
-
-	      /* Grab the offset and length.  */
-	      if (decode_xfer_read (offset, &ofs, &len) < 0)
-		{
-		  write_enn (own_buf);
-		  return 1;
-		}
-
-	      /* Read one extra byte, as an indicator of whether there is
-		 more.  */
-	      if (len > PBUFSIZ - 2)
-		len = PBUFSIZ - 2;
-	      data = malloc (len + 1);
-	      if (data == NULL)
-		{
-		  write_enn (own_buf);
-		  return 1;
-		}
-	      n = (*q->xfer) (annex, data, NULL, ofs, len + 1);
-	      if (n == -2)
-		{
-		  free (data);
-		  return 0;
-		}
-	      else if (n < 0)
-		write_enn (own_buf);
-	      else if (n > len)
-		*new_packet_len_p = write_qxfer_response (own_buf, data, len, 1);
-	      else
-		*new_packet_len_p = write_qxfer_response (own_buf, data, n, 0);
-
-	      free (data);
-	      return 1;
-	    }
-	  else if (strcmp (rw, "write") == 0)
-	    {
-	      int n;
-	      unsigned int len;
-	      CORE_ADDR ofs;
-	      unsigned char *data;
-
-	      strcpy (own_buf, "E00");
-	      data = malloc (packet_len - (offset - own_buf));
-	      if (data == NULL)
-		{
-		  write_enn (own_buf);
-		  return 1;
-		}
-	      if (decode_xfer_write (offset, packet_len - (offset - own_buf),
-				     &ofs, &len, data) < 0)
-		{
-		  free (data);
-		  write_enn (own_buf);
-		  return 1;
-		}
-
-	      n = (*q->xfer) (annex, NULL, data, ofs, len);
-	      if (n == -2)
-		{
-		  free (data);
-		  return 0;
-		}
-	      else if (n < 0)
-		write_enn (own_buf);
-	      else
-		sprintf (own_buf, "%x", n);
-
-	      free (data);
-	      return 1;
-	    }
-
-	  return 0;
-	}
-    }
-
-  return 0;
 }
 
 /* Table used by the crc32 function to calcuate the checksum.  */
@@ -1402,7 +880,6 @@ crc32 (CORE_ADDR base, int len, unsigned int crc)
 }
 
 /* Handle all of the extended 'q' packets.  */
-
 void
 handle_query (char *own_buf, int packet_len, int *new_packet_len_p)
 {
@@ -1425,7 +902,7 @@ handle_query (char *own_buf, int packet_len, int *new_packet_len_p)
 
       sprintf (own_buf, "QC");
       own_buf += 2;
-      write_ptid (own_buf, gdb_id);
+      own_buf = write_ptid (own_buf, gdb_id);
       return;
     }
 
@@ -1505,6 +982,406 @@ handle_query (char *own_buf, int packet_len, int *new_packet_len_p)
       return;
     }
 
+  if (the_target->qxfer_spu != NULL
+      && strncmp ("qXfer:spu:read:", own_buf, 15) == 0)
+    {
+      char *annex;
+      int n;
+      unsigned int len;
+      CORE_ADDR ofs;
+      unsigned char *spu_buf;
+
+      require_running (own_buf);
+      strcpy (own_buf, "E00");
+      if (decode_xfer_read (own_buf + 15, &annex, &ofs, &len) < 0)
+	return;
+      if (len > PBUFSIZ - 2)
+	len = PBUFSIZ - 2;
+      spu_buf = malloc (len + 1);
+      if (!spu_buf)
+	return;
+
+      n = (*the_target->qxfer_spu) (annex, spu_buf, NULL, ofs, len + 1);
+      if (n < 0)
+	write_enn (own_buf);
+      else if (n > len)
+	*new_packet_len_p = write_qxfer_response (own_buf, spu_buf, len, 1);
+      else
+	*new_packet_len_p = write_qxfer_response (own_buf, spu_buf, n, 0);
+
+      free (spu_buf);
+      return;
+    }
+
+  if (the_target->qxfer_spu != NULL
+      && strncmp ("qXfer:spu:write:", own_buf, 16) == 0)
+    {
+      char *annex;
+      int n;
+      unsigned int len;
+      CORE_ADDR ofs;
+      unsigned char *spu_buf;
+
+      require_running (own_buf);
+      strcpy (own_buf, "E00");
+      spu_buf = malloc (packet_len - 15);
+      if (!spu_buf)
+	return;
+      if (decode_xfer_write (own_buf + 16, packet_len - 16, &annex,
+			     &ofs, &len, spu_buf) < 0)
+	{
+	  free (spu_buf);
+	  return;
+	}
+
+      n = (*the_target->qxfer_spu)
+	(annex, NULL, (unsigned const char *)spu_buf, ofs, len);
+      if (n < 0)
+	write_enn (own_buf);
+      else
+	sprintf (own_buf, "%x", n);
+
+      free (spu_buf);
+      return;
+    }
+
+  if (the_target->read_auxv != NULL
+      && strncmp ("qXfer:auxv:read:", own_buf, 16) == 0)
+    {
+      unsigned char *data;
+      int n;
+      CORE_ADDR ofs;
+      unsigned int len;
+      char *annex;
+
+      require_running (own_buf);
+
+      /* Reject any annex; grab the offset and length.  */
+      if (decode_xfer_read (own_buf + 16, &annex, &ofs, &len) < 0
+	  || annex[0] != '\0')
+	{
+	  strcpy (own_buf, "E00");
+	  return;
+	}
+
+      /* Read one extra byte, as an indicator of whether there is
+	 more.  */
+      if (len > PBUFSIZ - 2)
+	len = PBUFSIZ - 2;
+      data = malloc (len + 1);
+      if (data == NULL)
+	{
+	  write_enn (own_buf);
+	  return;
+	}
+      n = (*the_target->read_auxv) (ofs, data, len + 1);
+      if (n < 0)
+	write_enn (own_buf);
+      else if (n > len)
+	*new_packet_len_p = write_qxfer_response (own_buf, data, len, 1);
+      else
+	*new_packet_len_p = write_qxfer_response (own_buf, data, n, 0);
+
+      free (data);
+
+      return;
+    }
+
+  if (strncmp ("qXfer:features:read:", own_buf, 20) == 0)
+    {
+      CORE_ADDR ofs;
+      unsigned int len, total_len;
+      const char *document;
+      char *annex;
+
+      require_running (own_buf);
+
+      /* Grab the annex, offset, and length.  */
+      if (decode_xfer_read (own_buf + 20, &annex, &ofs, &len) < 0)
+	{
+	  strcpy (own_buf, "E00");
+	  return;
+	}
+
+      /* Now grab the correct annex.  */
+      document = get_features_xml (annex);
+      if (document == NULL)
+	{
+	  strcpy (own_buf, "E00");
+	  return;
+	}
+
+      total_len = strlen (document);
+      if (len > PBUFSIZ - 2)
+	len = PBUFSIZ - 2;
+
+      if (ofs > total_len)
+	write_enn (own_buf);
+      else if (len < total_len - ofs)
+	*new_packet_len_p = write_qxfer_response (own_buf, document + ofs,
+						  len, 1);
+      else
+	*new_packet_len_p = write_qxfer_response (own_buf, document + ofs,
+						  total_len - ofs, 0);
+
+      return;
+    }
+
+  if (strncmp ("qXfer:libraries:read:", own_buf, 21) == 0)
+    {
+      CORE_ADDR ofs;
+      unsigned int len, total_len;
+      char *document, *p;
+      struct inferior_list_entry *dll_ptr;
+      char *annex;
+
+      require_running (own_buf);
+
+      /* Reject any annex; grab the offset and length.  */
+      if (decode_xfer_read (own_buf + 21, &annex, &ofs, &len) < 0
+	  || annex[0] != '\0')
+	{
+	  strcpy (own_buf, "E00");
+	  return;
+	}
+
+      /* Over-estimate the necessary memory.  Assume that every character
+	 in the library name must be escaped.  */
+      total_len = 64;
+      for (dll_ptr = all_dlls.head; dll_ptr != NULL; dll_ptr = dll_ptr->next)
+	total_len += 128 + 6 * strlen (((struct dll_info *) dll_ptr)->name);
+
+      document = malloc (total_len);
+      if (document == NULL)
+	{
+	  write_enn (own_buf);
+	  return;
+	}
+      strcpy (document, "<library-list>\n");
+      p = document + strlen (document);
+
+      for (dll_ptr = all_dlls.head; dll_ptr != NULL; dll_ptr = dll_ptr->next)
+	{
+	  struct dll_info *dll = (struct dll_info *) dll_ptr;
+	  char *name;
+
+	  strcpy (p, "  <library name=\"");
+	  p = p + strlen (p);
+	  name = xml_escape_text (dll->name);
+	  strcpy (p, name);
+	  free (name);
+	  p = p + strlen (p);
+	  strcpy (p, "\"><segment address=\"");
+	  p = p + strlen (p);
+	  sprintf (p, "0x%lx", (long) dll->base_addr);
+	  p = p + strlen (p);
+	  strcpy (p, "\"/></library>\n");
+	  p = p + strlen (p);
+	}
+
+      strcpy (p, "</library-list>\n");
+
+      total_len = strlen (document);
+      if (len > PBUFSIZ - 2)
+	len = PBUFSIZ - 2;
+
+      if (ofs > total_len)
+	write_enn (own_buf);
+      else if (len < total_len - ofs)
+	*new_packet_len_p = write_qxfer_response (own_buf, document + ofs,
+						  len, 1);
+      else
+	*new_packet_len_p = write_qxfer_response (own_buf, document + ofs,
+						  total_len - ofs, 0);
+
+      free (document);
+      return;
+    }
+
+  if (the_target->qxfer_osdata != NULL
+      && strncmp ("qXfer:osdata:read:", own_buf, 18) == 0)
+    {
+      char *annex;
+      int n;
+      unsigned int len;
+      CORE_ADDR ofs;
+      unsigned char *workbuf;
+
+      strcpy (own_buf, "E00");
+      if (decode_xfer_read (own_buf + 18, &annex, &ofs, &len) < 0)
+	return;
+      if (len > PBUFSIZ - 2)
+	len = PBUFSIZ - 2;
+      workbuf = malloc (len + 1);
+      if (!workbuf)
+	return;
+
+      n = (*the_target->qxfer_osdata) (annex, workbuf, NULL, ofs, len + 1);
+      if (n < 0)
+	write_enn (own_buf);
+      else if (n > len)
+	*new_packet_len_p = write_qxfer_response (own_buf, workbuf, len, 1);
+      else
+	*new_packet_len_p = write_qxfer_response (own_buf, workbuf, n, 0);
+
+      free (workbuf);
+      return;
+    }
+
+  if (the_target->qxfer_siginfo != NULL
+      && strncmp ("qXfer:siginfo:read:", own_buf, 19) == 0)
+    {
+      unsigned char *data;
+      int n;
+      CORE_ADDR ofs;
+      unsigned int len;
+      char *annex;
+
+      require_running (own_buf);
+
+      /* Reject any annex; grab the offset and length.  */
+      if (decode_xfer_read (own_buf + 19, &annex, &ofs, &len) < 0
+	  || annex[0] != '\0')
+	{
+	  strcpy (own_buf, "E00");
+	  return;
+	}
+
+      /* Read one extra byte, as an indicator of whether there is
+	 more.  */
+      if (len > PBUFSIZ - 2)
+	len = PBUFSIZ - 2;
+      data = malloc (len + 1);
+      if (!data)
+	return;
+      n = (*the_target->qxfer_siginfo) (annex, data, NULL, ofs, len + 1);
+      if (n < 0)
+	write_enn (own_buf);
+      else if (n > len)
+	*new_packet_len_p = write_qxfer_response (own_buf, data, len, 1);
+      else
+	*new_packet_len_p = write_qxfer_response (own_buf, data, n, 0);
+
+      free (data);
+      return;
+    }
+
+  if (the_target->qxfer_siginfo != NULL
+      && strncmp ("qXfer:siginfo:write:", own_buf, 20) == 0)
+    {
+      char *annex;
+      int n;
+      unsigned int len;
+      CORE_ADDR ofs;
+      unsigned char *data;
+
+      require_running (own_buf);
+
+      strcpy (own_buf, "E00");
+      data = malloc (packet_len - 19);
+      if (!data)
+	return;
+      if (decode_xfer_write (own_buf + 20, packet_len - 20, &annex,
+			     &ofs, &len, data) < 0)
+	{
+	  free (data);
+	  return;
+	}
+
+      n = (*the_target->qxfer_siginfo)
+	(annex, NULL, (unsigned const char *)data, ofs, len);
+      if (n < 0)
+	write_enn (own_buf);
+      else
+	sprintf (own_buf, "%x", n);
+
+      free (data);
+      return;
+    }
+
+  if (strncmp ("qXfer:threads:read:", own_buf, 19) == 0)
+    {
+      unsigned char *data;
+      int n;
+      CORE_ADDR ofs;
+      unsigned int len;
+      char *annex;
+
+      require_running (own_buf);
+
+      /* Reject any annex; grab the offset and length.  */
+      if (decode_xfer_read (own_buf + 19, &annex, &ofs, &len) < 0
+	  || annex[0] != '\0')
+	{
+	  strcpy (own_buf, "E00");
+	  return;
+	}
+
+      /* Read one extra byte, as an indicator of whether there is
+	 more.  */
+      if (len > PBUFSIZ - 2)
+	len = PBUFSIZ - 2;
+      data = malloc (len + 1);
+      if (!data)
+	return;
+      n = handle_threads_qxfer (annex, data, ofs, len + 1);
+      if (n < 0)
+	write_enn (own_buf);
+      else if (n > len)
+	*new_packet_len_p = write_qxfer_response (own_buf, data, len, 1);
+      else
+	*new_packet_len_p = write_qxfer_response (own_buf, data, n, 0);
+
+      free (data);
+      return;
+    }
+
+  if (strncmp ("qXfer:statictrace:read:", own_buf,
+	       sizeof ("qXfer:statictrace:read:") -1) == 0)
+    {
+      unsigned char *data;
+      CORE_ADDR ofs;
+      unsigned int len;
+      char *annex;
+      ULONGEST nbytes;
+
+      require_running (own_buf);
+
+      if (current_traceframe == -1)
+	{
+	  write_enn (own_buf);
+	  return;
+	}
+
+      /* Reject any annex; grab the offset and length.  */
+      if (decode_xfer_read (own_buf + sizeof ("qXfer:statictrace:read:") -1,
+			    &annex, &ofs, &len) < 0
+	  || annex[0] != '\0')
+	{
+	  strcpy (own_buf, "E00");
+	  return;
+	}
+
+      /* Read one extra byte, as an indicator of whether there is
+	 more.  */
+      if (len > PBUFSIZ - 2)
+	len = PBUFSIZ - 2;
+      data = malloc (len + 1);
+      if (!data)
+	return;
+
+      if (traceframe_read_sdata (current_traceframe, ofs,
+				 data, len + 1, &nbytes))
+	write_enn (own_buf);
+      else if (nbytes > len)
+	*new_packet_len_p = write_qxfer_response (own_buf, data, len, 1);
+      else
+	*new_packet_len_p = write_qxfer_response (own_buf, data, nbytes, 0);
+
+      free (data);
+      return;
+    }
+
   /* Protocol features query.  */
   if (strncmp ("qSupported", own_buf, 10) == 0
       && (own_buf[10] == ':' || own_buf[10] == '\0'))
@@ -1561,14 +1438,9 @@ handle_query (char *own_buf, int packet_len, int *new_packet_len_p)
 
       sprintf (own_buf, "PacketSize=%x;QPassSignals+", PBUFSIZ - 1);
 
-      if (the_target->qxfer_libraries_svr4 != NULL)
-	strcat (own_buf, ";qXfer:libraries-svr4:read+");
-      else
-	{
-	  /* We do not have any hook to indicate whether the non-SVR4 target
-	     backend supports qXfer:libraries:read, so always report it.  */
-	  strcat (own_buf, ";qXfer:libraries:read+");
-	}
+      /* We do not have any hook to indicate whether the target backend
+	 supports qXfer:libraries:read, so always report it.  */
+      strcat (own_buf, ";qXfer:libraries:read+");
 
       if (the_target->read_auxv != NULL)
 	strcat (own_buf, ";qXfer:auxv:read+");
@@ -1578,9 +1450,6 @@ handle_query (char *own_buf, int packet_len, int *new_packet_len_p)
 
       if (the_target->qxfer_siginfo != NULL)
 	strcat (own_buf, ";qXfer:siginfo:read+;qXfer:siginfo:write+");
-
-      if (the_target->read_loadmap != NULL)
-	strcat (own_buf, ";qXfer:fdpic:read+");
 
       /* We always report qXfer:features:read, as targets may
 	 install XML files on a subsequent call to arch_setup.
@@ -1600,9 +1469,6 @@ handle_query (char *own_buf, int packet_len, int *new_packet_len_p)
       if (target_supports_non_stop ())
 	strcat (own_buf, ";QNonStop+");
 
-      if (target_supports_disable_randomization ())
-	strcat (own_buf, ";QDisableRandomization+");
-
       strcat (own_buf, ";qXfer:threads:read+");
 
       if (target_supports_tracepoints ())
@@ -1614,11 +1480,7 @@ handle_query (char *own_buf, int packet_len, int *new_packet_len_p)
 	  if (gdb_supports_qRelocInsn && target_supports_fast_tracepoints ())
 	    strcat (own_buf, ";FastTracepoints+");
 	  strcat (own_buf, ";StaticTracepoints+");
-	  strcat (own_buf, ";InstallInTrace+");
 	  strcat (own_buf, ";qXfer:statictrace:read+");
-	  strcat (own_buf, ";qXfer:traceframe-info:read+");
-	  strcat (own_buf, ";EnableDisableTracepoints+");
-	  strcat (own_buf, ";tracenz+");
 	}
 
       return;
@@ -1743,8 +1605,7 @@ handle_query (char *own_buf, int packet_len, int *new_packet_len_p)
       return;
     }
 
-  if (strncmp ("qSearch:memory:", own_buf,
-	       sizeof ("qSearch:memory:") - 1) == 0)
+  if (strncmp ("qSearch:memory:", own_buf, sizeof ("qSearch:memory:") - 1) == 0)
     {
       require_running (own_buf);
       handle_search_memory (own_buf, packet_len);
@@ -1805,9 +1666,6 @@ handle_query (char *own_buf, int packet_len, int *new_packet_len_p)
       return;
     }
 
-  if (handle_qxfer (own_buf, packet_len, new_packet_len_p))
-    return;
-
   if (target_supports_tracepoints () && handle_tracepoint_query (own_buf))
     return;
 
@@ -1815,8 +1673,6 @@ handle_query (char *own_buf, int packet_len, int *new_packet_len_p)
      understand it.  */
   own_buf[0] = 0;
 }
-
-static void gdb_wants_all_threads_stopped (void);
 
 /* Parse vCont packets.  */
 void
@@ -1921,16 +1777,6 @@ handle_v_cont (char *own_buf)
   else
     {
       last_ptid = mywait (minus_one_ptid, &last_status, 0, 1);
-
-      if (last_status.kind != TARGET_WAITKIND_EXITED
-          && last_status.kind != TARGET_WAITKIND_SIGNALLED)
-	current_inferior->last_status = last_status;
-
-      /* From the client's perspective, all-stop mode always stops all
-	 threads implicitly (and the target backend has already done
-	 so by now).  Tag all threads as "want-stopped", so we don't
-	 resume them implicitly without the client telling us to.  */
-      gdb_wants_all_threads_stopped ();
       prepare_resume_reply (own_buf, last_ptid, &last_status);
       disable_async_io ();
 
@@ -2031,16 +1877,16 @@ handle_v_run (char *own_buf)
 
       if (program_argv == NULL)
 	{
+	  /* FIXME: new_argv memory leak */
 	  write_enn (own_buf);
-	  freeargv (new_argv);
 	  return 0;
 	}
 
       new_argv[0] = strdup (program_argv[0]);
       if (new_argv[0] == NULL)
 	{
+	  /* FIXME: new_argv memory leak */
 	  write_enn (own_buf);
-	  freeargv (new_argv);
 	  return 0;
 	}
     }
@@ -2144,7 +1990,7 @@ handle_v_requests (char *own_buf, int packet_len, int *new_packet_len)
 
   if (strncmp (own_buf, "vAttach;", 8) == 0)
     {
-      if ((!extended_protocol || !multi_process) && target_running ())
+      if (!multi_process && target_running ())
 	{
 	  fprintf (stderr, "Already debugging a process\n");
 	  write_enn (own_buf);
@@ -2156,7 +2002,7 @@ handle_v_requests (char *own_buf, int packet_len, int *new_packet_len)
 
   if (strncmp (own_buf, "vRun;", 5) == 0)
     {
-      if ((!extended_protocol || !multi_process) && target_running ())
+      if (!multi_process && target_running ())
 	{
 	  fprintf (stderr, "Already debugging a process\n");
 	  write_enn (own_buf);
@@ -2235,14 +2081,6 @@ myresume (char *own_buf, int step, int sig)
   else
     {
       last_ptid = mywait (minus_one_ptid, &last_status, 0, 1);
-
-      if (last_status.kind != TARGET_WAITKIND_EXITED
-          && last_status.kind != TARGET_WAITKIND_SIGNALLED)
-	{
-	  current_inferior->last_resume_kind = resume_stop;
-	  current_inferior->last_status = last_status;
-	}
-
       prepare_resume_reply (own_buf, last_ptid, &last_status);
       disable_async_io ();
 
@@ -2264,6 +2102,11 @@ queue_stop_reply_callback (struct inferior_list_entry *entry, void *arg)
      manage the thread's last_status field.  */
   if (the_target->thread_stopped == NULL)
     {
+      struct target_waitstatus status;
+
+      status.kind = TARGET_WAITKIND_STOPPED;
+      status.value.sig = TARGET_SIGNAL_TRAP;
+
       /* Pass the last stop reply back to GDB, but don't notify
 	 yet.  */
       queue_stop_reply (entry->id, &thread->last_status);
@@ -2273,12 +2116,9 @@ queue_stop_reply_callback (struct inferior_list_entry *entry, void *arg)
       if (thread_stopped (thread))
 	{
 	  if (debug_threads)
-	    fprintf (stderr,
-		     "Reporting thread %s as already stopped with %s\n",
+	    fprintf (stderr, "Reporting thread %s as already stopped with %s\n",
 		     target_pid_to_str (entry->id),
 		     target_waitstatus_to_string (&thread->last_status));
-
-	  gdb_assert (thread->last_status.kind != TARGET_WAITKIND_IGNORE);
 
 	  /* Pass the last stop reply back to GDB, but don't notify
 	     yet.  */
@@ -2289,9 +2129,8 @@ queue_stop_reply_callback (struct inferior_list_entry *entry, void *arg)
   return 0;
 }
 
-/* Set this inferior threads's state as "want-stopped".  We won't
-   resume this thread until the client gives us another action for
-   it.  */
+/* Set this inferior LWP's state as "want-stopped".  We won't resume
+   this LWP until the client gives us another action for it.  */
 
 static void
 gdb_wants_thread_stopped (struct inferior_list_entry *entry)
@@ -2302,8 +2141,6 @@ gdb_wants_thread_stopped (struct inferior_list_entry *entry)
 
   if (thread->last_status.kind == TARGET_WAITKIND_IGNORE)
     {
-      /* Most threads are stopped implicitly (all-stop); tag that with
-	 signal 0.  */
       thread->last_status.kind = TARGET_WAITKIND_STOPPED;
       thread->last_status.value.sig = TARGET_SIGNAL_0;
     }
@@ -2373,9 +2210,8 @@ static void
 gdbserver_version (void)
 {
   printf ("GNU gdbserver %s%s\n"
-	  "Copyright (C) 2012 Free Software Foundation, Inc.\n"
-	  "gdbserver is free software, covered by the "
-	  "GNU General Public License.\n"
+	  "Copyright (C) 2010 Free Software Foundation, Inc.\n"
+	  "gdbserver is free software, covered by the GNU General Public License.\n"
 	  "This gdbserver was configured as \"%s\"\n",
 	  PKGVERSION, version, host_name);
 }
@@ -2394,9 +2230,7 @@ gdbserver_usage (FILE *stream)
 	   "  --debug               Enable general debugging output.\n"
 	   "  --remote-debug        Enable remote protocol debugging output.\n"
 	   "  --version             Display version information and exit.\n"
-	   "  --wrapper WRAPPER --  Run WRAPPER to start new programs.\n"
-	   "  --once                Exit after the first connection has "
-								  "closed.\n");
+	   "  --wrapper WRAPPER --  Run WRAPPER to start new programs.\n");
   if (REPORT_BUGS_TO[0] && stream == stdout)
     fprintf (stream, "Report bugs to \"%s\".\n", REPORT_BUGS_TO);
 }
@@ -2408,8 +2242,7 @@ gdbserver_show_disableable (FILE *stream)
 	   "  vCont       \tAll vCont packets\n"
 	   "  qC          \tQuerying the current thread\n"
 	   "  qfThreadInfo\tThread listing\n"
-	   "  Tthread     \tPassing the thread specifier in the "
-	   "T stop reply packet\n"
+	   "  Tthread     \tPassing the thread specifier in the T stop reply packet\n"
 	   "  threads     \tAll of the above\n");
 }
 
@@ -2521,6 +2354,17 @@ detach_or_kill_for_exit (void)
   for_each_inferior (&all_processes, detach_or_kill_inferior_callback);
 }
 
+static void
+join_inferiors_callback (struct inferior_list_entry *entry)
+{
+  struct process_info *process = (struct process_info *) entry;
+
+  /* If we are attached, then we can exit.  Otherwise, we need to hang
+     around doing nothing, until the child is gone.  */
+  if (!process->attached)
+    join_inferior (ptid_get_pid (process->head.id));
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -2609,19 +2453,6 @@ main (int argc, char *argv[])
 		}
 	    }
 	}
-      else if (strcmp (*next_arg, "-") == 0)
-	{
-	  /* "-" specifies a stdio connection and is a form of port
-	     specification.  */
-	  *next_arg = STDIO_CONNECTION_NAME;
-	  break;
-	}
-      else if (strcmp (*next_arg, "--disable-randomization") == 0)
-	disable_randomization = 1;
-      else if (strcmp (*next_arg, "--no-disable-randomization") == 0)
-	disable_randomization = 0;
-      else if (strcmp (*next_arg, "--once") == 0)
-	run_once = 1;
       else
 	{
 	  fprintf (stderr, "Unknown argument: %s\n", *next_arg);
@@ -2645,12 +2476,6 @@ main (int argc, char *argv[])
       gdbserver_usage (stderr);
       exit (1);
     }
-
-  /* We need to know whether the remote connection is stdio before
-     starting the inferior.  Inferiors created in this scenario have
-     stdin,stdout redirected.  So do this here before we call
-     start_inferior.  */
-  remote_prepare (port);
 
   bad_attach = 0;
   pid = 0;
@@ -2677,6 +2502,7 @@ main (int argc, char *argv[])
       exit (1);
     }
 
+  initialize_inferiors ();
   initialize_async_io ();
   initialize_low ();
   if (target_supports_tracepoints ())
@@ -2723,16 +2549,6 @@ main (int argc, char *argv[])
 
   if (setjmp (toplevel))
     {
-      /* If something fails and longjmps while detaching or killing
-	 inferiors, we'd end up here again, stuck in an infinite loop
-	 trap.  Be sure that if that happens, we exit immediately
-	 instead.  */
-      if (setjmp (toplevel))
-	{
-	  fprintf (stderr, "Detach or kill failed.  Exiting\n");
-	  exit (1);
-	}
-
       detach_or_kill_for_exit ();
       exit (1);
     }
@@ -2777,7 +2593,7 @@ main (int argc, char *argv[])
 	 getpkt to fail; close the connection and reopen it at the
 	 top of the loop.  */
 
-      if (exit_requested || run_once)
+      if (exit_requested)
 	{
 	  detach_or_kill_for_exit ();
 	  exit (0);
@@ -2828,7 +2644,6 @@ process_serial_event (void)
   int i = 0;
   int signal;
   unsigned int len;
-  int res;
   CORE_ADDR mem_addr;
   int pid;
   unsigned char sig;
@@ -2943,7 +2758,8 @@ process_serial_event (void)
 	      /* If we are attached, then we can exit.  Otherwise, we
 		 need to hang around doing nothing, until the child is
 		 gone.  */
-	      join_inferior (pid);
+	      for_each_inferior (&all_processes,
+				 join_inferiors_callback);
 	      exit (0);
 	    }
 	}
@@ -3015,6 +2831,8 @@ process_serial_event (void)
 	    }
 	  else if (own_buf[1] == 'c')
 	    cont_thread = thread_id;
+	  else if (own_buf[1] == 's')
+	    step_thread = thread_id;
 
 	  write_ok (own_buf);
 	}
@@ -3064,16 +2882,15 @@ process_serial_event (void)
     case 'm':
       require_running (own_buf);
       decode_m_packet (&own_buf[1], &mem_addr, &len);
-      res = gdb_read_memory (mem_addr, mem_buf, len);
-      if (res < 0)
-	write_enn (own_buf);
+      if (read_memory (mem_addr, mem_buf, len) == 0)
+	convert_int_to_ascii (mem_buf, own_buf, len);
       else
-	convert_int_to_ascii (mem_buf, own_buf, res);
+	write_enn (own_buf);
       break;
     case 'M':
       require_running (own_buf);
       decode_M_packet (&own_buf[1], &mem_addr, &len, &mem_buf);
-      if (gdb_write_memory (mem_addr, mem_buf, len) == 0)
+      if (write_memory (mem_addr, mem_buf, len) == 0)
 	write_ok (own_buf);
       else
 	write_enn (own_buf);
@@ -3082,7 +2899,7 @@ process_serial_event (void)
       require_running (own_buf);
       if (decode_X_packet (&own_buf[1], packet_len - 1,
 			   &mem_addr, &len, &mem_buf) < 0
-	  || gdb_write_memory (mem_addr, mem_buf, len) != 0)
+	  || write_memory (mem_addr, mem_buf, len) != 0)
 	write_enn (own_buf);
       else
 	write_ok (own_buf);
@@ -3306,14 +3123,6 @@ handle_target_event (int err, gdb_client_data client_data)
 	  mark_breakpoints_out (process);
 	  mourn_inferior (process);
 	}
-      else
-	{
-	  /* We're reporting this thread as stopped.  Update its
-	     "want-stopped" state to what the client wants, until it
-	     gets a new resume action.  */
-	  current_inferior->last_resume_kind = resume_stop;
-	  current_inferior->last_status = last_status;
-	}
 
       if (forward_event)
 	{
@@ -3338,7 +3147,7 @@ handle_target_event (int err, gdb_client_data client_data)
 
 	      resume_info.thread = last_ptid;
 	      resume_info.kind = resume_continue;
-	      resume_info.sig = target_signal_to_host (last_status.value.sig);
+	      resume_info.sig = last_status.value.sig;
 	      (*the_target->resume) (&resume_info, 1);
 	    }
 	  else if (debug_threads)
