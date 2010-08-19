@@ -1,6 +1,7 @@
 /* YACC parser for C expressions, for GDB.
-   Copyright (C) 1986, 1989-2000, 2003-2004, 2006-2012 Free Software
-   Foundation, Inc.
+   Copyright (C) 1986, 1989, 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997,
+   1998, 1999, 2000, 2003, 2004, 2006, 2007, 2008, 2009, 2010
+   Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -207,7 +208,6 @@ static struct stoken operator_stoken (const char *);
 %token NEW DELETE
 %type <sval> operator
 %token REINTERPRET_CAST DYNAMIC_CAST STATIC_CAST CONST_CAST
-%token ENTRY
 
 /* Special type cases, put in to allow the parser to distinguish different
    legal basetypes.  */
@@ -612,9 +612,7 @@ exp	:	VARIABLE
 
 exp	:	SIZEOF '(' type ')'	%prec UNARY
 			{ write_exp_elt_opcode (OP_LONG);
-			  write_exp_elt_type (lookup_signed_typename
-					      (parse_language, parse_gdbarch,
-					       "int"));
+			  write_exp_elt_type (parse_type->builtin_int);
 			  CHECK_TYPEDEF ($3);
 			  write_exp_elt_longcst ((LONGEST) TYPE_LENGTH ($3));
 			  write_exp_elt_opcode (OP_LONG); }
@@ -698,7 +696,7 @@ exp	:	string_exp
 				case C_STRING_32:
 				  if (type != C_STRING
 				      && type != $1.tokens[i].type)
-				    error (_("Undefined string concatenation."));
+				    error ("Undefined string concatenation.");
 				  type = $1.tokens[i].type;
 				  break;
 				default:
@@ -737,7 +735,7 @@ block	:	BLOCKNAME
 			  if ($1.sym)
 			    $$ = SYMBOL_BLOCK_VALUE ($1.sym);
 			  else
-			    error (_("No file or function \"%s\"."),
+			    error ("No file or function \"%s\".",
 				   copy_name ($1.stoken));
 			}
 	|	FILENAME
@@ -751,24 +749,9 @@ block	:	block COLONCOLON name
 			    = lookup_symbol (copy_name ($3), $1,
 					     VAR_DOMAIN, (int *) NULL);
 			  if (!tem || SYMBOL_CLASS (tem) != LOC_BLOCK)
-			    error (_("No function \"%s\" in specified context."),
+			    error ("No function \"%s\" in specified context.",
 				   copy_name ($3));
 			  $$ = SYMBOL_BLOCK_VALUE (tem); }
-	;
-
-variable:	name_not_typename ENTRY
-			{ struct symbol *sym = $1.sym;
-
-			  if (sym == NULL || !SYMBOL_IS_ARGUMENT (sym)
-			      || !symbol_read_needs_frame (sym))
-			    error (_("@entry can be used only for function "
-				     "parameters, not for \"%s\""),
-				   copy_name ($1.stoken));
-
-			  write_exp_elt_opcode (OP_VAR_ENTRY_VALUE);
-			  write_exp_elt_sym (sym);
-			  write_exp_elt_opcode (OP_VAR_ENTRY_VALUE);
-			}
 	;
 
 variable:	block COLONCOLON name
@@ -776,15 +759,8 @@ variable:	block COLONCOLON name
 			  sym = lookup_symbol (copy_name ($3), $1,
 					       VAR_DOMAIN, (int *) NULL);
 			  if (sym == 0)
-			    error (_("No symbol \"%s\" in specified context."),
+			    error ("No symbol \"%s\" in specified context.",
 				   copy_name ($3));
-			  if (symbol_read_needs_frame (sym))
-			    {
-			      if (innermost_block == 0
-				  || contained_in (block_found,
-						   innermost_block))
-				innermost_block = block_found;
-			    }
 
 			  write_exp_elt_opcode (OP_VAR_VALUE);
 			  /* block_found is set by lookup_symbol.  */
@@ -800,7 +776,7 @@ qualified_name:	TYPENAME COLONCOLON name
 			  if (TYPE_CODE (type) != TYPE_CODE_STRUCT
 			      && TYPE_CODE (type) != TYPE_CODE_UNION
 			      && TYPE_CODE (type) != TYPE_CODE_NAMESPACE)
-			    error (_("`%s' is not defined as an aggregate type."),
+			    error ("`%s' is not defined as an aggregate type.",
 				   TYPE_NAME (type));
 
 			  write_exp_elt_opcode (OP_SCOPE);
@@ -816,7 +792,7 @@ qualified_name:	TYPENAME COLONCOLON name
 			  if (TYPE_CODE (type) != TYPE_CODE_STRUCT
 			      && TYPE_CODE (type) != TYPE_CODE_UNION
 			      && TYPE_CODE (type) != TYPE_CODE_NAMESPACE)
-			    error (_("`%s' is not defined as an aggregate type."),
+			    error ("`%s' is not defined as an aggregate type.",
 				   TYPE_NAME (type));
 
 			  tmp_token.ptr = (char*) alloca ($4.length + 2);
@@ -826,7 +802,7 @@ qualified_name:	TYPENAME COLONCOLON name
 			  tmp_token.ptr[tmp_token.length] = 0;
 
 			  /* Check for valid destructor name.  */
-			  destructor_name_p (tmp_token.ptr, $1.type);
+			  destructor_name_p (tmp_token.ptr, type);
 			  write_exp_elt_opcode (OP_SCOPE);
 			  write_exp_elt_type (type);
 			  write_exp_string (tmp_token);
@@ -864,9 +840,9 @@ variable:	qualified_name
 			  if (msymbol != NULL)
 			    write_exp_msymbol (msymbol);
 			  else if (!have_full_symbols () && !have_partial_symbols ())
-			    error (_("No symbol table is loaded.  Use the \"file\" command."));
+			    error ("No symbol table is loaded.  Use the \"file\" command.");
 			  else
-			    error (_("No symbol \"%s\" in current context."), name);
+			    error ("No symbol \"%s\" in current context.", name);
 			}
 	;
 
@@ -916,9 +892,9 @@ variable:	name_not_typename
 			      if (msymbol != NULL)
 				write_exp_msymbol (msymbol);
 			      else if (!have_full_symbols () && !have_partial_symbols ())
-				error (_("No symbol table is loaded.  Use the \"file\" command."));
+				error ("No symbol table is loaded.  Use the \"file\" command.");
 			      else
-				error (_("No symbol \"%s\" in current context."),
+				error ("No symbol \"%s\" in current context.",
 				       copy_name ($1.stoken));
 			    }
 			}
@@ -1004,117 +980,61 @@ typebase  /* Implements (approximately): (type-qualifier)* type-specifier */
 	:	TYPENAME
 			{ $$ = $1.type; }
 	|	INT_KEYWORD
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "int"); }
+			{ $$ = parse_type->builtin_int; }
 	|	LONG
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "long"); }
+			{ $$ = parse_type->builtin_long; }
 	|	SHORT
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "short"); }
+			{ $$ = parse_type->builtin_short; }
 	|	LONG INT_KEYWORD
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "long"); }
+			{ $$ = parse_type->builtin_long; }
 	|	LONG SIGNED_KEYWORD INT_KEYWORD
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "long"); }
+			{ $$ = parse_type->builtin_long; }
 	|	LONG SIGNED_KEYWORD
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "long"); }
+			{ $$ = parse_type->builtin_long; }
 	|	SIGNED_KEYWORD LONG INT_KEYWORD
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "long"); }
+			{ $$ = parse_type->builtin_long; }
 	|	UNSIGNED LONG INT_KEYWORD
-			{ $$ = lookup_unsigned_typename (parse_language,
-							 parse_gdbarch,
-							 "long"); }
+			{ $$ = parse_type->builtin_unsigned_long; }
 	|	LONG UNSIGNED INT_KEYWORD
-			{ $$ = lookup_unsigned_typename (parse_language,
-							 parse_gdbarch,
-							 "long"); }
+			{ $$ = parse_type->builtin_unsigned_long; }
 	|	LONG UNSIGNED
-			{ $$ = lookup_unsigned_typename (parse_language,
-							 parse_gdbarch,
-							 "long"); }
+			{ $$ = parse_type->builtin_unsigned_long; }
 	|	LONG LONG
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "long long"); }
+			{ $$ = parse_type->builtin_long_long; }
 	|	LONG LONG INT_KEYWORD
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "long long"); }
+			{ $$ = parse_type->builtin_long_long; }
 	|	LONG LONG SIGNED_KEYWORD INT_KEYWORD
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "long long"); }
+			{ $$ = parse_type->builtin_long_long; }
 	|	LONG LONG SIGNED_KEYWORD
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "long long"); }
+			{ $$ = parse_type->builtin_long_long; }
 	|	SIGNED_KEYWORD LONG LONG
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "long long"); }
+			{ $$ = parse_type->builtin_long_long; }
 	|	SIGNED_KEYWORD LONG LONG INT_KEYWORD
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "long long"); }
+			{ $$ = parse_type->builtin_long_long; }
 	|	UNSIGNED LONG LONG
-			{ $$ = lookup_unsigned_typename (parse_language,
-							 parse_gdbarch,
-							 "long long"); }
+			{ $$ = parse_type->builtin_unsigned_long_long; }
 	|	UNSIGNED LONG LONG INT_KEYWORD
-			{ $$ = lookup_unsigned_typename (parse_language,
-							 parse_gdbarch,
-							 "long long"); }
+			{ $$ = parse_type->builtin_unsigned_long_long; }
 	|	LONG LONG UNSIGNED
-			{ $$ = lookup_unsigned_typename (parse_language,
-							 parse_gdbarch,
-							 "long long"); }
+			{ $$ = parse_type->builtin_unsigned_long_long; }
 	|	LONG LONG UNSIGNED INT_KEYWORD
-			{ $$ = lookup_unsigned_typename (parse_language,
-							 parse_gdbarch,
-							 "long long"); }
+			{ $$ = parse_type->builtin_unsigned_long_long; }
 	|	SHORT INT_KEYWORD
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "short"); }
+			{ $$ = parse_type->builtin_short; }
 	|	SHORT SIGNED_KEYWORD INT_KEYWORD
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "short"); }
+			{ $$ = parse_type->builtin_short; }
 	|	SHORT SIGNED_KEYWORD
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "short"); }
+			{ $$ = parse_type->builtin_short; }
 	|	UNSIGNED SHORT INT_KEYWORD
-			{ $$ = lookup_unsigned_typename (parse_language,
-							 parse_gdbarch,
-							 "short"); }
+			{ $$ = parse_type->builtin_unsigned_short; }
 	|	SHORT UNSIGNED 
-			{ $$ = lookup_unsigned_typename (parse_language,
-							 parse_gdbarch,
-							 "short"); }
+			{ $$ = parse_type->builtin_unsigned_short; }
 	|	SHORT UNSIGNED INT_KEYWORD
-			{ $$ = lookup_unsigned_typename (parse_language,
-							 parse_gdbarch,
-							 "short"); }
+			{ $$ = parse_type->builtin_unsigned_short; }
 	|	DOUBLE_KEYWORD
-			{ $$ = lookup_typename (parse_language, parse_gdbarch,
-						"double", (struct block *) NULL,
-						0); }
+			{ $$ = parse_type->builtin_double; }
 	|	LONG DOUBLE_KEYWORD
-			{ $$ = lookup_typename (parse_language, parse_gdbarch,
-						"long double",
-						(struct block *) NULL, 0); }
+			{ $$ = parse_type->builtin_long_double; }
 	|	STRUCT name
 			{ $$ = lookup_struct (copy_name ($2),
 					      expression_context_block); }
@@ -1132,17 +1052,13 @@ typebase  /* Implements (approximately): (type-qualifier)* type-specifier */
 							 parse_gdbarch,
 							 TYPE_NAME($2.type)); }
 	|	UNSIGNED
-			{ $$ = lookup_unsigned_typename (parse_language,
-							 parse_gdbarch,
-							 "int"); }
+			{ $$ = parse_type->builtin_unsigned_int; }
 	|	SIGNED_KEYWORD typename
 			{ $$ = lookup_signed_typename (parse_language,
 						       parse_gdbarch,
 						       TYPE_NAME($2.type)); }
 	|	SIGNED_KEYWORD
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "int"); }
+			{ $$ = parse_type->builtin_int; }
                 /* It appears that this rule for templates is never
                    reduced; template recognition happens by lookahead
                    in the token processing code in yylex. */         
@@ -1161,25 +1077,19 @@ typename:	TYPENAME
 		{
 		  $$.stoken.ptr = "int";
 		  $$.stoken.length = 3;
-		  $$.type = lookup_signed_typename (parse_language,
-						    parse_gdbarch,
-						    "int");
+		  $$.type = parse_type->builtin_int;
 		}
 	|	LONG
 		{
 		  $$.stoken.ptr = "long";
 		  $$.stoken.length = 4;
-		  $$.type = lookup_signed_typename (parse_language,
-						    parse_gdbarch,
-						    "long");
+		  $$.type = parse_type->builtin_long;
 		}
 	|	SHORT
 		{
 		  $$.stoken.ptr = "short";
 		  $$.stoken.length = 5;
-		  $$.type = lookup_signed_typename (parse_language,
-						    parse_gdbarch,
-						    "short");
+		  $$.type = parse_type->builtin_short;
 		}
 	;
 
@@ -1218,11 +1128,11 @@ const_or_volatile_noopt:  	const_and_volatile
 operator:	OPERATOR NEW
 			{ $$ = operator_stoken (" new"); }
 	|	OPERATOR DELETE
-			{ $$ = operator_stoken (" delete "); }
+			{ $$ = operator_stoken (" delete"); }
 	|	OPERATOR NEW '[' ']'
 			{ $$ = operator_stoken (" new[]"); }
 	|	OPERATOR DELETE '[' ']'
-			{ $$ = operator_stoken (" delete[] "); }
+			{ $$ = operator_stoken (" delete[]"); }
 	|	OPERATOR '+'
 			{ $$ = operator_stoken ("+"); }
 	|	OPERATOR '-'
@@ -1413,8 +1323,10 @@ parse_number (char *p, int len, int parsed_float, YYSTYPE *putithere)
 
   if (parsed_float)
     {
-      const char *suffix;
-      int suffix_len;
+      /* It's a float since it contains a point or an exponent.  */
+      char *s;
+      int num;	/* number of tokens scanned by scanf */
+      char saved_char;
 
       /* If it ends at "df", "dd" or "dl", take it as type of decimal floating
          point.  Return DECFLOAT.  */
@@ -1452,10 +1364,41 @@ parse_number (char *p, int len, int parsed_float, YYSTYPE *putithere)
 	  return DECFLOAT;
 	}
 
-      if (! parse_c_float (parse_gdbarch, p, len,
-			   &putithere->typed_val_float.dval,
-			   &putithere->typed_val_float.type))
-	return ERROR;
+      s = malloc (len);
+      saved_char = p[len];
+      p[len] = 0;	/* null-terminate the token */
+      num = sscanf (p, "%" DOUBLEST_SCAN_FORMAT "%s",
+		    &putithere->typed_val_float.dval, s);
+      p[len] = saved_char;	/* restore the input stream */
+
+      if (num == 0)
+	{
+	  free (s);
+	  return ERROR;
+	}
+
+      if (num == 1)
+	putithere->typed_val_float.type = 
+	  parse_type->builtin_double;
+
+      if (num == 2 )
+	{
+	  /* See if it has any float suffix: 'f' for float, 'l' for long 
+	     double.  */
+	  if (!strcasecmp (s, "f"))
+	    putithere->typed_val_float.type = 
+	      parse_type->builtin_float;
+	  else if (!strcasecmp (s, "l"))
+	    putithere->typed_val_float.type = 
+	      parse_type->builtin_long_double;
+	  else
+	    {
+	      free (s);
+	      return ERROR;
+	    }
+	}
+
+      free (s);
       return FLOAT;
     }
 
@@ -1549,7 +1492,7 @@ parse_number (char *p, int len, int parsed_float, YYSTYPE *putithere)
       if (c != 'l' && c != 'u' && n != 0)
 	{	
 	  if ((unsigned_p && (ULONGEST) prevn >= (ULONGEST) n))
-	    error (_("Numeric constant too large."));
+	    error ("Numeric constant too large.");
 	}
       prevn = n;
     }
@@ -1866,9 +1809,9 @@ parse_string_or_char (char *tokptr, char **outptr, struct typed_stoken *value,
   if (*tokptr != quote)
     {
       if (quote == '"')
-	error (_("Unterminated string in expression."));
+	error ("Unterminated string in expression.");
       else
-	error (_("Unmatched single quote."));
+	error ("Unmatched single quote.");
     }
   ++tokptr;
 
@@ -2240,27 +2183,12 @@ lex_one_token (void)
 
 	    memcpy (err_copy, tokstart, p - tokstart);
 	    err_copy[p - tokstart] = 0;
-	    error (_("Invalid number \"%s\"."), err_copy);
+	    error ("Invalid number \"%s\".", err_copy);
 	  }
 	lexptr = p;
 	return toktype;
       }
 
-    case '@':
-      {
-	char *p = &tokstart[1];
-	size_t len = strlen ("entry");
-
-	while (isspace (*p))
-	  p++;
-	if (strncmp (p, "entry", len) == 0 && !isalnum (p[len])
-	    && p[len] != '_')
-	  {
-	    lexptr = &p[len];
-	    return ENTRY;
-	  }
-      }
-      /* FALLTHRU */
     case '+':
     case '-':
     case '*':
@@ -2271,6 +2199,7 @@ lex_one_token (void)
     case '^':
     case '~':
     case '!':
+    case '@':
     case '<':
     case '>':
     case '?':
@@ -2297,7 +2226,7 @@ lex_one_token (void)
 	if (result == CHAR)
 	  {
 	    if (host_len == 0)
-	      error (_("Empty character constant."));
+	      error ("Empty character constant.");
 	    else if (host_len > 2 && c == '\'')
 	      {
 		++tokstart;
@@ -2305,7 +2234,7 @@ lex_one_token (void)
 		goto tryname;
 	      }
 	    else if (host_len > 1)
-	      error (_("Invalid character constant."));
+	      error ("Invalid character constant.");
 	  }
 	return result;
       }
@@ -2314,7 +2243,7 @@ lex_one_token (void)
   if (!(c == '_' || c == '$'
 	|| (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')))
     /* We must have come across a bad character (e.g. ';').  */
-    error (_("Invalid character '%c' in expression."), c);
+    error ("Invalid character '%c' in expression.", c);
 
   /* It's a name.  See how long it is.  */
   namelen = 0;
@@ -2493,7 +2422,6 @@ classify_name (struct block *block)
 
   if (sym == NULL
       && parse_language->la_language == language_cplus
-      && !is_a_field_of_this
       && !lookup_minimal_symbol (copy, NULL, NULL))
     return UNKNOWN_CPP_NAME;
 
@@ -2522,7 +2450,7 @@ classify_inner_name (struct block *block, int first_name)
     return NAME;
 
   copy = copy_name (yylval.tsym.stoken);
-  new_type = cp_lookup_nested_type (yylval.tsym.type, copy, block);
+  new_type = cp_lookup_nested_type (type, copy, block);
 
   if (new_type == NULL)
     /* We know the caller won't expect us to update yylval.  */
@@ -2694,5 +2622,5 @@ yyerror (char *msg)
   if (prev_lexptr)
     lexptr = prev_lexptr;
 
-  error (_("A %s in expression, near `%s'."), (msg ? msg : "error"), lexptr);
+  error ("A %s in expression, near `%s'.", (msg ? msg : "error"), lexptr);
 }
