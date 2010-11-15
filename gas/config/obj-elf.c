@@ -1,6 +1,6 @@
 /* ELF object file format
    Copyright 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000,
-   2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011
+   2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010
    Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
@@ -1701,11 +1701,10 @@ obj_elf_type (int ignore ATTRIBUTE_UNUSED)
       const struct elf_backend_data *bed;
 
       bed = get_elf_backend_data (stdoutput);
-      if (!(bed->elf_osabi == ELFOSABI_GNU
-	    || bed->elf_osabi == ELFOSABI_FREEBSD
-	    /* GNU is still using the default value 0.  */
+      if (!(bed->elf_osabi == ELFOSABI_LINUX
+	    /* GNU/Linux is still using the default value 0.  */
 	    || bed->elf_osabi == ELFOSABI_NONE))
-	as_bad (_("symbol type \"%s\" is supported only by GNU and FreeBSD targets"),
+	as_bad (_("symbol type \"%s\" is supported only by GNU targets"),
 		type_name);
       type = BSF_FUNCTION | BSF_GNU_INDIRECT_FUNCTION;
     }
@@ -1714,14 +1713,14 @@ obj_elf_type (int ignore ATTRIBUTE_UNUSED)
       struct elf_backend_data *bed;
 
       bed = (struct elf_backend_data *) get_elf_backend_data (stdoutput);
-      if (!(bed->elf_osabi == ELFOSABI_GNU
-	    /* GNU is still using the default value 0.  */
+      if (!(bed->elf_osabi == ELFOSABI_LINUX
+	    /* GNU/Linux is still using the default value 0.  */
 	    || bed->elf_osabi == ELFOSABI_NONE))
 	as_bad (_("symbol type \"%s\" is supported only by GNU targets"),
 		type_name);
       type = BSF_OBJECT | BSF_GNU_UNIQUE;
-      /* PR 10549: Always set OSABI field to GNU for objects containing unique symbols.  */
-      bed->elf_osabi = ELFOSABI_GNU;
+      /* PR 10549: Always set OSABI field to LINUX for objects containing unique symbols.  */
+      bed->elf_osabi = ELFOSABI_LINUX;
     }
 #ifdef md_elf_symbol_type
   else if ((type = md_elf_symbol_type (type_name, sym, elfsym)) != -1)
@@ -1880,7 +1879,6 @@ void
 elf_frob_symbol (symbolS *symp, int *puntp)
 {
   struct elf_obj_sy *sy_obj;
-  expressionS *size;
 
 #ifdef NEED_ECOFF_DEBUG
   if (ECOFF_DEBUGGING)
@@ -1889,20 +1887,24 @@ elf_frob_symbol (symbolS *symp, int *puntp)
 
   sy_obj = symbol_get_obj (symp);
 
-  size = sy_obj->size;
-  if (size != NULL)
+  if (sy_obj->size != NULL)
     {
-      if (resolve_expression (size)
-	  && size->X_op == O_constant)
-	S_SET_SIZE (symp, size->X_add_number);
-      else
+      switch (sy_obj->size->X_op)
 	{
-	  if (flag_size_check == size_check_error)
-	    as_bad (_(".size expression for %s "
-		      "does not evaluate to a constant"), S_GET_NAME (symp));
-	  else
-	    as_warn (_(".size expression for %s "
-		       "does not evaluate to a constant"), S_GET_NAME (symp));
+	case O_subtract:
+	  S_SET_SIZE (symp,
+		      (S_GET_VALUE (sy_obj->size->X_add_symbol)
+		       + sy_obj->size->X_add_number
+		       - S_GET_VALUE (sy_obj->size->X_op_symbol)));
+	  break;
+	case O_constant:
+	  S_SET_SIZE (symp,
+		      (S_GET_VALUE (sy_obj->size->X_add_symbol)
+		       + sy_obj->size->X_add_number));
+	  break;
+	default:
+	  as_bad (_(".size expression too complicated to fix up"));
+	  break;
 	}
       free (sy_obj->size);
       sy_obj->size = NULL;
@@ -2140,14 +2142,7 @@ elf_adjust_symtab (void)
 	{
 	  /* Create the symbol now.  */
 	  sy = symbol_new (group_name, now_seg, (valueT) 0, frag_now);
-#ifdef TE_SOLARIS
-	  /* Before Solaris 11 build 154, Sun ld rejects local group
-	     signature symbols, so make them weak hidden instead.  */
-	  symbol_get_bfdsym (sy)->flags |= BSF_WEAK;
-	  S_SET_OTHER (sy, STV_HIDDEN);
-#else
 	  symbol_get_obj (sy)->local = 1;
-#endif
 	  symbol_table_insert (sy);
 	}
       elf_group_id (s) = symbol_get_bfdsym (sy);
@@ -2403,12 +2398,12 @@ elf_generate_asm_lineno (void)
 }
 
 static void
-elf_process_stab (segT sec ATTRIBUTE_UNUSED,
-		  int what ATTRIBUTE_UNUSED,
-		  const char *string ATTRIBUTE_UNUSED,
-		  int type ATTRIBUTE_UNUSED,
-		  int other ATTRIBUTE_UNUSED,
-		  int desc ATTRIBUTE_UNUSED)
+elf_process_stab (segT sec,
+		  int what,
+		  const char *string,
+		  int type,
+		  int other,
+		  int desc)
 {
 #ifdef NEED_ECOFF_DEBUG
   if (ECOFF_DEBUGGING)
