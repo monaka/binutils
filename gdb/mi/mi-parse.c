@@ -1,6 +1,7 @@
 /* MI Command Set - MI parser.
 
-   Copyright (C) 2000-2002, 2007-2012 Free Software Foundation, Inc.
+   Copyright (C) 2000, 2001, 2002, 2007, 2008, 2009, 2010
+   Free Software Foundation, Inc.
 
    Contributed by Cygnus Solutions (a Red Hat company).
 
@@ -222,28 +223,18 @@ mi_parse_free (struct mi_parse *parse)
   xfree (parse);
 }
 
-/* A cleanup that calls mi_parse_free.  */
-
-static void
-mi_parse_cleanup (void *arg)
-{
-  mi_parse_free (arg);
-}
 
 struct mi_parse *
-mi_parse (char *cmd, char **token)
+mi_parse (char *cmd)
 {
   char *chp;
   struct mi_parse *parse = XMALLOC (struct mi_parse);
-  struct cleanup *cleanup;
 
   memset (parse, 0, sizeof (*parse));
   parse->all = 0;
   parse->thread_group = -1;
   parse->thread = -1;
   parse->frame = -1;
-
-  cleanup = make_cleanup (mi_parse_cleanup, parse);
 
   /* Before starting, skip leading white space. */
   while (isspace (*cmd))
@@ -252,9 +243,9 @@ mi_parse (char *cmd, char **token)
   /* Find/skip any token and then extract it. */
   for (chp = cmd; *chp >= '0' && *chp <= '9'; chp++)
     ;
-  *token = xmalloc (chp - cmd + 1);
-  memcpy (*token, cmd, (chp - cmd));
-  (*token)[chp - cmd] = '\0';
+  parse->token = xmalloc ((chp - cmd + 1) * sizeof (char *));
+  memcpy (parse->token, cmd, (chp - cmd));
+  parse->token[chp - cmd] = '\0';
 
   /* This wasn't a real MI command.  Return it as a CLI_COMMAND. */
   if (*chp != '-')
@@ -263,9 +254,6 @@ mi_parse (char *cmd, char **token)
 	chp++;
       parse->command = xstrdup (chp);
       parse->op = CLI_COMMAND;
-
-      discard_cleanups (cleanup);
-
       return parse;
     }
 
@@ -275,7 +263,7 @@ mi_parse (char *cmd, char **token)
 
     for (; *chp && !isspace (*chp); chp++)
       ;
-    parse->command = xmalloc (chp - tmp + 1);
+    parse->command = xmalloc ((chp - tmp + 1) * sizeof (char *));
     memcpy (parse->command, tmp, chp - tmp);
     parse->command[chp - tmp] = '\0';
   }
@@ -283,7 +271,15 @@ mi_parse (char *cmd, char **token)
   /* Find the command in the MI table. */
   parse->cmd = mi_lookup (parse->command);
   if (parse->cmd == NULL)
-    error (_("Undefined MI command: %s"), parse->command);
+    {
+      /* FIXME: This should be a function call. */
+      fprintf_unfiltered
+	(raw_stdout,
+	 "%s^error,msg=\"Undefined MI command: %s\"\n",
+	 parse->token, parse->command);
+      mi_parse_free (parse);
+      return NULL;
+    }
 
   /* Skip white space following the command. */
   while (isspace (*chp))
@@ -296,7 +292,7 @@ mi_parse (char *cmd, char **token)
      to CLI.  */
   for (;;)
     {
-      const char *option;
+      char *start = chp;
       size_t as = sizeof ("--all ") - 1;
       size_t tgs = sizeof ("--thread-group ") - 1;
       size_t ts = sizeof ("--thread ") - 1;
@@ -315,7 +311,6 @@ mi_parse (char *cmd, char **token)
         }
       if (strncmp (chp, "--thread-group ", tgs) == 0)
 	{
-	  option = "--thread-group";
 	  if (parse->thread_group != -1)
 	    error (_("Duplicate '--thread-group' option"));
 	  chp += tgs;
@@ -326,7 +321,6 @@ mi_parse (char *cmd, char **token)
 	}
       else if (strncmp (chp, "--thread ", ts) == 0)
 	{
-	  option = "--thread";
 	  if (parse->thread != -1)
 	    error (_("Duplicate '--thread' option"));
 	  chp += ts;
@@ -334,7 +328,6 @@ mi_parse (char *cmd, char **token)
 	}
       else if (strncmp (chp, "--frame ", fs) == 0)
 	{
-	  option = "--frame";
 	  if (parse->frame != -1)
 	    error (_("Duplicate '--frame' option"));
 	  chp += fs;
@@ -344,7 +337,8 @@ mi_parse (char *cmd, char **token)
 	break;
 
       if (*chp != '\0' && !isspace (*chp))
-	error (_("Invalid value for the '%s' option"), option);
+	error (_("Invalid value for the '%s' option"),
+	       start[2] == 't' ? "--thread" : "--frame");
       while (isspace (*chp))
 	chp++;
     }
@@ -355,7 +349,15 @@ mi_parse (char *cmd, char **token)
     {
       mi_parse_argv (chp, parse);
       if (parse->argv == NULL)
-	error (_("Problem parsing arguments: %s %s"), parse->command, chp);
+	{
+	  /* FIXME: This should be a function call. */
+	  fprintf_unfiltered
+	    (raw_stdout,
+	     "%s^error,msg=\"Problem parsing arguments: %s %s\"\n",
+	     parse->token, parse->command, chp);
+	  mi_parse_free (parse);
+	  return NULL;
+	}
     }
 
   /* FIXME: DELETE THIS */
@@ -363,8 +365,6 @@ mi_parse (char *cmd, char **token)
      command line as a single string. */
   if (parse->cmd->cli.cmd != NULL)
     parse->args = xstrdup (chp);
-
-  discard_cleanups (cleanup);
 
   /* Fully parsed. */
   parse->op = MI_COMMAND;
