@@ -1,6 +1,6 @@
 /* Python interface to program spaces.
 
-   Copyright (C) 2010-2012 Free Software Foundation, Inc.
+   Copyright (C) 2010 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -53,7 +53,7 @@ pspy_get_filename (PyObject *self, void *closure)
     {
       struct objfile *objfile = obj->pspace->symfile_object_file;
 
-      if (objfile)
+      if (objfile && objfile->name)
 	return PyString_Decode (objfile->name, strlen (objfile->name),
 				host_charset (), NULL);
     }
@@ -185,8 +185,7 @@ gdbpy_initialize_pspace (void)
     return;
 
   Py_INCREF (&pspace_object_type);
-  PyModule_AddObject (gdb_module, "Progspace",
-		      (PyObject *) &pspace_object_type);
+  PyModule_AddObject (gdb_module, "Progspace", (PyObject *) &pspace_object_type);
 }
 
 
