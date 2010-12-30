@@ -1,7 +1,7 @@
 /* GDB-specific functions for operating on agent expressions.
 
-   Copyright (C) 1998-2001, 2003, 2007-2012 Free Software Foundation,
-   Inc.
+   Copyright (C) 1998, 1999, 2000, 2001, 2003, 2007, 2008, 2009, 2010
+   Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -40,10 +40,6 @@
 #include "breakpoint.h"
 #include "tracepoint.h"
 #include "cp-support.h"
-#include "arch-utils.h"
-
-#include "valprint.h"
-#include "c-lang.h"
 
 /* To make sense of this file, you should read doc/agentexpr.texi.
    Then look at the types and enums in ax-gdb.h.  For the code itself,
@@ -63,7 +59,7 @@
 
 
 
-/* Prototypes for local functions.  */
+/* Prototypes for local functions. */
 
 /* There's a standard order to the arguments of these functions:
    union exp_element ** --- pointer into expression
@@ -74,8 +70,7 @@ static struct value *const_var_ref (struct symbol *var);
 static struct value *const_expr (union exp_element **pc);
 static struct value *maybe_const_expr (union exp_element **pc);
 
-static void gen_traced_pop (struct gdbarch *, struct agent_expr *,
-			    struct axs_value *);
+static void gen_traced_pop (struct gdbarch *, struct agent_expr *, struct axs_value *);
 
 static void gen_sign_extend (struct agent_expr *, struct type *);
 static void gen_extend (struct agent_expr *, struct type *);
@@ -338,11 +333,6 @@ maybe_const_expr (union exp_element **pc)
    emits the trace bytecodes at the appropriate points.  */
 int trace_kludge;
 
-/* Inspired by trace_kludge, this indicates that pointers to chars
-   should get an added tracenz bytecode to record nonzero bytes, up to
-   a length that is the value of trace_string_kludge.  */
-int trace_string_kludge;
-
 /* Scan for all static fields in the given class, including any base
    classes, and generate tracing bytecodes for each.  */
 
@@ -401,34 +391,18 @@ static void
 gen_traced_pop (struct gdbarch *gdbarch,
 		struct agent_expr *ax, struct axs_value *value)
 {
-  int string_trace = 0;
-  if (trace_string_kludge
-      && TYPE_CODE (value->type) == TYPE_CODE_PTR
-      && c_textual_element_type (check_typedef (TYPE_TARGET_TYPE (value->type)),
-				 's'))
-    string_trace = 1;
-
   if (trace_kludge)
     switch (value->kind)
       {
       case axs_rvalue:
-	if (string_trace)
-	  {
-	    ax_const_l (ax, trace_string_kludge);
-	    ax_simple (ax, aop_tracenz);
-	  }
-	else
-	  /* We don't trace rvalues, just the lvalues necessary to
-	     produce them.  So just dispose of this value.  */
-	  ax_simple (ax, aop_pop);
+	/* We don't trace rvalues, just the lvalues necessary to
+	   produce them.  So just dispose of this value.  */
+	ax_simple (ax, aop_pop);
 	break;
 
       case axs_lvalue_memory:
 	{
 	  int length = TYPE_LENGTH (check_typedef (value->type));
-
-	  if (string_trace)
-	    ax_simple (ax, aop_dup);
 
 	  /* There's no point in trying to use a trace_quick bytecode
 	     here, since "trace_quick SIZE pop" is three bytes, whereas
@@ -437,13 +411,6 @@ gen_traced_pop (struct gdbarch *gdbarch,
 	     work correctly for objects with large sizes.  */
 	  ax_const_l (ax, length);
 	  ax_simple (ax, aop_trace);
-
-	  if (string_trace)
-	    {
-	      ax_simple (ax, aop_ref32);
-	      ax_const_l (ax, trace_string_kludge);
-	      ax_simple (ax, aop_tracenz);
-	    }
 	}
 	break;
 
@@ -453,15 +420,6 @@ gen_traced_pop (struct gdbarch *gdbarch,
 	   larger than will fit in a stack, so just mark it for
 	   collection and be done with it.  */
 	ax_reg_mask (ax, value->u.reg);
-       
-	/* But if the register points to a string, assume the value
-	   will fit on the stack and push it anyway.  */
-	if (string_trace)
-	  {
-	    ax_reg (ax, value->u.reg);
-	    ax_const_l (ax, trace_string_kludge);
-	    ax_simple (ax, aop_tracenz);
-	  }
 	break;
       }
   else
@@ -656,7 +614,7 @@ static void
 gen_var_ref (struct gdbarch *gdbarch, struct agent_expr *ax,
 	     struct axs_value *value, struct symbol *var)
 {
-  /* Dereference any typedefs.  */
+  /* Dereference any typedefs. */
   value->type = check_typedef (SYMBOL_TYPE (var));
   value->optimized_out = 0;
 
@@ -675,8 +633,7 @@ gen_var_ref (struct gdbarch *gdbarch, struct agent_expr *ax,
 
     case LOC_CONST_BYTES:
       internal_error (__FILE__, __LINE__,
-		      _("gen_var_ref: LOC_CONST_BYTES "
-			"symbols are not supported"));
+		      _("gen_var_ref: LOC_CONST_BYTES symbols are not supported"));
 
       /* Variable at a fixed location in memory.  Easy.  */
     case LOC_STATIC:
@@ -1029,7 +986,7 @@ gen_cast (struct agent_expr *ax, struct axs_value *value, struct type *type)
   /* GCC does allow casts to yield lvalues, so this should be fixed
      before merging these changes into the trunk.  */
   require_rvalue (ax, value);
-  /* Dereference typedefs.  */
+  /* Dereference typedefs. */
   type = check_typedef (type);
 
   switch (TYPE_CODE (type))
@@ -1181,9 +1138,8 @@ gen_less (struct agent_expr *ax, struct axs_value *value,
    operator, used in error messages */
 static void
 gen_binop (struct agent_expr *ax, struct axs_value *value,
-	   struct axs_value *value1, struct axs_value *value2,
-	   enum agent_op op, enum agent_op op_unsigned,
-	   int may_carry, char *name)
+	   struct axs_value *value1, struct axs_value *value2, enum agent_op op,
+	   enum agent_op op_unsigned, int may_carry, char *name)
 {
   /* We only handle INT op INT.  */
   if ((TYPE_CODE (value1->type) != TYPE_CODE_INT)
@@ -1333,7 +1289,7 @@ gen_bitfield_ref (struct expression *exp, struct agent_expr *ax,
      equal to the number of `one' bits in bytesize, but who cares?  */
   int fragment_count;
 
-  /* Dereference any typedefs.  */
+  /* Dereference any typedefs. */
   type = check_typedef (type);
 
   /* Can we fetch the number of bits requested at all?  */
@@ -1491,8 +1447,7 @@ gen_struct_ref_recursive (struct expression *exp, struct agent_expr *ax,
 		{
 		  gen_static_field (exp->gdbarch, ax, value, type, i);
 		  if (value->optimized_out)
-		    error (_("static field `%s' has been "
-			     "optimized out, cannot use"),
+		    error (_("static field `%s' has been optimized out, cannot use"),
 			   field);
 		  return 1;
 		}
@@ -1514,8 +1469,7 @@ gen_struct_ref_recursive (struct expression *exp, struct agent_expr *ax,
       struct type *basetype = check_typedef (TYPE_BASECLASS (type, i));
 
       rslt = gen_struct_ref_recursive (exp, ax, value, field,
-				       offset + TYPE_BASECLASS_BITPOS (type, i)
-				       / TARGET_CHAR_BIT,
+				       offset + TYPE_BASECLASS_BITPOS (type, i) / TARGET_CHAR_BIT,
 				       basetype);
       if (rslt)
 	return 1;
@@ -1590,7 +1544,7 @@ gen_static_field (struct gdbarch *gdbarch,
     }
   else
     {
-      const char *phys_name = TYPE_FIELD_STATIC_PHYSNAME (type, fieldno);
+      char *phys_name = TYPE_FIELD_STATIC_PHYSNAME (type, fieldno);
       struct symbol *sym = lookup_symbol (phys_name, 0, VAR_DOMAIN, 0);
 
       if (sym)
@@ -1633,8 +1587,7 @@ gen_struct_elt_for_reference (struct expression *exp,
 	    {
 	      gen_static_field (exp->gdbarch, ax, value, t, i);
 	      if (value->optimized_out)
-		error (_("static field `%s' has been "
-			 "optimized out, cannot use"),
+		error (_("static field `%s' has been optimized out, cannot use"),
 		       fieldname);
 	      return 1;
 	    }
@@ -1724,7 +1677,7 @@ gen_aggregate_elt_ref (struct expression *exp,
   return 0;
 }
 
-/* Generate code for GDB's magical `repeat' operator.
+/* Generate code for GDB's magical `repeat' operator.  
    LVALUE @ INT creates an array INT elements long, and whose elements
    have the same type as LVALUE, located in memory so that LVALUE is
    its first element.  For example, argv[0]@argc gives you the array
@@ -1753,8 +1706,7 @@ gen_repeat (struct expression *exp, union exp_element **pc,
     int length;
 
     if (!v)
-      error (_("Right operand of `@' must be a "
-	       "constant, in agent expressions."));
+      error (_("Right operand of `@' must be a constant, in agent expressions."));
     if (TYPE_CODE (value_type (v)) != TYPE_CODE_INT)
       error (_("Right operand of `@' must be an integer."));
     length = value_as_long (v);
@@ -1938,8 +1890,7 @@ gen_expr (struct expression *exp, union exp_element **pc,
 		ax_tsv (ax, aop_tracev, tsv->number);
 	    }
 	  else
-	    error (_("$%s is not a trace state variable, "
-		     "may not assign to it"), name);
+	    error (_("$%s is not a trace state variable, may not assign to it"), name);
 	}
       else
 	error (_("May only assign to trace state variables"));
@@ -1974,8 +1925,7 @@ gen_expr (struct expression *exp, union exp_element **pc,
 		ax_tsv (ax, aop_tracev, tsv->number);
 	    }
 	  else
-	    error (_("$%s is not a trace state variable, "
-		     "may not assign to it"), name);
+	    error (_("$%s is not a trace state variable, may not assign to it"), name);
 	}
       else
 	error (_("May only assign to trace state variables"));
@@ -2057,8 +2007,7 @@ gen_expr (struct expression *exp, union exp_element **pc,
 	    value->type = builtin_type (exp->gdbarch)->builtin_long_long;
 	  }
 	else
-	  error (_("$%s is not a trace state variable; GDB agent "
-		   "expressions cannot use convenience variables."), name);
+	  error (_("$%s is not a trace state variable; GDB agent expressions cannot use convenience variables."), name);
       }
       break;
 
@@ -2085,13 +2034,14 @@ gen_expr (struct expression *exp, union exp_element **pc,
 
 	(*pc) += 3;
 	gen_expr (exp, pc, ax, value);
-
-	/* If we have an axs_rvalue or an axs_lvalue_memory, then we
-	   already have the right value on the stack.  For
-	   axs_lvalue_register, we must convert.  */
-	if (value->kind == axs_lvalue_register)
-	  require_rvalue (ax, value);
-
+	/* I'm not sure I understand UNOP_MEMVAL entirely.  I think
+	   it's just a hack for dealing with minsyms; you take some
+	   integer constant, pretend it's the address of an lvalue of
+	   the given type, and dereference it.  */
+	if (value->kind != axs_rvalue)
+	  /* This would be weird.  */
+	  internal_error (__FILE__, __LINE__,
+			  _("gen_expr: OP_MEMVAL operand isn't an rvalue???"));
 	value->type = type;
 	value->kind = axs_lvalue_memory;
       }
@@ -2099,7 +2049,7 @@ gen_expr (struct expression *exp, union exp_element **pc,
 
     case UNOP_PLUS:
       (*pc)++;
-      /* + FOO is equivalent to 0 + FOO, which can be optimized.  */
+      /* + FOO is equivalent to 0 + FOO, which can be optimized. */
       gen_expr (exp, pc, ax, value);
       gen_usual_unary (exp, ax, value);
       break;
@@ -2179,17 +2129,18 @@ gen_expr (struct expression *exp, union exp_element **pc,
     case OP_THIS:
       {
 	char *this_name;
-	struct symbol *sym, *func;
+	struct symbol *func, *sym;
 	struct block *b;
-	const struct language_defn *lang;
 
-	b = block_for_pc (ax->scope);
-	func = block_linkage_function (b);
-	lang = language_def (SYMBOL_LANGUAGE (func));
+	func = block_linkage_function (block_for_pc (ax->scope));
+	this_name = language_def (SYMBOL_LANGUAGE (func))->la_name_of_this;
+	b = SYMBOL_BLOCK_VALUE (func);
 
-	sym = lookup_language_this (lang, b);
+	/* Calling lookup_block_symbol is necessary to get the LOC_REGISTER
+	   symbol instead of the LOC_ARG one (if both exist).  */
+	sym = lookup_block_symbol (b, this_name, VAR_DOMAIN);
 	if (!sym)
-	  error (_("no `%s' found"), lang->la_name_of_this);
+	  error (_("no `%s' found"), this_name);
 
 	gen_var_ref (exp->gdbarch, ax, value, sym);
 
@@ -2296,8 +2247,8 @@ gen_expr_binop_rest (struct expression *exp,
 
 	if (binop_types_user_defined_p (op, value1->type, value2->type))
 	  {
-	    error (_("cannot subscript requested type: "
-		     "cannot call user defined functions"));
+	    error (_("\
+cannot subscript requested type: cannot call user defined functions"));
 	  }
 	else
 	  {
@@ -2317,8 +2268,7 @@ gen_expr_binop_rest (struct expression *exp,
 	  }
 
 	if (!is_integral_type (value2->type))
-	  error (_("Argument to arithmetic operation "
-		   "not a number or boolean."));
+	  error (_("Argument to arithmetic operation not a number or boolean."));
 
 	gen_ptradd (ax, value, value1, value2);
 	gen_deref (ax, value);
@@ -2485,32 +2435,6 @@ gen_eval_for_expr (CORE_ADDR scope, struct expression *expr)
   return ax;
 }
 
-struct agent_expr *
-gen_trace_for_return_address (CORE_ADDR scope, struct gdbarch *gdbarch)
-{
-  struct cleanup *old_chain = 0;
-  struct agent_expr *ax = new_agent_expr (gdbarch, scope);
-  struct axs_value value;
-
-  old_chain = make_cleanup_free_agent_expr (ax);
-
-  trace_kludge = 1;
-
-  gdbarch_gen_return_address (gdbarch, ax, &value, scope);
-
-  /* Make sure we record the final object, and get rid of it.  */
-  gen_traced_pop (gdbarch, ax, &value);
-
-  /* Oh, and terminate.  */
-  ax_simple (ax, aop_end);
-
-  /* We have successfully built the agent expr, so cancel the cleanup
-     request.  If we add more cleanups that we always want done, this
-     will have to get more complicated.  */
-  discard_cleanups (old_chain);
-  return ax;
-}
-
 static void
 agent_command (char *exp, int from_tty)
 {
@@ -2529,26 +2453,10 @@ agent_command (char *exp, int from_tty)
   if (exp == 0)
     error_no_arg (_("expression to translate"));
 
-  trace_string_kludge = 0;
-  if (*exp == '/')
-    exp = decode_agent_options (exp);
-
-  /* Recognize the return address collection directive specially.  Note
-     that it is not really an expression of any sort.  */
-  if (strcmp (exp, "$_ret") == 0)
-    {
-      agent = gen_trace_for_return_address (get_frame_pc (fi),
-					    get_current_arch ());
-      old_chain = make_cleanup_free_agent_expr (agent);
-    }
-  else
-    {
-      expr = parse_expression (exp);
-      old_chain = make_cleanup (free_current_contents, &expr);
-      agent = gen_trace_for_expr (get_frame_pc (fi), expr);
-      make_cleanup_free_agent_expr (agent);
-    }
-
+  expr = parse_expression (exp);
+  old_chain = make_cleanup (free_current_contents, &expr);
+  agent = gen_trace_for_expr (get_frame_pc (fi), expr);
+  make_cleanup_free_agent_expr (agent);
   ax_reqs (agent);
   ax_print (gdb_stdout, agent);
 
@@ -2603,12 +2511,10 @@ void
 _initialize_ax_gdb (void)
 {
   add_cmd ("agent", class_maintenance, agent_command,
-	   _("Translate an expression into "
-	     "remote agent bytecode for tracing."),
+	   _("Translate an expression into remote agent bytecode for tracing."),
 	   &maintenancelist);
 
   add_cmd ("agent-eval", class_maintenance, agent_eval_command,
-	   _("Translate an expression into remote "
-	     "agent bytecode for evaluation."),
+	   _("Translate an expression into remote agent bytecode for evaluation."),
 	   &maintenancelist);
 }
