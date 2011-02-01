@@ -1,6 +1,6 @@
 /* Object file "section" support for the BFD library.
    Copyright 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999,
-   2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011
+   2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010
    Free Software Foundation, Inc.
    Written by Cygnus Support.
 
@@ -327,11 +327,6 @@ CODE_FRAGMENT
 .     sections.  *}
 .#define SEC_COFF_SHARED_LIBRARY 0x4000000
 .
-.  {* This input section should be copied to output in reverse order
-.     as an array of pointers.  This is for ELF linker internal use
-.     only.  *}
-.#define SEC_ELF_REVERSE_COPY 0x4000000
-.
 .  {* This section contains data which may be shared with other
 .     executables or shared objects. This is for COFF only.  *}
 .#define SEC_COFF_SHARED 0x8000000
@@ -516,9 +511,6 @@ CODE_FRAGMENT
 .  {* The BFD which owns the section.  *}
 .  bfd *owner;
 .
-.  {* INPUT_SECTION_FLAGS if specified in the linker script.  *}
-.  struct flag_info *section_flag_info;
-.
 .  {* A symbol which points at this section only.  *}
 .  struct bfd_symbol *symbol;
 .  struct bfd_symbol **symbol_ptr_ptr;
@@ -696,9 +688,6 @@ CODE_FRAGMENT
 .									\
 .  {* target_index, used_by_bfd, constructor_chain, owner,          *}	\
 .     0,            NULL,        NULL,              NULL,		\
-.									\
-.  {* flag_info,						    *}  \
-.     NULL,								\
 .									\
 .  {* symbol,                    symbol_ptr_ptr,                    *}	\
 .     (struct bfd_symbol *) SYM, &SEC.symbol,				\
@@ -1467,10 +1456,7 @@ bfd_get_section_contents (bfd *abfd,
       return TRUE;
     }
 
-  if (abfd->direction != write_direction && section->rawsize != 0)
-    sz = section->rawsize;
-  else
-    sz = section->size;
+  sz = section->rawsize ? section->rawsize : section->size;
   if ((bfd_size_type) offset > sz
       || count > sz
       || offset + count > sz

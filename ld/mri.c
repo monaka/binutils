@@ -215,7 +215,6 @@ mri_draw_tree (void)
 	  tmp->spec.name = p->name;
 	  tmp->spec.exclude_name_list = NULL;
 	  tmp->spec.sorted = none;
-	  tmp->spec.section_flag_list = NULL;
 	  lang_add_wild (NULL, tmp, FALSE);
 
 	  /* If there is an alias for this section, add it too.  */
@@ -227,7 +226,6 @@ mri_draw_tree (void)
 		tmp->spec.name = aptr->name;
 		tmp->spec.exclude_name_list = NULL;
 		tmp->spec.sorted = none;
-		tmp->spec.section_flag_list = NULL;
 		lang_add_wild (NULL, tmp, FALSE);
 	      }
 
