@@ -22,7 +22,6 @@
 
 #include "gprof.h"
 #include "libiberty.h"
-#include "filenames.h"
 #include "search_list.h"
 #include "source.h"
 #include "symtab.h"
@@ -158,8 +157,7 @@ read_function_mappings (const char *filename)
   symbol_map_count = count;
 
   for (i = 0; i < symbol_map_count; ++i)
-    if (i == 0
-        || filename_cmp (symbol_map[i].file_name, symbol_map[i - 1].file_name))
+    if (i == 0 || strcmp (symbol_map[i].file_name, symbol_map[i - 1].file_name))
       symbol_map[i].is_first = 1;
 
   qsort (symbol_map, symbol_map_count, sizeof (struct function_map), cmp_symbol_map);
@@ -387,27 +385,19 @@ core_sym_class (asymbol *sym)
       if (*name == '$')
         return 0;
 
-      while (*name == '.')
+      if (*name == '.')
 	{
-	  /* Allow both nested subprograms (which end with ".NNN", where N is
-	     a digit) and GCC cloned functions (which contain ".clone").
-	     Allow for multiple iterations of both - apparently GCC can clone
-	     clones and subprograms.  */
-	  int digit_seen = 0;
-#define CLONE_NAME      ".clone."
-#define CLONE_NAME_LEN  strlen (CLONE_NAME)
-	      
-	  if (strlen (name) > CLONE_NAME_LEN
-	      && strncmp (name, CLONE_NAME, CLONE_NAME_LEN) == 0)
-	    name += CLONE_NAME_LEN - 1;
+	  /* Allow GCC cloned functions.  */
+	  if (strlen (name) > 7 && strncmp (name, ".clone.", 7) == 0)
+	    name += 6;
 
+	  /* Do not discard nested subprograms (those
+	     which end with .NNN, where N are digits).  */
 	  for (name++; *name; name++)
-	    if (digit_seen && *name == '.')
-	      break;
-	    else if (ISDIGIT (*name))
-	      digit_seen = 1;
-	    else
+	    if (! ISDIGIT (*name))
 	      return 0;
+
+	  break;
 	}
     }
 
@@ -776,7 +766,7 @@ core_create_line_syms (void)
 	  || (prev_line_num == dummy.line_num
 	      && prev_name != NULL
 	      && strcmp (prev_name, dummy.name) == 0
-	      && filename_cmp (prev_filename, filename) == 0))
+	      && strcmp (prev_filename, filename) == 0))
 	continue;
 
       ++ltab.len;
@@ -841,7 +831,7 @@ core_create_line_syms (void)
       if (!get_src_info (vma, &filename, &ltab.limit->name, &ltab.limit->line_num)
 	  || (prev && prev->line_num == ltab.limit->line_num
 	      && strcmp (prev->name, ltab.limit->name) == 0
-	      && filename_cmp (prev->file->name, filename) == 0))
+	      && strcmp (prev->file->name, filename) == 0))
 	continue;
 
       /* Make name pointer a malloc'ed string.  */
