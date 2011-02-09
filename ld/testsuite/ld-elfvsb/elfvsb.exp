@@ -1,5 +1,5 @@
 # Expect script for ld-visibility tests
-#   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2010
+#   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007
 #   Free Software Foundation, Inc.
 #
 # This file is part of the GNU Binutils.
@@ -30,7 +30,6 @@
 if { ![istarget hppa*64*-*-hpux*] \
      && ![istarget hppa*-*-linux*] \
      && ![istarget i?86-*-linux*] \
-     && ![istarget i?86-*-gnu*] \
      && ![istarget ia64-*-linux*] \
      && ![istarget m68k-*-linux*] \
      && ![istarget mips*-*-linux*] \
@@ -116,8 +115,7 @@ if [istarget arm*-*-linux*] {
 
 set support_protected "no"
 
-if { [istarget *-*-linux*]
-     || [istarget *-*-gnu*] } {
+if [istarget *-*-linux*] {
     if [ld_compile "$CC -g $CFLAGS -DPROTECTED_CHECK" $srcdir/$subdir/main.c $tmpdir/main.o] {
       if [ld_simple_link $CC $tmpdir/main "$tmpdir/main.o"] {
 	catch "exec $tmpdir/main" support_protected
@@ -249,8 +247,7 @@ proc visibility_run {visibility} {
 	set VSBCFLAG ""
     }}}}}}}}}
 
-    if { [istarget powerpc*-*-linux*] \
-	 || ( [istarget mips*-*-linux*] && [at_least_gcc_version 4 3] )} {
+    if { [istarget powerpc*-*-linux*] } {
 	# Testing non-PIC libraries is a waste of effort on any target.
 	# If you don't pass -fpic or -fPIC to gcc, gcc will assume quite
 	# reasonably that you are not compiling for a shared library.
@@ -303,9 +300,7 @@ proc visibility_run {visibility} {
 		    setup_xfail "sparc*-*-linux*"
 		}
 	    }
-	    if { [is_elf64 $tmpdir/mainnp.o] } {
-		setup_xfail "x86_64-*-linux*"
-	    }
+	    setup_xfail "x86_64-*-linux*"
 	    if { ![istarget hppa*64*-*-linux*] } {
 		setup_xfail "hppa*-*-linux*"
 	    }
@@ -346,9 +341,7 @@ proc visibility_run {visibility} {
 		setup_xfail "alpha*-*-linux*"
 		setup_xfail "mips*-*-linux*"
 	    }
-	    if { [is_elf64 $tmpdir/mainnp.o] } {
-		setup_xfail "x86_64-*-linux*"
-	    }
+	    setup_xfail "x86_64-*-linux*"
 	    if { ![istarget hppa*64*-*-linux*] } {
 		setup_xfail "hppa*-*-linux*"
 	    }
@@ -420,9 +413,7 @@ proc visibility_run {visibility} {
 			setup_xfail "sparc*-*-linux*"
 		    }
 		}
-		if { [is_elf64 $tmpdir/mainp.o] } {
-		    setup_xfail "x86_64-*-linux*"
-		}
+		setup_xfail "x86_64-*-linux*"
 		if { ![istarget hppa*64*-*-linux*] } {
 		    setup_xfail "hppa*-*-linux*"
 		}
@@ -454,9 +445,7 @@ proc visibility_run {visibility} {
     }}
 }
 
-# Old version of GCC for MIPS default to enabling -fpic
-# and get confused if it is used on the command line.
-if { [istarget mips*-*-*] && ! [at_least_gcc_version 4 3] } then {
+if [istarget mips*-*-*] {
     set picflag ""
 } else {
     # Unfortunately, the gcc argument is -fpic and the cc argument is
