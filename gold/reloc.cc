@@ -56,9 +56,7 @@ Read_relocs::is_runnable()
 void
 Read_relocs::locks(Task_locker* tl)
 {
-  Task_token* token = this->object_->token();
-  if (token != NULL)
-    tl->add(this, token);
+  tl->add(this, this->object_->token());
 }
 
 // Read the relocations and then start a Scan_relocs_task.
@@ -174,9 +172,7 @@ Scan_relocs::is_runnable()
 void
 Scan_relocs::locks(Task_locker* tl)
 {
-  Task_token* token = this->object_->token();
-  if (token != NULL)
-    tl->add(this, token);
+  tl->add(this, this->object_->token());
   tl->add(this, this->next_blocker_);
 }
 
@@ -226,9 +222,7 @@ Relocate_task::locks(Task_locker* tl)
   if (this->input_sections_blocker_ != NULL)
     tl->add(this, this->input_sections_blocker_);
   tl->add(this, this->final_blocker_);
-  Task_token* token = this->object_->token();
-  if (token != NULL)
-    tl->add(this, token);
+  tl->add(this, this->object_->token());
 }
 
 // Run the task.
@@ -258,7 +252,7 @@ Relocate_task::get_name() const
 
 template<int size, bool big_endian>
 void
-Sized_relobj_file<size, big_endian>::do_read_relocs(Read_relocs_data* rd)
+Sized_relobj<size, big_endian>::do_read_relocs(Read_relocs_data* rd)
 {
   rd->relocs.clear();
 
@@ -269,7 +263,7 @@ Sized_relobj_file<size, big_endian>::do_read_relocs(Read_relocs_data* rd)
   rd->relocs.reserve(shnum / 2);
 
   const Output_sections& out_sections(this->output_sections());
-  const std::vector<Address>& out_offsets(this->section_offsets());
+  const std::vector<Address>& out_offsets(this->section_offsets_);
 
   const unsigned char* pshdrs = this->get_view(this->elf_file_.shoff(),
 					       shnum * This::shdr_size,
@@ -321,9 +315,6 @@ Sized_relobj_file<size, big_endian>::do_read_relocs(Read_relocs_data* rd)
 	}
 
       off_t sh_size = shdr.get_sh_size();
-
-      if (sh_size == 0)
-	continue;
 
       unsigned int reloc_size;
       if (sh_type == elfcpp::SHT_REL)
@@ -378,14 +369,14 @@ Sized_relobj_file<size, big_endian>::do_read_relocs(Read_relocs_data* rd)
 }
 
 // Process the relocs to generate mappings from source sections to referenced
-// sections.  This is used during garbage collection to determine garbage
+// sections.  This is used during garbage colletion to determine garbage 
 // sections.
 
 template<int size, bool big_endian>
 void
-Sized_relobj_file<size, big_endian>::do_gc_process_relocs(Symbol_table* symtab,
-							  Layout* layout,
-							  Read_relocs_data* rd)
+Sized_relobj<size, big_endian>::do_gc_process_relocs(Symbol_table* symtab,
+						     Layout* layout,
+						     Read_relocs_data* rd)
 {  
   Sized_target<size, big_endian>* target =
     parameters->sized_target<size, big_endian>();
@@ -423,7 +414,7 @@ Sized_relobj_file<size, big_endian>::do_gc_process_relocs(Symbol_table* symtab,
 
 template<int size, bool big_endian>
 void
-Sized_relobj_file<size, big_endian>::do_scan_relocs(Symbol_table* symtab,
+Sized_relobj<size, big_endian>::do_scan_relocs(Symbol_table* symtab,
 					       Layout* layout,
 					       Read_relocs_data* rd)
 {
@@ -492,7 +483,7 @@ Sized_relobj_file<size, big_endian>::do_scan_relocs(Symbol_table* symtab,
 
   // For incremental links, finalize the allocation of relocations.
   if (layout->incremental_inputs() != NULL)
-    this->finalize_incremental_relocs(layout, true);
+    this->finalize_incremental_relocs(layout);
 
   if (rd->local_symbols != NULL)
     {
@@ -540,7 +531,7 @@ class Emit_relocs_strategy
 
 template<int size, bool big_endian>
 void
-Sized_relobj_file<size, big_endian>::emit_relocs_scan(
+Sized_relobj<size, big_endian>::emit_relocs_scan(
     Symbol_table* symtab,
     Layout* layout,
     const unsigned char* plocal_syms,
@@ -567,7 +558,7 @@ Sized_relobj_file<size, big_endian>::emit_relocs_scan(
 template<int size, bool big_endian>
 template<int sh_type>
 void
-Sized_relobj_file<size, big_endian>::emit_relocs_scan_reltype(
+Sized_relobj<size, big_endian>::emit_relocs_scan_reltype(
     Symbol_table* symtab,
     Layout* layout,
     const unsigned char* plocal_syms,
@@ -593,7 +584,7 @@ Sized_relobj_file<size, big_endian>::emit_relocs_scan_reltype(
 
 template<int size, bool big_endian>
 void
-Sized_relobj_file<size, big_endian>::incremental_relocs_scan(
+Sized_relobj<size, big_endian>::incremental_relocs_scan(
     const Read_relocs_data::Relocs_list::iterator& p)
 {
   if (p->sh_type == elfcpp::SHT_REL)
@@ -605,13 +596,13 @@ Sized_relobj_file<size, big_endian>::incremental_relocs_scan(
     }
 }
 
-// Scan the input relocation for --incremental, templatized on the
+// Scan the input relocation for --emit-relocs, templatized on the
 // type of the relocation section.
 
 template<int size, bool big_endian>
 template<int sh_type>
 void
-Sized_relobj_file<size, big_endian>::incremental_relocs_scan_reltype(
+Sized_relobj<size, big_endian>::incremental_relocs_scan_reltype(
     const Read_relocs_data::Relocs_list::iterator& p)
 {
   typedef typename Reloc_types<sh_type, size, big_endian>::Reloc Reltype;
@@ -641,9 +632,9 @@ Sized_relobj_file<size, big_endian>::incremental_relocs_scan_reltype(
 
 template<int size, bool big_endian>
 void
-Sized_relobj_file<size, big_endian>::do_relocate(const Symbol_table* symtab,
-						 const Layout* layout,
-						 Output_file* of)
+Sized_relobj<size, big_endian>::do_relocate(const Symbol_table* symtab,
+					    const Layout* layout,
+					    Output_file* of)
 {
   unsigned int shnum = this->shnum();
 
@@ -659,7 +650,7 @@ Sized_relobj_file<size, big_endian>::do_relocate(const Symbol_table* symtab,
   // section data to the output file.  The second one applies
   // relocations.
 
-  this->write_sections(layout, pshdrs, of, &views);
+  this->write_sections(pshdrs, of, &views);
 
   // To speed up relocations, we set up hash tables for fast lookup of
   // input offsets to output addresses.
@@ -678,8 +669,6 @@ Sized_relobj_file<size, big_endian>::do_relocate(const Symbol_table* symtab,
     {
       if (views[i].view != NULL)
 	{
-	  if (views[i].is_ctors_reverse_view)
-	    this->reverse_words(views[i].view, views[i].view_size);
 	  if (!views[i].is_postprocessing_view)
 	    {
 	      if (views[i].is_input_output_view)
@@ -695,8 +684,7 @@ Sized_relobj_file<size, big_endian>::do_relocate(const Symbol_table* symtab,
 
   // Write out the local symbols.
   this->write_local_symbols(of, layout->sympool(), layout->dynpool(),
-			    layout->symtab_xindex(), layout->dynsym_xindex(),
-			    layout->symtab_section_offset());
+			    layout->symtab_xindex(), layout->dynsym_xindex());
 }
 
 // Sort a Read_multiple vector by file offset.
@@ -714,14 +702,13 @@ struct Read_multiple_compare
 
 template<int size, bool big_endian>
 void
-Sized_relobj_file<size, big_endian>::write_sections(const Layout* layout,
-						    const unsigned char* pshdrs,
-						    Output_file* of,
-						    Views* pviews)
+Sized_relobj<size, big_endian>::write_sections(const unsigned char* pshdrs,
+					       Output_file* of,
+					       Views* pviews)
 {
   unsigned int shnum = this->shnum();
   const Output_sections& out_sections(this->output_sections());
-  const std::vector<Address>& out_offsets(this->section_offsets());
+  const std::vector<Address>& out_offsets(this->section_offsets_);
 
   File_read::Read_multiple rm;
   bool is_sorted = true;
@@ -764,7 +751,6 @@ Sized_relobj_file<size, big_endian>::write_sections(const Layout* layout,
 	  pvs->address = posd->address();
 	  pvs->is_input_output_view = false;
 	  pvs->is_postprocessing_view = false;
-	  pvs->is_ctors_reverse_view = false;
 
 	  continue;
 	}
@@ -879,12 +865,6 @@ Sized_relobj_file<size, big_endian>::write_sections(const Layout* layout,
       pvs->view_size = view_size;
       pvs->is_input_output_view = output_offset == invalid_address;
       pvs->is_postprocessing_view = os->requires_postprocessing();
-      pvs->is_ctors_reverse_view =
-	(!parameters->options().relocatable()
-	 && view_size > size / 8
-	 && (strcmp(os->name(), ".init_array") == 0
-	     || strcmp(os->name(), ".fini_array") == 0)
-	 && layout->is_ctors_in_init_array(this, i));
     }
 
   // Actually read the data.
@@ -901,7 +881,7 @@ Sized_relobj_file<size, big_endian>::write_sections(const Layout* layout,
 
 template<int size, bool big_endian>
 void
-Sized_relobj_file<size, big_endian>::do_relocate_sections(
+Sized_relobj<size, big_endian>::do_relocate_sections(
     const Symbol_table* symtab,
     const Layout* layout,
     const unsigned char* pshdrs,
@@ -913,7 +893,7 @@ Sized_relobj_file<size, big_endian>::do_relocate_sections(
     parameters->sized_target<size, big_endian>();
 
   const Output_sections& out_sections(this->output_sections());
-  const std::vector<Address>& out_offsets(this->section_offsets());
+  const std::vector<Address>& out_offsets(this->section_offsets_);
 
   Relocate_info<size, big_endian> relinfo;
   relinfo.symtab = symtab;
@@ -1037,7 +1017,7 @@ Sized_relobj_file<size, big_endian>::do_relocate_sections(
 
 template<int size, bool big_endian>
 void
-Sized_relobj_file<size, big_endian>::emit_relocs(
+Sized_relobj<size, big_endian>::emit_relocs(
     const Relocate_info<size, big_endian>* relinfo,
     unsigned int i,
     unsigned int sh_type,
@@ -1074,7 +1054,7 @@ Sized_relobj_file<size, big_endian>::emit_relocs(
 template<int size, bool big_endian>
 template<int sh_type>
 void
-Sized_relobj_file<size, big_endian>::emit_relocs_reltype(
+Sized_relobj<size, big_endian>::emit_relocs_reltype(
     const Relocate_info<size, big_endian>* relinfo,
     unsigned int i,
     const unsigned char* prelocs,
@@ -1106,7 +1086,7 @@ Sized_relobj_file<size, big_endian>::emit_relocs_reltype(
 
 template<int size, bool big_endian>
 void
-Sized_relobj_file<size, big_endian>::incremental_relocs_write(
+Sized_relobj<size, big_endian>::incremental_relocs_write(
     const Relocate_info<size, big_endian>* relinfo,
     unsigned int sh_type,
     const unsigned char* prelocs,
@@ -1142,7 +1122,7 @@ Sized_relobj_file<size, big_endian>::incremental_relocs_write(
 template<int size, bool big_endian>
 template<int sh_type>
 void
-Sized_relobj_file<size, big_endian>::incremental_relocs_write_reltype(
+Sized_relobj<size, big_endian>::incremental_relocs_write_reltype(
     const Relocate_info<size, big_endian>* relinfo,
     const unsigned char* prelocs,
     size_t reloc_count,
@@ -1154,8 +1134,7 @@ Sized_relobj_file<size, big_endian>::incremental_relocs_write_reltype(
   const unsigned int reloc_size =
       Reloc_types<sh_type, size, big_endian>::reloc_size;
   const unsigned int sizeof_addr = size / 8;
-  const unsigned int incr_reloc_size =
-      Incremental_relocs_reader<size, big_endian>::reloc_size;
+  const unsigned int incr_reloc_size = 8 + 2 * sizeof_addr;
 
   unsigned int out_shndx = output_section->out_shndx();
 
@@ -1228,7 +1207,7 @@ Sized_relobj_file<size, big_endian>::incremental_relocs_write_reltype(
 
 template<int size, bool big_endian>
 void
-Sized_relobj_file<size, big_endian>::initialize_input_to_output_maps()
+Sized_relobj<size, big_endian>::initialize_input_to_output_maps()
 {
   const unsigned int loccount = this->local_symbol_count_;
   for (unsigned int i = 1; i < loccount; ++i)
@@ -1242,7 +1221,7 @@ Sized_relobj_file<size, big_endian>::initialize_input_to_output_maps()
 
 template<int size, bool big_endian>
 void
-Sized_relobj_file<size, big_endian>::free_input_to_output_maps()
+Sized_relobj<size, big_endian>::free_input_to_output_maps()
 {
   const unsigned int loccount = this->local_symbol_count_;
   for (unsigned int i = 1; i < loccount; ++i)
@@ -1260,7 +1239,7 @@ Sized_relobj_file<size, big_endian>::free_input_to_output_maps()
 
 template<int size, bool big_endian>
 void
-Sized_relobj_file<size, big_endian>::split_stack_adjust(
+Sized_relobj<size, big_endian>::split_stack_adjust(
     const Symbol_table* symtab,
     const unsigned char* pshdrs,
     unsigned int sh_type,
@@ -1292,7 +1271,7 @@ Sized_relobj_file<size, big_endian>::split_stack_adjust(
 template<int size, bool big_endian>
 template<int sh_type>
 void
-Sized_relobj_file<size, big_endian>::split_stack_adjust_reltype(
+Sized_relobj<size, big_endian>::split_stack_adjust_reltype(
     const Symbol_table* symtab,
     const unsigned char* pshdrs,
     unsigned int shndx,
@@ -1449,10 +1428,10 @@ Sized_relobj_file<size, big_endian>::split_stack_adjust_reltype(
 
 template<int size, bool big_endian>
 void
-Sized_relobj_file<size, big_endian>::find_functions(
+Sized_relobj<size, big_endian>::find_functions(
     const unsigned char* pshdrs,
     unsigned int shndx,
-    Sized_relobj_file<size, big_endian>::Function_offsets* function_offsets)
+    Sized_relobj<size, big_endian>::Function_offsets* function_offsets)
 {
   // We need to read the symbols to find the functions.  If we wanted
   // to, we could cache reading the symbols across all sections in the
@@ -1490,26 +1469,6 @@ Sized_relobj_file<size, big_endian>::find_functions(
 	convert_to_section_size_type(isym.get_st_size());
 
       (*function_offsets)[value] = fnsize;
-    }
-}
-
-// Reverse the words in a section.  Used for .ctors sections mapped to
-// .init_array sections.  See ctors_sections_in_init_array in
-// layout.cc.
-
-template<int size, bool big_endian>
-void
-Sized_relobj_file<size, big_endian>::reverse_words(unsigned char* view,
-						   section_size_type view_size)
-{
-  typedef typename elfcpp::Swap<size, big_endian>::Valtype Valtype;
-  Valtype* vview = reinterpret_cast<Valtype*>(view);
-  section_size_type vview_size = view_size / (size / 8);
-  for (section_size_type i = 0; i < vview_size / 2; ++i)
-    {
-      Valtype tmp = vview[i];
-      vview[i] = vview[vview_size - 1 - i];
-      vview[vview_size - 1 - i] = tmp;
     }
 }
 
@@ -1629,20 +1588,6 @@ Track_relocs<size, big_endian>::next_symndx() const
   return elfcpp::elf_r_sym<size>(rel.get_r_info());
 }
 
-// Return the addend of the next reloc, or 0 if there isn't one.
-
-template<int size, bool big_endian>
-uint64_t
-Track_relocs<size, big_endian>::next_addend() const
-{
-  if (this->pos_ >= this->len_)
-    return 0;
-  if (this->reloc_size_ == elfcpp::Elf_sizes<size>::rel_size)
-    return 0;
-  elfcpp::Rela<size, big_endian> rela(this->prelocs_ + this->pos_);
-  return rela.get_r_addend();
-}
-
 // Advance to the next reloc whose r_offset is greater than or equal
 // to OFFSET.  Return the number of relocs we skip.
 
@@ -1669,127 +1614,127 @@ Track_relocs<size, big_endian>::advance(off_t offset)
 #ifdef HAVE_TARGET_32_LITTLE
 template
 void
-Sized_relobj_file<32, false>::do_read_relocs(Read_relocs_data* rd);
+Sized_relobj<32, false>::do_read_relocs(Read_relocs_data* rd);
 #endif
 
 #ifdef HAVE_TARGET_32_BIG
 template
 void
-Sized_relobj_file<32, true>::do_read_relocs(Read_relocs_data* rd);
+Sized_relobj<32, true>::do_read_relocs(Read_relocs_data* rd);
 #endif
 
 #ifdef HAVE_TARGET_64_LITTLE
 template
 void
-Sized_relobj_file<64, false>::do_read_relocs(Read_relocs_data* rd);
+Sized_relobj<64, false>::do_read_relocs(Read_relocs_data* rd);
 #endif
 
 #ifdef HAVE_TARGET_64_BIG
 template
 void
-Sized_relobj_file<64, true>::do_read_relocs(Read_relocs_data* rd);
+Sized_relobj<64, true>::do_read_relocs(Read_relocs_data* rd);
 #endif
 
 #ifdef HAVE_TARGET_32_LITTLE
 template
 void
-Sized_relobj_file<32, false>::do_gc_process_relocs(Symbol_table* symtab,
-						   Layout* layout,
-						   Read_relocs_data* rd);
+Sized_relobj<32, false>::do_gc_process_relocs(Symbol_table* symtab,
+					      Layout* layout,
+					      Read_relocs_data* rd);
 #endif
 
 #ifdef HAVE_TARGET_32_BIG
 template
 void
-Sized_relobj_file<32, true>::do_gc_process_relocs(Symbol_table* symtab,
-						  Layout* layout,
-						  Read_relocs_data* rd);
-#endif
-
-#ifdef HAVE_TARGET_64_LITTLE
-template
-void
-Sized_relobj_file<64, false>::do_gc_process_relocs(Symbol_table* symtab,
-						   Layout* layout,
-						   Read_relocs_data* rd);
-#endif
-
-#ifdef HAVE_TARGET_64_BIG
-template
-void
-Sized_relobj_file<64, true>::do_gc_process_relocs(Symbol_table* symtab,
-						  Layout* layout,
-						  Read_relocs_data* rd);
-#endif
-
-#ifdef HAVE_TARGET_32_LITTLE
-template
-void
-Sized_relobj_file<32, false>::do_scan_relocs(Symbol_table* symtab,
+Sized_relobj<32, true>::do_gc_process_relocs(Symbol_table* symtab,
 					     Layout* layout,
 					     Read_relocs_data* rd);
 #endif
 
-#ifdef HAVE_TARGET_32_BIG
-template
-void
-Sized_relobj_file<32, true>::do_scan_relocs(Symbol_table* symtab,
-					    Layout* layout,
-					    Read_relocs_data* rd);
-#endif
-
 #ifdef HAVE_TARGET_64_LITTLE
 template
 void
-Sized_relobj_file<64, false>::do_scan_relocs(Symbol_table* symtab,
+Sized_relobj<64, false>::do_gc_process_relocs(Symbol_table* symtab,
+					      Layout* layout,
+					      Read_relocs_data* rd);
+#endif
+
+#ifdef HAVE_TARGET_64_BIG
+template
+void
+Sized_relobj<64, true>::do_gc_process_relocs(Symbol_table* symtab,
 					     Layout* layout,
 					     Read_relocs_data* rd);
 #endif
 
-#ifdef HAVE_TARGET_64_BIG
-template
-void
-Sized_relobj_file<64, true>::do_scan_relocs(Symbol_table* symtab,
-					    Layout* layout,
-					    Read_relocs_data* rd);
-#endif
-
 #ifdef HAVE_TARGET_32_LITTLE
 template
 void
-Sized_relobj_file<32, false>::do_relocate(const Symbol_table* symtab,
-					  const Layout* layout,
-					  Output_file* of);
+Sized_relobj<32, false>::do_scan_relocs(Symbol_table* symtab,
+					Layout* layout,
+					Read_relocs_data* rd);
 #endif
 
 #ifdef HAVE_TARGET_32_BIG
 template
 void
-Sized_relobj_file<32, true>::do_relocate(const Symbol_table* symtab,
-					 const Layout* layout,
-					 Output_file* of);
+Sized_relobj<32, true>::do_scan_relocs(Symbol_table* symtab,
+				       Layout* layout,
+				       Read_relocs_data* rd);
 #endif
 
 #ifdef HAVE_TARGET_64_LITTLE
 template
 void
-Sized_relobj_file<64, false>::do_relocate(const Symbol_table* symtab,
-					  const Layout* layout,
-					  Output_file* of);
+Sized_relobj<64, false>::do_scan_relocs(Symbol_table* symtab,
+					Layout* layout,
+					Read_relocs_data* rd);
 #endif
 
 #ifdef HAVE_TARGET_64_BIG
 template
 void
-Sized_relobj_file<64, true>::do_relocate(const Symbol_table* symtab,
-					 const Layout* layout,
-					 Output_file* of);
+Sized_relobj<64, true>::do_scan_relocs(Symbol_table* symtab,
+				       Layout* layout,
+				       Read_relocs_data* rd);
 #endif
 
 #ifdef HAVE_TARGET_32_LITTLE
 template
 void
-Sized_relobj_file<32, false>::do_relocate_sections(
+Sized_relobj<32, false>::do_relocate(const Symbol_table* symtab,
+				     const Layout* layout,
+				     Output_file* of);
+#endif
+
+#ifdef HAVE_TARGET_32_BIG
+template
+void
+Sized_relobj<32, true>::do_relocate(const Symbol_table* symtab,
+				    const Layout* layout,
+				    Output_file* of);
+#endif
+
+#ifdef HAVE_TARGET_64_LITTLE
+template
+void
+Sized_relobj<64, false>::do_relocate(const Symbol_table* symtab,
+				     const Layout* layout,
+				     Output_file* of);
+#endif
+
+#ifdef HAVE_TARGET_64_BIG
+template
+void
+Sized_relobj<64, true>::do_relocate(const Symbol_table* symtab,
+				    const Layout* layout,
+				    Output_file* of);
+#endif
+
+#ifdef HAVE_TARGET_32_LITTLE
+template
+void
+Sized_relobj<32, false>::do_relocate_sections(
     const Symbol_table* symtab,
     const Layout* layout,
     const unsigned char* pshdrs,
@@ -1800,7 +1745,7 @@ Sized_relobj_file<32, false>::do_relocate_sections(
 #ifdef HAVE_TARGET_32_BIG
 template
 void
-Sized_relobj_file<32, true>::do_relocate_sections(
+Sized_relobj<32, true>::do_relocate_sections(
     const Symbol_table* symtab,
     const Layout* layout,
     const unsigned char* pshdrs,
@@ -1811,7 +1756,7 @@ Sized_relobj_file<32, true>::do_relocate_sections(
 #ifdef HAVE_TARGET_64_LITTLE
 template
 void
-Sized_relobj_file<64, false>::do_relocate_sections(
+Sized_relobj<64, false>::do_relocate_sections(
     const Symbol_table* symtab,
     const Layout* layout,
     const unsigned char* pshdrs,
@@ -1822,7 +1767,7 @@ Sized_relobj_file<64, false>::do_relocate_sections(
 #ifdef HAVE_TARGET_64_BIG
 template
 void
-Sized_relobj_file<64, true>::do_relocate_sections(
+Sized_relobj<64, true>::do_relocate_sections(
     const Symbol_table* symtab,
     const Layout* layout,
     const unsigned char* pshdrs,
@@ -1833,41 +1778,41 @@ Sized_relobj_file<64, true>::do_relocate_sections(
 #ifdef HAVE_TARGET_32_LITTLE
 template
 void
-Sized_relobj_file<32, false>::initialize_input_to_output_maps();
+Sized_relobj<32, false>::initialize_input_to_output_maps();
 
 template
 void
-Sized_relobj_file<32, false>::free_input_to_output_maps();
+Sized_relobj<32, false>::free_input_to_output_maps();
 #endif
 
 #ifdef HAVE_TARGET_32_BIG
 template
 void
-Sized_relobj_file<32, true>::initialize_input_to_output_maps();
+Sized_relobj<32, true>::initialize_input_to_output_maps();
 
 template
 void
-Sized_relobj_file<32, true>::free_input_to_output_maps();
+Sized_relobj<32, true>::free_input_to_output_maps();
 #endif
 
 #ifdef HAVE_TARGET_64_LITTLE
 template
 void
-Sized_relobj_file<64, false>::initialize_input_to_output_maps();
+Sized_relobj<64, false>::initialize_input_to_output_maps();
 
 template
 void
-Sized_relobj_file<64, false>::free_input_to_output_maps();
+Sized_relobj<64, false>::free_input_to_output_maps();
 #endif
 
 #ifdef HAVE_TARGET_64_BIG
 template
 void
-Sized_relobj_file<64, true>::initialize_input_to_output_maps();
+Sized_relobj<64, true>::initialize_input_to_output_maps();
 
 template
 void
-Sized_relobj_file<64, true>::free_input_to_output_maps();
+Sized_relobj<64, true>::free_input_to_output_maps();
 #endif
 
 #if defined(HAVE_TARGET_32_LITTLE) || defined(HAVE_TARGET_32_BIG)
