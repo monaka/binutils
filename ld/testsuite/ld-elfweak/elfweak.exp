@@ -370,9 +370,7 @@ proc build_exec { test execname objs flags dat dynsymexp symexp} {
     pass $test
 }
 
-# Old version of GCC for MIPS default to enabling -fpic
-# and get confused if it is used on the command line.
-if { [istarget mips*-*-*] && ! [at_least_gcc_version 4 3] } then {
+if [istarget mips*-*-*] {
     set picflag ""
 } else {
     # Unfortunately, the gcc argument is -fpic and the cc argument is
