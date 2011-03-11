@@ -1,7 +1,7 @@
 /* version.h -- Cygwin version numbers and accompanying documentation.
 
    Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
-   2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
+   2005, 2006, 2007, 2008, 2009, 2010, 2011 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -43,7 +43,7 @@ details. */
 	 changes to the DLL and is mainly informative in nature. */
 
 #define CYGWIN_VERSION_DLL_MAJOR 1007
-#define CYGWIN_VERSION_DLL_MINOR 10
+#define CYGWIN_VERSION_DLL_MINOR 9
 
       /* Major numbers before CYGWIN_VERSION_DLL_EPOCH are
 	 incompatible. */
@@ -400,40 +400,14 @@ details. */
       234: Export program_invocation_name, program_invocation_short_name.
       235: Export madvise.
       236: Export pthread_yield, __xpg_strerror_r.
-      237: Export strchrnul.
-      238: Export pthread_spin_destroy, pthread_spin_init, pthread_spin_lock,
+      237: Export pthread_spin_destroy, pthread_spin_init, pthread_spin_lock,
 	   pthread_spin_trylock, pthread_spin_unlock.
-      239: Export pthread_setschedprio.
-      240: Export ppoll.
-      241: Export pthread_attr_getstack, pthread_attr_getstackaddr,
-	   pthread_getattr_np.
-      242: Export psiginfo, psignal, sys_siglist.
-      243: Export sysinfo.
-      244: Export clock_settime.
-      245: Export pthread_attr_getguardsize, pthread_attr_setguardsize,
-	   pthread_attr_setstack, pthread_attr_setstackaddr.
-      246: Add CLOCK_PROCESS_CPUTIME_ID, CLOCK_THREAD_CPUTIME_ID.
-	   Export clock_getcpuclockid, pthread_getcpuclockid.
-      247: Export error, error_at_line, error_message_count, error_one_per_line,
-	   error_print_progname.
-      248: Export __fpurge.
-      249: Export pthread_condattr_getclock, pthread_condattr_setclock.
-      250: Export clock_nanosleep.
-      251: RTLD_NODELETE, RTLD_NOLOAD, RTLD_DEEPBIND added.
-      252: CW_CVT_ENV_TO_WINENV added.
-      253: Export TIOCSCTTY, tcgetsid.
-      254: Export getgrouplist.
-      255: Export ptsname_r.
-      256: Add CW_ALLOC_DRIVE_MAP, CW_MAP_DRIVE_MAP, CW_FREE_DRIVE_MAP.
-      257: Export getpt.
-      258: Export get_current_dir_name.
-      259: Export pthread_sigqueue.
      */
 
      /* Note that we forgot to bump the api for ualarm, strtoll, strtoull */
 
 #define CYGWIN_VERSION_API_MAJOR 0
-#define CYGWIN_VERSION_API_MINOR 259
+#define CYGWIN_VERSION_API_MINOR 237
 
      /* There is also a compatibity version number associated with the
 	shared memory regions.  It is incremented when incompatible

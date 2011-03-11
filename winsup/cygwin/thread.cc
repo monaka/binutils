@@ -1,7 +1,7 @@
 /* thread.cc: Locking and threading module functions
 
    Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
-   2006, 2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
+   2006, 2007, 2008, 2009, 2010, 2011 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -23,6 +23,9 @@ details. */
 
    R.Collins, April 2001.  */
 
+#ifdef HAVE_CONFIG_H
+#endif
+
 #include "winsup.h"
 #include "miscfuncs.h"
 #include "path.h"
@@ -34,8 +37,6 @@ details. */
 #include "fhandler.h"
 #include "dtable.h"
 #include "cygheap.h"
-#include "ntdll.h"
-#include "miscfuncs.h"
 
 extern "C" void __fp_lock_all ();
 extern "C" void __fp_unlock_all ();
@@ -376,13 +377,13 @@ List<pthread> pthread::threads;
 
 /* member methods */
 pthread::pthread ():verifyable_object (PTHREAD_MAGIC), win32_obj_id (0),
-		    valid (false), suspended (false), canceled (false),
+		    valid (false), suspended (false),
 		    cancelstate (0), canceltype (0), cancel_event (0),
 		    joiner (NULL), next (NULL), cleanup_stack (NULL)
 {
   if (this != pthread_null::get_null_pthread ())
     threads.insert (this);
-  sigprocmask (SIG_SETMASK, NULL, &parent_sigmask);
+  parent_tls = &_my_tls;
 }
 
 pthread::~pthread ()
@@ -423,9 +424,7 @@ pthread::precreate (pthread_attr *newattr)
       attr.joinable = newattr->joinable;
       attr.contentionscope = newattr->contentionscope;
       attr.inheritsched = newattr->inheritsched;
-      attr.stackaddr = newattr->stackaddr;
       attr.stacksize = newattr->stacksize;
-      attr.guardsize = newattr->guardsize;
     }
 
   if (!pthread_mutex::is_good_object (&verifyable_mutex_obj))
@@ -455,9 +454,8 @@ pthread::create (void *(*func) (void *), pthread_attr *newattr,
   arg = threadarg;
 
   mutex.lock ();
-  win32_obj_id = CygwinCreateThread (thread_init_wrapper, this,
-				     attr.stackaddr, attr.stacksize,
-				     attr.guardsize, 0, &thread_id);
+  win32_obj_id = ::CreateThread (&sec_none_nih, attr.stacksize,
+				thread_init_wrapper, this, 0, &thread_id);
 
   if (!win32_obj_id)
     {
@@ -517,16 +515,7 @@ pthread::exit (void *value_ptr)
   if (InterlockedDecrement (&MT_INTERFACE->threadcount) == 0)
     ::exit (0);
   else
-    {
-      if (cygtls == _main_tls)
-	{
-	  _cygtls *dummy = (_cygtls *) malloc (sizeof (_cygtls));
-	  *dummy = *_main_tls;
-	  _main_tls = dummy;
-	  _main_tls->initialized = false;
-	}
-      ExitThread (0);
-    }
+    ExitThread (0);
 }
 
 int
@@ -548,7 +537,6 @@ pthread::cancel ()
     {
       // cancel deferred
       mutex.unlock ();
-      canceled = true;
       SetEvent (cancel_event);
       return 0;
     }
@@ -573,309 +561,180 @@ pthread::cancel ()
   ResumeThread (win32_obj_id);
 
   return 0;
+/*
+  TODO: insert  pthread_testcancel into the required functions
+  the required function list is: *indicates done, X indicates not present in cygwin.
+aio_suspend ()
+*close ()
+*creat ()
+fcntl ()
+fsync ()
+getmsg ()
+getpmsg ()
+lockf ()
+mq_receive ()
+mq_send ()
+msgrcv ()
+msgsnd ()
+msync ()
+nanosleep ()
+open ()
+*pause ()
+poll ()
+pread ()
+*pthread_cond_timedwait ()
+*pthread_cond_wait ()
+*pthread_join ()
+*pthread_testcancel ()
+putmsg ()
+putpmsg ()
+pwrite ()
+read ()
+readv ()
+select ()
+*sem_wait ()
+*sigpause ()
+*sigsuspend ()
+sigtimedwait ()
+sigwait ()
+sigwaitinfo ()
+*sleep ()
+*system ()
+tcdrain ()
+*usleep ()
+*wait ()
+*wait3()
+waitid ()
+*waitpid ()
+write ()
+writev ()
+
+the optional list is:
+catclose ()
+catgets ()
+catopen ()
+closedir ()
+closelog ()
+ctermid ()
+dbm_close ()
+dbm_delete ()
+dbm_fetch ()
+dbm_nextkey ()
+dbm_open ()
+dbm_store ()
+dlclose ()
+dlopen ()
+endgrent ()
+endpwent ()
+endutxent ()
+fclose ()
+fcntl ()
+fflush ()
+fgetc ()
+fgetpos ()
+fgets ()
+fgetwc ()
+fgetws ()
+fopen ()
+fprintf ()
+fputc ()
+fputs ()
+fputwc ()
+fputws ()
+fread ()
+freopen ()
+fscanf ()
+fseek ()
+fseeko ()
+fsetpos ()
+ftell ()
+ftello ()
+ftw ()
+fwprintf ()
+fwrite ()
+fwscanf ()
+getc ()
+getc_unlocked ()
+getchar ()
+getchar_unlocked ()
+getcwd ()
+getdate ()
+getgrent ()
+getgrgid ()
+getgrgid_r ()
+getgrnam ()
+getgrnam_r ()
+getlogin ()
+getlogin_r ()
+getpwent ()
+*getpwnam ()
+*getpwnam_r ()
+*getpwuid ()
+*getpwuid_r ()
+gets ()
+getutxent ()
+getutxid ()
+getutxline ()
+getw ()
+getwc ()
+getwchar ()
+getwd ()
+glob ()
+iconv_close ()
+iconv_open ()
+ioctl ()
+lseek ()
+mkstemp ()
+nftw ()
+opendir ()
+openlog ()
+pclose ()
+perror ()
+popen ()
+printf ()
+putc ()
+putc_unlocked ()
+putchar ()
+putchar_unlocked ()
+puts ()
+pututxline ()
+putw ()
+putwc ()
+putwchar ()
+readdir ()
+readdir_r ()
+remove ()
+rename ()
+rewind ()
+rewinddir ()
+scanf ()
+seekdir ()
+semop ()
+setgrent ()
+setpwent ()
+setutxent ()
+strerror ()
+syslog ()
+tmpfile ()
+tmpnam ()
+ttyname ()
+ttyname_r ()
+ungetc ()
+ungetwc ()
+unlink ()
+vfprintf ()
+vfwprintf ()
+vprintf ()
+vwprintf ()
+wprintf ()
+wscanf ()
+
+Note, that for fcntl (), for any value of the cmd argument.
+
+And we must not introduce cancellation points anywhere else that's part of the posix or
+opengroup specs.
+ */
 }
-
-/* TODO: Insert pthread_testcancel into the required functions.
-
-   Here are the lists of required and optional functions per POSIX.1-2001
-   and POSIX.1-2008. A star (*) indicates that the Cygwin function already
-   is a cancellation point (aka "calls pthread_testcancel"), an o (o)
-   indicates that the function is not implemented in Cygwin.
-
-   Required cancellation points:
-
-    * accept ()
-    o aio_suspend ()
-    * clock_nanosleep ()
-    * close ()
-    * connect ()
-    * creat ()
-    * fcntl () F_SETLKW
-    * fdatasync ()
-    * fsync ()
-    o getmsg ()
-    o getpmsg ()
-    * lockf () F_LOCK
-    * mq_receive ()
-    * mq_send ()
-    * mq_timedreceive ()
-    * mq_timedsend ()
-      msgrcv ()
-      msgsnd ()
-    * msync ()
-    * nanosleep ()
-    * open ()
-    * openat ()
-    * pause ()
-    * poll ()
-    * pread ()
-    * pselect ()
-    * pthread_cond_timedwait ()
-    * pthread_cond_wait ()
-    * pthread_join ()
-    * pthread_testcancel ()
-    o putmsg ()
-    o putpmsg ()
-    * pwrite ()
-    * read ()
-    * readv ()
-    * recv ()
-    * recvfrom ()
-    * recvmsg ()
-    * select ()
-    * sem_timedwait ()
-    * sem_wait ()
-    * send ()
-    * sendmsg ()
-    * sendto ()
-    * sigpause ()
-    * sigsuspend ()
-    o sigtimedwait ()
-    * sigwait ()
-    * sigwaitinfo ()
-    * sleep ()
-    * system ()
-    * tcdrain ()
-    * usleep ()
-    * wait ()
-    * wait3()
-    o waitid ()
-    * waitpid ()
-    * write ()
-    * writev ()
-
-   Optional cancellation points:
-
-      access ()
-      asctime ()
-      asctime_r ()
-      catclose ()	Implemented externally: libcatgets
-      catgets ()	Implemented externally: libcatgets
-      catopen ()	Implemented externally: libcatgets
-      chmod ()
-      chown ()
-      closedir ()
-      closelog ()
-      ctermid ()
-      ctime ()
-      ctime_r ()
-      dbm_close ()	Implemented externally: libgdbm
-      dbm_delete ()	Implemented externally: libgdbm
-      dbm_fetch ()	Implemented externally: libgdbm
-      dbm_nextkey ()	Implemented externally: libgdbm
-      dbm_open ()	Implemented externally: libgdbm
-      dbm_store ()	Implemented externally: libgdbm
-      dlclose ()
-      dlopen ()
-      dprintf ()
-      endgrent ()
-      endhostent ()
-    o endnetent ()
-      endprotoent ()
-      endpwent ()
-      endservent ()
-      endutxent ()
-      faccessat ()
-      fchmod ()
-      fchmodat ()
-      fchown ()
-      fchownat ()
-    * fclose ()
-    * fcntl () (any value)
-      fflush ()
-      fgetc ()
-      fgetpos ()
-      fgets ()
-      fgetwc ()
-      fgetws ()
-    o fmtmsg ()
-      fopen ()
-      fpathconf ()
-      fprintf ()
-      fputc ()
-      fputs ()
-      fputwc ()
-      fputws ()
-      fread ()
-      freopen ()
-      fscanf ()
-      fseek ()
-      fseeko ()
-      fsetpos ()
-      fstat ()
-      fstatat ()
-      ftell ()
-      ftello ()
-      ftw ()
-      futimens ()
-      fwprintf ()
-      fwrite ()
-      fwscanf ()
-      getaddrinfo ()
-      getc ()
-      getc_unlocked ()
-      getchar ()
-      getchar_unlocked ()
-      getcwd ()
-    o getdate ()
-      getdelim ()
-      getgrent ()
-      getgrgid ()
-      getgrgid_r ()
-      getgrnam ()
-      getgrnam_r ()
-      gethostbyaddr ()
-      gethostbyname ()
-      gethostent ()
-      gethostid ()
-      gethostname ()
-      getline ()
-      getlogin ()
-      getlogin_r ()
-      getnameinfo ()
-    o getnetbyaddr ()
-    o getnetbyname ()
-    o getnetent ()
-      getopt () (if opterr is nonzero)
-      getprotobyname ()
-      getprotobynumber ()
-      getprotoent ()
-      getpwent ()
-    * getpwnam ()
-    * getpwnam_r ()
-    * getpwuid ()
-    * getpwuid_r ()
-      gets ()
-      getservbyname ()
-      getservbyport ()
-      getservent ()
-      getutxent ()
-      getutxid ()
-      getutxline ()
-      getwc ()
-      getwchar ()
-      getwd ()
-      glob ()
-      iconv_close ()	Implemented externally: libiconv
-      iconv_open ()	Implemented externally: libiconv
-      ioctl ()
-      link ()
-      linkat ()
-    o lio_listio ()
-      localtime ()
-      localtime_r ()
-    * lockf ()
-      lseek ()
-      lstat ()
-      mkdir ()
-      mkdirat ()
-      mkdtemp ()
-      mkfifo ()
-      mkfifoat ()
-      mknod ()
-      mknodat ()
-      mkstemp ()
-      mktime ()
-      nftw ()
-      opendir ()
-      openlog ()
-      pathconf ()
-      pclose ()
-      perror ()
-      popen ()
-      posix_fadvise ()
-      posix_fallocate ()
-      posix_madvise ()
-      posix_openpt ()
-    o posix_spawn ()
-    o posix_spawnp ()
-    o posix_trace_clear ()
-    o posix_trace_close ()
-    o posix_trace_create ()
-    o posix_trace_create_withlog ()
-    o posix_trace_eventtypelist_getnext_id ()
-    o posix_trace_eventtypelist_rewind ()
-    o posix_trace_flush ()
-    o posix_trace_get_attr ()
-    o posix_trace_get_filter ()
-    o posix_trace_get_status ()
-    o posix_trace_getnext_event ()
-    o posix_trace_open ()
-    o posix_trace_rewind ()
-    o posix_trace_set_filter ()
-    o posix_trace_shutdown ()
-    o posix_trace_timedgetnext_event ()
-    o posix_typed_mem_open ()
-      printf ()
-      psiginfo ()
-      psignal ()
-      pthread_rwlock_rdlock ()
-    o pthread_rwlock_timedrdlock ()
-    o pthread_rwlock_timedwrlock ()
-      pthread_rwlock_wrlock ()
-      putc ()
-      putc_unlocked ()
-      putchar ()
-      putchar_unlocked ()
-      puts ()
-      pututxline ()
-      putwc ()
-      putwchar ()
-      readdir ()
-      readdir_r ()
-      readlink ()
-      readlinkat ()
-      remove ()
-      rename ()
-      renameat ()
-      rewind ()
-      rewinddir ()
-      scandir ()
-      scanf ()
-      seekdir ()
-      semop ()
-      setgrent ()
-      sethostent ()
-    o setnetent ()
-      setprotoent ()
-      setpwent ()
-      setservent ()
-      setutxent ()
-      sigpause ()
-      stat ()
-      strerror ()
-      strerror_r ()
-      strftime ()
-      symlink ()
-      symlinkat ()
-      sync ()
-      syslog ()
-      tmpfile ()
-      tmpnam ()
-      ttyname ()
-      ttyname_r ()
-      tzset ()
-      ungetc ()
-      ungetwc ()
-      unlink ()
-      unlinkat ()
-      utime ()
-      utimensat ()
-      utimes ()
-      vdprintf ()
-      vfprintf ()
-      vfwprintf ()
-      vprintf ()
-      vwprintf ()
-      wcsftime ()
-      wordexp ()
-      wprintf ()
-      wscanf ()
-
-   An implementation may also mark other functions not specified in the
-   standard as cancellation points.  In particular, an implementation is
-   likely to mark any nonstandard function that may block as a
-   cancellation point. */
 
 void
 pthread::testcancel ()
@@ -883,29 +742,8 @@ pthread::testcancel ()
   if (cancelstate == PTHREAD_CANCEL_DISABLE)
     return;
 
-  /* We check for the canceled flag first.  This allows to use the
-     pthread_testcancel function a lot without adding the overhead of
-     an OS call.  Only if the thread is marked as canceled, we wait for
-     cancel_event being really set, on the off-chance that pthread_cancel
-     gets interrupted before calling SetEvent. */
-  if (canceled)
-    {
-      WaitForSingleObject (cancel_event, INFINITE);
-      cancel_self ();
-    }
-}
-
-/* Return cancel event handle if it exists *and* cancel is not disabled.
-   This function is supposed to be used from other functions which are
-   cancelable and need the cancel event in a WFMO call. */
-HANDLE
-pthread::get_cancel_event ()
-{
-  pthread_t thread = pthread::self ();
-
-  return (thread && thread->cancel_event
-	  && thread->cancelstate != PTHREAD_CANCEL_DISABLE)
-	  ? thread->cancel_event : NULL;
+  if (WaitForSingleObject (cancel_event, 0) == WAIT_OBJECT_0)
+    cancel_self ();
 }
 
 void
@@ -915,13 +753,13 @@ pthread::static_cancel_self ()
 }
 
 DWORD
-cancelable_wait (HANDLE object, PLARGE_INTEGER timeout,
+cancelable_wait (HANDLE object, DWORD timeout,
 		 const cw_cancel_action cancel_action,
 		 const enum cw_sig_wait sig_wait)
 {
   DWORD res;
   DWORD num = 0;
-  HANDLE wait_objects[4];
+  HANDLE wait_objects[3];
   pthread_t thread = pthread::self ();
 
   /* Do not change the wait order.
@@ -932,7 +770,7 @@ cancelable_wait (HANDLE object, PLARGE_INTEGER timeout,
   DWORD cancel_n;
   if (cancel_action == cw_no_cancel || !pthread::is_good_object (&thread) ||
       thread->cancelstate == PTHREAD_CANCEL_DISABLE)
-    cancel_n = WAIT_TIMEOUT + 1;
+    cancel_n = (DWORD) -1;
   else
     {
       cancel_n = WAIT_OBJECT_0 + num++;
@@ -940,38 +778,23 @@ cancelable_wait (HANDLE object, PLARGE_INTEGER timeout,
     }
 
   DWORD sig_n;
-  if (sig_wait == cw_sig_nosig)
-    sig_n = WAIT_TIMEOUT + 1;
+  if (sig_wait == cw_sig_nosig || &_my_tls != _main_tls)
+    sig_n = (DWORD) -1;
   else
     {
       sig_n = WAIT_OBJECT_0 + num++;
       wait_objects[sig_n] = signal_arrived;
     }
 
-  DWORD timeout_n;
-  if (!timeout)
-    timeout_n = WAIT_TIMEOUT + 1;
-  else
-    {
-      timeout_n = WAIT_OBJECT_0 + num++;
-      if (!_my_tls.locals.cw_timer)
-	NtCreateTimer (&_my_tls.locals.cw_timer, TIMER_ALL_ACCESS, NULL,
-		       NotificationTimer);
-      NtSetTimer (_my_tls.locals.cw_timer, timeout, NULL, NULL, FALSE, 0, NULL);
-      wait_objects[timeout_n] = _my_tls.locals.cw_timer;
-    }
-
   while (1)
     {
-      res = WaitForMultipleObjects (num, wait_objects, FALSE, INFINITE);
+      res = WaitForMultipleObjects (num, wait_objects, FALSE, timeout);
       if (res == cancel_n)
 	{
 	  if (cancel_action == cw_cancel_self)
 	    pthread::static_cancel_self ();
 	  res = WAIT_CANCELED;
 	}
-      else if (res == timeout_n)
-	res = WAIT_TIMEOUT;
       else if (res != sig_n)
 	/* all set */;
       else if (sig_wait == cw_sig_eintr)
@@ -983,21 +806,6 @@ cancelable_wait (HANDLE object, PLARGE_INTEGER timeout,
 	}
       break;
     }
-
-  if (timeout)
-    {
-      const size_t sizeof_tbi = sizeof (TIMER_BASIC_INFORMATION);
-      PTIMER_BASIC_INFORMATION tbi = (PTIMER_BASIC_INFORMATION) malloc (sizeof_tbi);
-
-      NtQueryTimer (_my_tls.locals.cw_timer, TimerBasicInformation, tbi,
-		    sizeof_tbi, NULL);
-      /* if timer expired, TimeRemaining is negative and represents the
-	  system uptime when signalled */
-      if (timeout->QuadPart < 0LL)
-	timeout->QuadPart = tbi->SignalState ? 0LL : tbi->TimeRemaining.QuadPart;
-      NtCancelTimer (_my_tls.locals.cw_timer, NULL);
-    }
-
   return res;
 }
 
@@ -1084,9 +892,7 @@ pthread::pop_all_cleanup_handlers ()
 void
 pthread::cancel_self ()
 {
-  /* Can someone explain why the pthread:: is needed here?  g++ complains
-     without it. */
-  pthread::exit (PTHREAD_CANCELED);
+  exit (PTHREAD_CANCELED);
 }
 
 DWORD
@@ -1104,7 +910,6 @@ pthread::_fixup_after_fork ()
       magic = 0;
       valid = false;
       win32_obj_id = NULL;
-      canceled = false;
       cancel_event = NULL;
     }
 }
@@ -1127,8 +932,7 @@ pthread::resume ()
 
 pthread_attr::pthread_attr ():verifyable_object (PTHREAD_ATTR_MAGIC),
 joinable (PTHREAD_CREATE_JOINABLE), contentionscope (PTHREAD_SCOPE_PROCESS),
-inheritsched (PTHREAD_INHERIT_SCHED), stackaddr (NULL), stacksize (0),
-guardsize ((size_t) -1)
+inheritsched (PTHREAD_INHERIT_SCHED), stacksize (0)
 {
   schedparam.sched_priority = 0;
 }
@@ -1138,8 +942,7 @@ pthread_attr::~pthread_attr ()
 }
 
 pthread_condattr::pthread_condattr ():verifyable_object
-  (PTHREAD_CONDATTR_MAGIC), shared (PTHREAD_PROCESS_PRIVATE),
-  clock_id (CLOCK_REALTIME)
+  (PTHREAD_CONDATTR_MAGIC), shared (PTHREAD_PROCESS_PRIVATE)
 {
 }
 
@@ -1164,21 +967,17 @@ pthread_cond::init_mutex ()
 
 pthread_cond::pthread_cond (pthread_condattr *attr) :
   verifyable_object (PTHREAD_COND_MAGIC),
-  shared (0), clock_id (CLOCK_REALTIME), waiting (0), pending (0),
-  sem_wait (NULL), mtx_cond(NULL), next (NULL)
+  shared (0), waiting (0), pending (0), sem_wait (NULL),
+  mtx_cond(NULL), next (NULL)
 {
   pthread_mutex *verifyable_mutex_obj;
 
   if (attr)
-    {
-      clock_id = attr->clock_id;
-
-      if (attr->shared != PTHREAD_PROCESS_PRIVATE)
-	{
-	  magic = 0;
-	  return;
-	}
-    }
+    if (attr->shared != PTHREAD_PROCESS_PRIVATE)
+      {
+	magic = 0;
+	return;
+      }
 
   verifyable_mutex_obj = &mtx_in;
   if (!pthread_mutex::is_good_object (&verifyable_mutex_obj))
@@ -1267,7 +1066,7 @@ pthread_cond::unblock (const bool all)
 }
 
 int
-pthread_cond::wait (pthread_mutex_t mutex, PLARGE_INTEGER timeout)
+pthread_cond::wait (pthread_mutex_t mutex, DWORD dwMilliseconds)
 {
   DWORD rv;
 
@@ -1288,7 +1087,7 @@ pthread_cond::wait (pthread_mutex_t mutex, PLARGE_INTEGER timeout)
   ++mutex->condwaits;
   mutex->unlock ();
 
-  rv = cancelable_wait (sem_wait, timeout, cw_no_cancel_self, cw_sig_eintr);
+  rv = cancelable_wait (sem_wait, dwMilliseconds, cw_no_cancel_self, cw_sig_eintr);
 
   mtx_out.lock ();
 
@@ -1447,7 +1246,7 @@ pthread_rwlock::rdlock ()
       if (reader->n < ULONG_MAX)
 	++reader->n;
       else
-	errno = EAGAIN;
+      	errno = EAGAIN;
       goto DONE;
     }
 
@@ -1590,7 +1389,7 @@ pthread_rwlock::unlock ()
 	  goto DONE;
 	}
       if (--reader->n > 0)
-	goto DONE;
+      	goto DONE;
 
       remove_reader (reader);
       delete reader;
@@ -1803,7 +1602,7 @@ pthread_mutex::lock ()
   else if (type == PTHREAD_MUTEX_NORMAL /* potentially causes deadlock */
 	   || !pthread::equal (owner, self))
     {
-      cancelable_wait (win32_obj_id, NULL, cw_no_cancel, cw_sig_resume);
+      cancelable_wait (win32_obj_id, INFINITE, cw_no_cancel, cw_sig_resume);
       set_owner (self);
     }
   else
@@ -1938,13 +1737,8 @@ pthread_spinlock::lock ()
 	}
       else if (pthread::equal (owner, self))
 	result = EDEADLK;
-      else
-	{
-	  /* Minimal timeout to minimize CPU usage while still spinning. */
-	  LARGE_INTEGER timeout;
-	  timeout.QuadPart = -10000LL;
-	  cancelable_wait (win32_obj_id, &timeout, cw_no_cancel, cw_sig_resume);
-	}
+      else /* Minimal timeout to minimize CPU usage while still spinning. */
+	cancelable_wait (win32_obj_id, 1L, cw_no_cancel, cw_sig_resume);
     }
   while (result == -1);
   pthread_printf ("spinlock %p, self %p, owner %p", this, self, owner);
@@ -1985,7 +1779,7 @@ pthread::thread_init_wrapper (void *arg)
   // if thread is detached force cleanup on exit
   if (thread->attr.joinable == PTHREAD_CREATE_DETACHED && thread->joiner == NULL)
     thread->joiner = thread;
-  _my_tls.sigmask = thread->parent_sigmask;
+  _my_tls.sigmask = thread->parent_tls->sigmask;
   thread->mutex.unlock ();
 
   thread_printf ("started thread %p %p %p %p %p %p", arg, &_my_tls.local_clib,
@@ -2291,58 +2085,9 @@ pthread_attr_setscope (pthread_attr_t *attr, int contentionscope)
 }
 
 extern "C" int
-pthread_attr_setstack (pthread_attr_t *attr, void *addr, size_t size)
-{
-  if (!pthread_attr::is_good_object (attr))
-    return EINVAL;
-  if (addr == NULL)
-    return EINVAL;
-  if (size < PTHREAD_STACK_MIN)
-    return EINVAL;
-  (*attr)->stackaddr = addr;
-  (*attr)->stacksize = size;
-  return 0;
-}
-
-extern "C" int
-pthread_attr_getstack (const pthread_attr_t *attr, void **addr, size_t *size)
-{
-  if (!pthread_attr::is_good_object (attr))
-    return EINVAL;
-  /* uses lowest address of stack on all platforms */
-  *addr = (void *)((int)(*attr)->stackaddr - (*attr)->stacksize);
-  *size = (*attr)->stacksize;
-  return 0;
-}
-
-extern "C" int
-pthread_attr_setstackaddr (pthread_attr_t *attr, void *addr)
-{
-  if (!pthread_attr::is_good_object (attr))
-    return EINVAL;
-  if (addr == NULL)
-    return EINVAL;
-  (*attr)->stackaddr = addr;
-  return 0;
-}
-
-extern "C" int
-pthread_attr_getstackaddr (const pthread_attr_t *attr, void **addr)
-{
-  if (!pthread_attr::is_good_object (attr))
-    return EINVAL;
-  /* uses stack address, which is the higher address on platforms
-     where the stack grows downwards, such as x86 */
-  *addr = (*attr)->stackaddr;
-  return 0;
-}
-
-extern "C" int
 pthread_attr_setstacksize (pthread_attr_t *attr, size_t size)
 {
   if (!pthread_attr::is_good_object (attr))
-    return EINVAL;
-  if (size < PTHREAD_STACK_MIN)
     return EINVAL;
   (*attr)->stacksize = size;
   return 0;
@@ -2354,27 +2099,6 @@ pthread_attr_getstacksize (const pthread_attr_t *attr, size_t *size)
   if (!pthread_attr::is_good_object (attr))
     return EINVAL;
   *size = (*attr)->stacksize;
-  return 0;
-}
-
-extern "C" int
-pthread_attr_setguardsize (pthread_attr_t *attr, size_t size)
-{
-  if (!pthread_attr::is_good_object (attr))
-    return EINVAL;
-  /* We don't support a guardsize of more than 1 Meg. */
-  if (size > 1024 * 1024)
-    return EINVAL;
-  (*attr)->guardsize = size;
-  return 0;
-}
-
-extern "C" int
-pthread_attr_getguardsize (const pthread_attr_t *attr, size_t *size)
-{
-  if (!pthread_attr::is_good_object (attr))
-    return EINVAL;
-  *size = (*attr)->guardsize;
   return 0;
 }
 
@@ -2421,7 +2145,7 @@ pthread::join (pthread_t *thread, void **return_val)
       (*thread)->attr.joinable = PTHREAD_CREATE_DETACHED;
       (*thread)->mutex.unlock ();
 
-      switch (cancelable_wait ((*thread)->win32_obj_id, NULL, cw_no_cancel_self, cw_sig_resume))
+      switch (cancelable_wait ((*thread)->win32_obj_id, INFINITE, cw_no_cancel_self, cw_sig_resume))
 	{
 	case WAIT_OBJECT_0:
 	  if (return_val)
@@ -2504,53 +2228,6 @@ pthread::resume (pthread_t *thread)
   return 0;
 }
 
-extern "C" int
-pthread_getattr_np (pthread_t thread, pthread_attr_t *attr)
-{
-  const size_t sizeof_tbi = sizeof (THREAD_BASIC_INFORMATION);
-  PTHREAD_BASIC_INFORMATION tbi;
-  NTSTATUS status;
-
-  if (!pthread::is_good_object (&thread))
-    return ESRCH;
-
-  /* attr may not be pre-initialized */
-  if (!pthread_attr::is_good_object (attr))
-  {
-    int rv = pthread_attr_init (attr);
-    if (rv != 0)
-      return rv;
-  }
-
-  (*attr)->joinable = thread->attr.joinable;
-  (*attr)->contentionscope = thread->attr.contentionscope;
-  (*attr)->inheritsched = thread->attr.inheritsched;
-  (*attr)->schedparam = thread->attr.schedparam;
-  (*attr)->guardsize = thread->attr.guardsize;
-
-  tbi = (PTHREAD_BASIC_INFORMATION) malloc (sizeof_tbi);
-  status = NtQueryInformationThread (thread->win32_obj_id,
-				     ThreadBasicInformation,
-				     tbi, sizeof_tbi, NULL);
-  if (NT_SUCCESS (status))
-    {
-      PNT_TIB tib = tbi->TebBaseAddress;
-      (*attr)->stackaddr = tib->StackBase;
-      /* stack grows downwards on x86 systems */
-      (*attr)->stacksize = (uintptr_t) tib->StackBase
-			   - (uintptr_t) tib->StackLimit;
-    }
-  else
-    {
-      debug_printf ("NtQueryInformationThread(ThreadBasicInformation), "
-		    "status %p", status);
-      (*attr)->stackaddr = thread->attr.stackaddr;
-      (*attr)->stacksize = thread->attr.stacksize;
-    }
-
-  return 0;
-}
-
 /* provided for source level compatability.
    See http://www.opengroup.org/onlinepubs/007908799/xsh/pthread_getconcurrency.html
 */
@@ -2558,15 +2235,6 @@ extern "C" int
 pthread_getconcurrency ()
 {
   return MT_INTERFACE->concurrency;
-}
-
-extern "C" int
-pthread_getcpuclockid (pthread_t thread, clockid_t *clk_id)
-{
-  if (!pthread::is_good_object (&thread))
-    return (ESRCH);
-  *clk_id = (clockid_t) THREADID_TO_CLOCKID (thread->getsequence_np ());
-  return 0;
 }
 
 /* keep this in sync with sched.cc */
@@ -2638,17 +2306,6 @@ pthread_setschedparam (pthread_t thread, int policy,
   return rv;
 }
 
-extern "C" int
-pthread_setschedprio (pthread_t thread, int priority)
-{
-  if (!pthread::is_good_object (&thread))
-    return ESRCH;
-  int rv =
-    sched_set_thread_priority (thread->win32_obj_id, priority);
-  if (!rv)
-    thread->attr.schedparam.sched_priority = priority;
-  return rv;
-}
 
 extern "C" int
 pthread_setspecific (pthread_key_t key, const void *value)
@@ -2747,7 +2404,7 @@ pthread_cond_signal (pthread_cond_t *cond)
 
 static int
 __pthread_cond_dowait (pthread_cond_t *cond, pthread_mutex_t *mutex,
-		       PLARGE_INTEGER waitlength)
+		       DWORD waitlength)
 {
   if (!pthread_mutex::is_good_object (mutex))
     return EINVAL;
@@ -2766,8 +2423,8 @@ extern "C" int
 pthread_cond_timedwait (pthread_cond_t *cond, pthread_mutex_t *mutex,
 			const struct timespec *abstime)
 {
-  struct timespec tp;
-  LARGE_INTEGER timeout;
+  struct timeval tv;
+  DWORD waitlength;
 
   myfault efault;
   if (efault.faulted ())
@@ -2781,29 +2438,18 @@ pthread_cond_timedwait (pthread_cond_t *cond, pthread_mutex_t *mutex,
       || abstime->tv_nsec > 999999999)
     return EINVAL;
 
-  clock_gettime ((*cond)->clock_id, &tp);
-
-  /* Check for immediate timeout before converting */
-  if (tp.tv_sec > abstime->tv_sec
-      || (tp.tv_sec == abstime->tv_sec
-	  && tp.tv_nsec > abstime->tv_nsec))
+  gettimeofday (&tv, NULL);
+  /* Check for immediate timeout before converting to microseconds, since
+     the resulting value can easily overflow long.  This also allows to
+     evaluate microseconds directly in DWORD. */
+  if (tv.tv_sec > abstime->tv_sec
+      || (tv.tv_sec == abstime->tv_sec
+	  && tv.tv_usec > abstime->tv_nsec / 1000))
     return ETIMEDOUT;
 
-  timeout.QuadPart = abstime->tv_sec * NSPERSEC
-		      + (abstime->tv_nsec + 99LL) / 100LL;
-
-  switch ((*cond)->clock_id)
-    {
-    case CLOCK_REALTIME:
-      timeout.QuadPart += FACTOR;
-      break;
-    default:
-      /* other clocks must be handled as relative timeout */
-      timeout.QuadPart -= tp.tv_sec * NSPERSEC + tp.tv_nsec / 100LL;
-      timeout.QuadPart *= -1LL;
-      break;
-    }
-  return __pthread_cond_dowait (cond, mutex, &timeout);
+  waitlength = (abstime->tv_sec - tv.tv_sec) * 1000;
+  waitlength += (abstime->tv_nsec / 1000 - tv.tv_usec) / 1000;
+  return __pthread_cond_dowait (cond, mutex, waitlength);
 }
 
 extern "C" int
@@ -2811,7 +2457,7 @@ pthread_cond_wait (pthread_cond_t *cond, pthread_mutex_t *mutex)
 {
   pthread_testcancel ();
 
-  return __pthread_cond_dowait (cond, mutex, NULL);
+  return __pthread_cond_dowait (cond, mutex, INFINITE);
 }
 
 extern "C" int
@@ -2850,32 +2496,6 @@ pthread_condattr_setpshared (pthread_condattr_t *attr, int pshared)
   if (pshared != PTHREAD_PROCESS_PRIVATE)
     return EINVAL;
   (*attr)->shared = pshared;
-  return 0;
-}
-
-extern "C" int
-pthread_condattr_getclock (const pthread_condattr_t *attr, clockid_t *clock_id)
-{
-  if (!pthread_condattr::is_good_object (attr))
-    return EINVAL;
-  *clock_id = (*attr)->clock_id;
-  return 0;
-}
-
-extern "C" int
-pthread_condattr_setclock (pthread_condattr_t *attr, clockid_t clock_id)
-{
-  if (!pthread_condattr::is_good_object (attr))
-    return EINVAL;
-  switch (clock_id)
-    {
-    case CLOCK_REALTIME:
-    case CLOCK_MONOTONIC:
-      break;
-    default:
-      return EINVAL;
-    }
-  (*attr)->clock_id = clock_id;
   return 0;
 }
 
@@ -3088,27 +2708,7 @@ pthread_kill (pthread_t thread, int sig)
 extern "C" int
 pthread_sigmask (int operation, const sigset_t *set, sigset_t *old_set)
 {
-  int res = handle_sigprocmask (operation, set, old_set, _my_tls.sigmask);
-  syscall_printf ("%d = pthread_sigmask(%d, %p, %p)", operation, set, old_set);
-  return res;
-}
-
-extern "C" int
-pthread_sigqueue (pthread_t *thread, int sig, const union sigval value)
-{
-  siginfo_t si = {0};
-
-  if (!pthread::is_good_object (thread))
-    return EINVAL;
-  if (!(*thread)->valid)
-    return ESRCH;
-
-  si.si_signo = sig;
-  si.si_code = SI_QUEUE;
-  si.si_value = value;
-  si.si_pid = myself->pid;
-  si.si_uid = myself->uid;
-  return sig_send (NULL, si, (*thread)->cygtls);
+  return handle_sigprocmask (operation, set, old_set, _my_tls.sigmask);
 }
 
 /* ID */
@@ -3514,7 +3114,8 @@ semaphore::_trywait ()
 int
 semaphore::_timedwait (const struct timespec *abstime)
 {
-  LARGE_INTEGER timeout;
+  struct timeval tv;
+  long waitlength;
 
   myfault efault;
   if (efault.faulted ())
@@ -3527,10 +3128,12 @@ semaphore::_timedwait (const struct timespec *abstime)
       return -1;
     }
 
-  timeout.QuadPart = abstime->tv_sec * NSPERSEC
-		     + (abstime->tv_nsec + 99) / 100 + FACTOR;
-
-  switch (cancelable_wait (win32_obj_id, &timeout, cw_cancel_self, cw_sig_eintr))
+  gettimeofday (&tv, NULL);
+  waitlength = abstime->tv_sec * 1000 + abstime->tv_nsec / (1000 * 1000);
+  waitlength -= tv.tv_sec * 1000 + tv.tv_usec / 1000;
+  if (waitlength < 0)
+    waitlength = 0;
+  switch (cancelable_wait (win32_obj_id, waitlength, cw_cancel_self, cw_sig_eintr))
     {
     case WAIT_OBJECT_0:
       currentvalue--;
@@ -3552,7 +3155,7 @@ semaphore::_timedwait (const struct timespec *abstime)
 int
 semaphore::_wait ()
 {
-  switch (cancelable_wait (win32_obj_id, NULL, cw_cancel_self, cw_sig_eintr))
+  switch (cancelable_wait (win32_obj_id, INFINITE, cw_cancel_self, cw_sig_eintr))
     {
     case WAIT_OBJECT_0:
       currentvalue--;
@@ -3595,21 +3198,12 @@ semaphore::_terminate ()
 int
 semaphore::init (sem_t *sem, int pshared, unsigned int value)
 {
-  /*
-     We can't tell the difference between reinitialising an
-     existing semaphore and initialising a semaphore who's
-     contents happen to be a valid pointer
-   */
+  /* opengroup calls this undefined */
   if (is_good_object (sem))
-    {
-      paranoid_printf ("potential attempt to reinitialise a semaphore");
-    }
+    return EBUSY;
 
   if (value > SEM_VALUE_MAX)
-    {
-      set_errno(EINVAL);
-      return -1;
-    }
+    return EINVAL;
 
   *sem = new semaphore (pshared, value);
 
@@ -3617,8 +3211,7 @@ semaphore::init (sem_t *sem, int pshared, unsigned int value)
     {
       delete (*sem);
       *sem = NULL;
-      set_errno(EAGAIN);
-      return -1;
+      return EAGAIN;
     }
   return 0;
 }
@@ -3627,17 +3220,11 @@ int
 semaphore::destroy (sem_t *sem)
 {
   if (!is_good_object (sem))
-    {
-      set_errno(EINVAL);
-      return -1;
-    }
+    return EINVAL;
 
   /* It's invalid to destroy a semaphore not opened with sem_init. */
   if ((*sem)->fd != -1)
-    {
-      set_errno(EINVAL);
-      return -1;
-    }
+    return EINVAL;
 
   /* FIXME - new feature - test for busy against threads... */
 
@@ -3650,17 +3237,11 @@ int
 semaphore::close (sem_t *sem)
 {
   if (!is_good_object (sem))
-    {
-      set_errno(EINVAL);
-      return -1;
-    }
+    return EINVAL;
 
   /* It's invalid to close a semaphore not opened with sem_open. */
   if ((*sem)->fd == -1)
-    {
-      set_errno(EINVAL);
-      return -1;
-    }
+    return EINVAL;
 
   delete (*sem);
   delete sem;
@@ -3683,7 +3264,7 @@ semaphore::open (unsigned long long hash, LUID luid, int fd, int oflag,
   semaphores.mx.lock ();
   for (semaphore *sema = semaphores.head; sema; sema = sema->next)
     if (sema->fd >= 0 && sema->hash == hash
-	&& sema->luid.HighPart == luid.HighPart
+    	&& sema->luid.HighPart == luid.HighPart
 	&& sema->luid.LowPart == sema->luid.LowPart)
       {
 	wasopen = true;

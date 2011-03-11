@@ -1,7 +1,7 @@
 /* thread.h: Locking and threading module definitions
 
    Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2007,
-   2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
+   2008, 2009, 2010, 2011 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -9,7 +9,8 @@ This software is a copyrighted work licensed under the terms of the
 Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
-#pragma once
+#ifndef _THREAD_H
+#define _THREAD_H
 
 #define LOCK_MMAP_LIST   1
 
@@ -20,7 +21,6 @@ details. */
 #include <limits.h>
 #include "security.h"
 #include <errno.h>
-#include "cygerrno.h"
 
 enum cw_sig_wait
 {
@@ -36,8 +36,7 @@ enum cw_cancel_action
   cw_no_cancel
 };
 
-DWORD cancelable_wait (HANDLE, PLARGE_INTEGER timeout = NULL,
-		       const cw_cancel_action = cw_cancel_self,
+DWORD cancelable_wait (HANDLE, DWORD, const cw_cancel_action = cw_cancel_self,
 		       const enum cw_sig_wait = cw_sig_nosig)
   __attribute__ ((regparm (3)));
 
@@ -70,7 +69,7 @@ public:
   void lock ()
   {
     if (InterlockedIncrement ((long *) &lock_counter) != 1)
-      cancelable_wait (win32_obj_id, NULL, cw_no_cancel, cw_sig_resume);
+      cancelable_wait (win32_obj_id, INFINITE, cw_no_cancel, cw_sig_resume);
   }
 
   void unlock ()
@@ -250,9 +249,7 @@ public:
   int contentionscope;
   int inheritsched;
   struct sched_param schedparam;
-  void *stackaddr;
   size_t stacksize;
-  size_t guardsize;
 
   pthread_attr ();
   ~pthread_attr ();
@@ -368,7 +365,6 @@ public:
   void *return_ptr;
   bool valid;
   bool suspended;
-  bool canceled;
   int cancelstate, canceltype;
   _cygtls *cygtls;
   HANDLE cancel_event;
@@ -401,8 +397,7 @@ public:
   virtual int cancel ();
 
   virtual void testcancel ();
-  static HANDLE get_cancel_event ();
-  static void static_cancel_self () __attribute__ ((noreturn));
+  static void static_cancel_self ();
 
   virtual int setcancelstate (int state, int *oldstate);
   virtual int setcanceltype (int type, int *oldtype);
@@ -443,7 +438,7 @@ private:
   DWORD thread_id;
   __pthread_cleanup_handler *cleanup_stack;
   pthread_mutex mutex;
-  sigset_t parent_sigmask;
+  _cygtls *parent_tls;
 
   void suspend_except_self ();
   void resume ();
@@ -455,7 +450,7 @@ private:
   void postcreate ();
   bool create_cancel_event ();
   static void set_tls_self_pointer (pthread *);
-  void cancel_self () __attribute__ ((noreturn));
+  void cancel_self ();
   DWORD get_thread_id ();
 };
 
@@ -488,7 +483,6 @@ class pthread_condattr: public verifyable_object
 public:
   static bool is_good_object(pthread_condattr_t const *);
   int shared;
-  clockid_t clock_id;
 
   pthread_condattr ();
   ~pthread_condattr ();
@@ -505,7 +499,6 @@ public:
   static int init (pthread_cond_t *, const pthread_condattr_t *);
 
   int shared;
-  clockid_t clock_id;
 
   unsigned long waiting;
   unsigned long pending;
@@ -517,7 +510,7 @@ public:
   pthread_mutex_t mtx_cond;
 
   void unblock (const bool all);
-  int wait (pthread_mutex_t mutex, PLARGE_INTEGER timeout = NULL);
+  int wait (pthread_mutex_t mutex, DWORD dwMilliseconds = INFINITE);
 
   pthread_cond (pthread_condattr *);
   ~pthread_cond ();
@@ -665,7 +658,6 @@ public:
   }
   static void terminate ()
   {
-    save_errno save;
     semaphores.for_each (&semaphore::_terminate);
   }
 
@@ -713,3 +705,4 @@ struct MTinterface
 };
 
 #define MT_INTERFACE user_data->threadinterface
+#endif // _THREAD_H

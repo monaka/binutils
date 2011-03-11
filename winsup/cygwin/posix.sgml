@@ -85,15 +85,14 @@ also IEEE Std 1003.1-2008 (POSIX.1-2008).</para>
     chdir
     chmod
     chown
+    chroot			(see chapter "Implementation Notes")
     cimag
     cimagf
     clearerr
     clock
-    clock_getcpuclockid
-    clock_getres
-    clock_gettime
-    clock_nanosleep		(see chapter "Implementation Notes")
-    clock_settime		(see chapter "Implementation Notes")
+    clock_getres		(see chapter "Implementation Notes")
+    clock_gettime		(see chapter "Implementation Notes")
+    clock_setres		(see chapter "Implementation Notes")
     clog
     clogf
     close
@@ -260,6 +259,7 @@ also IEEE Std 1003.1-2008 (POSIX.1-2008).</para>
     ftw
     funlockfile
     futimens
+    futimes
     fwide
     fwprintf
     fwrite
@@ -330,6 +330,7 @@ also IEEE Std 1003.1-2008 (POSIX.1-2008).</para>
     hcreate
     hdestroy
     hsearch
+    hstrerror
     htonl
     htons
     hypot
@@ -526,26 +527,20 @@ also IEEE Std 1003.1-2008 (POSIX.1-2008).</para>
     pread
     printf
     pselect
-    psiginfo
-    psignal
     pthread_atfork
     pthread_attr_destroy
     pthread_attr_getdetachstate
-    pthread_attr_getguardsize
     pthread_attr_getinheritsched
     pthread_attr_getschedparam
     pthread_attr_getschedpolicy
     pthread_attr_getscope
-    pthread_attr_getstack
     pthread_attr_getstacksize
     pthread_attr_init
     pthread_attr_setdetachstate
-    pthread_attr_setguardsize
     pthread_attr_setinheritsched
     pthread_attr_setschedparam
     pthread_attr_setschedpolicy
     pthread_attr_setscope
-    pthread_attr_setstack
     pthread_attr_setstacksize
     pthread_cancel
     pthread_cond_broadcast
@@ -555,17 +550,14 @@ also IEEE Std 1003.1-2008 (POSIX.1-2008).</para>
     pthread_cond_timedwait
     pthread_cond_wait
     pthread_condattr_destroy
-    pthread_condattr_getclock
     pthread_condattr_getpshared
     pthread_condattr_init
-    pthread_condattr_setclock
     pthread_condattr_setpshared
     pthread_create
     pthread_detach
     pthread_equal
     pthread_exit
     pthread_getconcurrency
-    pthread_getcpuclockid
     pthread_getschedparam
     pthread_getspecific
     pthread_join
@@ -606,7 +598,6 @@ also IEEE Std 1003.1-2008 (POSIX.1-2008).</para>
     pthread_setcanceltype
     pthread_setconcurrency
     pthread_setschedparam
-    pthread_setschedprio
     pthread_setspecific
     pthread_sigmask
     pthread_spin_destroy
@@ -838,7 +829,7 @@ also IEEE Std 1003.1-2008 (POSIX.1-2008).</para>
     tgamma
     tgammaf
     time
-    timer_create		(see chapter "Implementation Notes")
+    timer_create
     timer_delete
     timer_gettime
     timer_settime
@@ -983,20 +974,17 @@ also IEEE Std 1003.1-2008 (POSIX.1-2008).</para>
     fts_set
     fts_set_clientptr
     funopen
-    futimes
     gamma
     gamma_r
     gammaf
     gammaf_r
     getdtablesize
-    getgrouplist
     getifaddrs
     getpagesize
     getpeereid
     getprogname
     getusershell
     herror
-    hstrerror
     inet_aton
     inet_makeaddr
     inet_netof
@@ -1092,8 +1080,6 @@ also IEEE Std 1003.1-2008 (POSIX.1-2008).</para>
     envz_merge
     envz_remove
     envz_strip
-    error
-    error_at_line
     euidaccess
     execvpe
     exp10
@@ -1111,13 +1097,11 @@ also IEEE Std 1003.1-2008 (POSIX.1-2008).</para>
     fremovexattr
     fsetxattr
     get_avphys_pages
-    get_current_dir_name
     get_phys_pages
     get_nprocs
     get_nprocs_conf
     getopt_long
     getopt_long_only
-    getpt
     getxattr
     lgetxattr
     listxattr
@@ -1131,14 +1115,8 @@ also IEEE Std 1003.1-2008 (POSIX.1-2008).</para>
     pipe2
     pow10
     pow10f
-    ppoll
-    pthread_getattr_np
-    pthread_sigqueue
-    ptsname_r
     removexattr
     setxattr
-    strchrnul
-    sysinfo
     tdestroy
     timegm
     timelocal
@@ -1154,7 +1132,6 @@ also IEEE Std 1003.1-2008 (POSIX.1-2008).</para>
 <sect1 id="std-solaris"><title>System interfaces compatible with Solaris or SunOS functions:</title>
 
 <screen>
-    __fpurge
     acl
     aclcheck
     aclfrommode
@@ -1229,8 +1206,6 @@ also IEEE Std 1003.1-2008 (POSIX.1-2008).</para>
     bcmp			(POSIX.1-2001, SUSv3)
     bcopy			(SUSv3)
     bzero			(SUSv3)
-    chroot			(SUSv2) (see chapter "Implementation Notes")
-    clock_setres		(QNX, VxWorks) (see chapter "Implementation Notes")
     cuserid			(POSIX.1-1988, SUSv2)
     ecvt			(SUSv3)
     endutent			(XPG2)
@@ -1252,8 +1227,6 @@ also IEEE Std 1003.1-2008 (POSIX.1-2008).</para>
     mallopt			(SVID)
     mktemp			(SUSv3)
     on_exit			(SunOS)
-    pthread_attr_getstackaddr	(SUSv3)
-    pthread_attr_setstackaddr	(SUSv3)
     pthread_continue		(XPG2)
     pthread_getsequence_np	(Tru64)
     pthread_suspend		(XPG2)
@@ -1265,7 +1238,6 @@ also IEEE Std 1003.1-2008 (POSIX.1-2008).</para>
     setutent			(XPG2)
     sys_errlist			(BSD)
     sys_nerr			(BSD)
-    sys_siglist			(BSD)
     ttyslot			(SUSv2)
     ualarm			(SUSv3)
     usleep			(SUSv3)
@@ -1292,6 +1264,7 @@ also IEEE Std 1003.1-2008 (POSIX.1-2008).</para>
     atan2l
     atanhl
     atanl
+    bsd_signal
     cabsl
     cacoshl
     cacosl
@@ -1305,6 +1278,7 @@ also IEEE Std 1003.1-2008 (POSIX.1-2008).</para>
     ceill
     cexpl
     cimagl
+    clock_getcpuclockid
     clogl
     conjl
     copysignl
@@ -1346,6 +1320,7 @@ also IEEE Std 1003.1-2008 (POSIX.1-2008).</para>
     getpmsg
     hypotl
     ilogbl
+    initstate
     isalnum_l
     isalpha_l
     isastream
@@ -1388,27 +1363,38 @@ also IEEE Std 1003.1-2008 (POSIX.1-2008).</para>
     nearbyintl
     newlocale
     nextafterl
-    nexttoward
-    nexttowardf
     nexttowardl
     posix_mem_offset
     posix_spawn[...]
     posix_trace[...]
     posix_typed_[...]
     powl
+    psiginfo
+    psignal
+    pthread_attr_getguardsize
+    pthread_attr_getstack
+    pthread_attr_getstackaddr
+    pthread_attr_setguardsize
+    pthread_attr_setstack
+    pthread_attr_setstackaddr
     pthread_barrier[...]
+    pthread_condattr_getclock
+    pthread_condattr_setclock
+    pthread_getcpuclockid
     pthread_mutexattr_getrobust
     pthread_mutexattr_setrobust
     pthread_mutex_consistent
     pthread_mutex_timedlock
     pthread_rwlock_timedrdlock
     pthread_rwlock_timedwrlock
+    pthread_setschedprio
     putmsg
     reminderl
     remquol
     roundl
     scalblnl
     scalbnl
+    setcontext
     setnetent
     sigaltstack
     sigtimedwait
@@ -1422,6 +1408,7 @@ also IEEE Std 1003.1-2008 (POSIX.1-2008).</para>
     strncasecmp_l
     strtold
     strxfrm_l
+    swabcontext
     tanhl
     tanl
     tcgetsid
@@ -1451,10 +1438,9 @@ by keeping track of the current root and accomodating this in the file
 related function calls.  A real chroot functionality is not supported by
 Windows however.</para>
 
-<para><function>clock_nanosleep</function> currently supports only
-CLOCK_REALTIME and CLOCK_MONOTONIC.  <function>clock_setres</function>,
-<function>clock_settime</function>, and <function>timer_create</function>
-currently support only CLOCK_REALTIME.</para>
+<para><function>clock_getres</function>, <function>clock_gettime</function>
+and <function>clock_setres</function> only support CLOCK_REALTIME and
+CLOCK_MONOTONIC for now.</para>
 
 <para>BSD file locks created via <function>flock</function> are not
 propagated to the parent process and sibling processes.  The locks are
