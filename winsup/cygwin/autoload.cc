@@ -150,7 +150,7 @@ noload:									\n\
 	leal	8(%edx),%eax	# Location of name of function		\n\
 	pushl	%eax							\n\
 	pushl	$msg1		# The message				\n\
-	call	_api_fatal	# Print message. Never returns		\n\
+	call	___api_fatal	# Print message. Never returns		\n\
 									\n\
 	.globl	dll_func_load						\n\
 dll_func_load:								\n\
@@ -278,7 +278,7 @@ std_dll_init ()
 	  else if ((func->decoration & 1))
 	    dll->handle = INVALID_HANDLE_VALUE;
 	  else
-	    api_fatal ("unable to load %W, %E", dll_path);
+	    api_fatal ("could not load %W, %E", dll_path);
 	}
       fesetenv (&fpuenv);
     }
@@ -352,48 +352,26 @@ wsock_init ()
 
 LoadDLLprime (ws2_32, _wsock_init, 0)
 
-LoadDLLfunc (CreateProcessAsUserW, 44, advapi32)
-LoadDLLfunc (CryptAcquireContextW, 20, advapi32)
-LoadDLLfunc (CryptGenRandom, 12, advapi32)
-LoadDLLfunc (CryptReleaseContext, 8, advapi32)
-LoadDLLfunc (DeregisterEventSource, 4, advapi32)
-LoadDLLfunc (LogonUserW, 24, advapi32)
-LoadDLLfunc (LookupAccountNameW, 28, advapi32)
-LoadDLLfunc (LookupAccountSidW, 28, advapi32)
-LoadDLLfunc (LsaClose, 4, advapi32)
-LoadDLLfunc (LsaEnumerateAccountRights, 16, advapi32)
-LoadDLLfunc (LsaFreeMemory, 4, advapi32)
-LoadDLLfunc (LsaOpenPolicy, 16, advapi32)
-LoadDLLfunc (LsaQueryInformationPolicy, 12, advapi32)
-LoadDLLfunc (LsaRetrievePrivateData, 12, advapi32)
-LoadDLLfunc (LsaStorePrivateData, 12, advapi32)
-LoadDLLfunc (RegCloseKey, 4, advapi32)
-LoadDLLfunc (RegCreateKeyExW, 36, advapi32)
-LoadDLLfunc (RegEnumKeyExW, 32, advapi32)
-LoadDLLfunc (RegEnumValueW, 32, advapi32)
-LoadDLLfunc (RegGetKeySecurity, 16, advapi32)
-LoadDLLfunc (RegOpenKeyExW, 20, advapi32)
-LoadDLLfunc (RegQueryInfoKeyW, 48, advapi32)
-LoadDLLfunc (RegQueryValueExW, 24, advapi32)
-LoadDLLfunc (RegisterEventSourceW, 8, advapi32)
-LoadDLLfunc (ReportEventW, 36, advapi32)
-
-LoadDLLfunc (DnsQuery_A, 24, dnsapi)
-LoadDLLfunc (DnsRecordListFree, 8, dnsapi)
+LoadDLLfuncEx2 (DnsQuery_A, 24, dnsapi, 1, 127) // ERROR_PROC_NOT_FOUND
+LoadDLLfuncEx (DnsRecordListFree, 8, dnsapi, 1)
 
 // 50 = ERROR_NOT_SUPPORTED.  Returned if OS doesn't support iphlpapi funcs
 LoadDLLfuncEx2 (GetAdaptersAddresses, 20, iphlpapi, 1, 50)
+LoadDLLfuncEx2 (GetExtendedTcpTable, 24, iphlpapi, 1, 50)
 LoadDLLfunc (GetIfEntry, 4, iphlpapi)
 LoadDLLfunc (GetIpAddrTable, 12, iphlpapi)
 LoadDLLfunc (GetIpForwardTable, 12, iphlpapi)
 LoadDLLfunc (GetNetworkParams, 8, iphlpapi)
-LoadDLLfunc (GetUdpTable, 12, iphlpapi)
+LoadDLLfunc (GetTcpTable, 12, iphlpapi)
 
 LoadDLLfuncEx (AttachConsole, 4, kernel32, 1)
-LoadDLLfuncEx (GetModuleHandleExW, 12, kernel32, 1)
+LoadDLLfunc (FindFirstVolumeA, 8, kernel32)
+LoadDLLfunc (FindNextVolumeA, 12, kernel32)
+LoadDLLfunc (FindVolumeClose, 4, kernel32)
+LoadDLLfunc (GetConsoleWindow, 0, kernel32)
 LoadDLLfuncEx (GetNamedPipeClientProcessId, 8, kernel32, 1)
-LoadDLLfuncEx (GetSystemWow64DirectoryW, 8, kernel32, 1)
-LoadDLLfuncEx (GetVolumePathNamesForVolumeNameW, 16, kernel32, 1)
+LoadDLLfuncEx (GetSystemWindowsDirectoryW, 8, kernel32, 1)
+LoadDLLfunc (GetVolumeNameForVolumeMountPointA, 12, kernel32)
 LoadDLLfunc (LocaleNameToLCID, 8, kernel32)
 
 LoadDLLfunc (WNetCloseEnum, 4, mpr)
@@ -402,8 +380,11 @@ LoadDLLfunc (WNetGetProviderNameA, 12, mpr)
 LoadDLLfunc (WNetGetResourceInformationA, 16, mpr)
 LoadDLLfunc (WNetOpenEnumA, 20, mpr)
 
-LoadDLLfunc (DsGetDcNameW, 24, netapi32)
+/* 127 == ERROR_PROC_NOT_FOUND */
+LoadDLLfuncEx2 (DsGetDcNameW, 24, netapi32, 1, 127)
 LoadDLLfunc (NetApiBufferFree, 4, netapi32)
+LoadDLLfunc (NetGetAnyDCName, 12, netapi32)
+LoadDLLfunc (NetGetDCName, 12, netapi32)
 LoadDLLfunc (NetUserGetGroups, 28, netapi32)
 LoadDLLfunc (NetUserGetInfo, 16, netapi32)
 LoadDLLfunc (NetUserGetLocalGroups, 32, netapi32)
@@ -416,47 +397,63 @@ LoadDLLfunc (RtlSetCurrentTransaction, 4, ntdll)
 
 LoadDLLfunc (CoTaskMemFree, 4, ole32)
 
+LoadDLLfuncEx (EnumProcessModules, 16, psapi, 1)
+LoadDLLfuncEx (GetModuleFileNameExW, 16, psapi, 1)
+LoadDLLfuncEx (GetModuleInformation, 16, psapi, 1)
+LoadDLLfuncEx (GetProcessMemoryInfo, 12, psapi, 1)
+LoadDLLfuncEx (QueryWorkingSet, 12, psapi, 1)
+
+LoadDLLfunc (UuidCreate, 4, rpcrt4)
+LoadDLLfuncEx (UuidCreateSequential, 4, rpcrt4, 1)
+
 LoadDLLfunc (LsaDeregisterLogonProcess, 4, secur32)
 LoadDLLfunc (LsaFreeReturnBuffer, 4, secur32)
 LoadDLLfunc (LsaLogonUser, 56, secur32)
 LoadDLLfunc (LsaLookupAuthenticationPackage, 12, secur32)
-LoadDLLfunc (LsaRegisterLogonProcess, 12, secur32)
+/* secur32 functions return NTSTATUS values.  However, the error code must
+   fit in 16 bits , see LoadDLLprime.
+   The calling function, lsaauth(), checks for STATUS_SUCCESS (0), so we
+   simply return some arbitrary non-0 value (127 == ERROR_PROC_NOT_FOUND)
+   from here, if the function can't be loaded. */
+LoadDLLfuncEx2 (LsaRegisterLogonProcess, 12, secur32, 1, 127)
 
 LoadDLLfunc (SHGetDesktopFolder, 4, shell32)
 
+LoadDLLfunc (CharNextExA, 12, user32)
 LoadDLLfunc (CloseClipboard, 0, user32)
 LoadDLLfunc (CloseDesktop, 4, user32)
 LoadDLLfunc (CloseWindowStation, 4, user32)
 LoadDLLfunc (CreateDesktopW, 24, user32)
-LoadDLLfunc (CreateWindowExW, 48, user32)
+LoadDLLfunc (CreateWindowExA, 48, user32)
 LoadDLLfunc (CreateWindowStationW, 16, user32)
-LoadDLLfunc (DefWindowProcW, 16, user32)
-LoadDLLfunc (DispatchMessageW, 4, user32)
+LoadDLLfunc (DefWindowProcA, 16, user32)
+LoadDLLfunc (DispatchMessageA, 4, user32)
 LoadDLLfunc (EmptyClipboard, 0, user32)
-LoadDLLfunc (EnumWindows, 8, user32)
+LoadDLLfunc (FindWindowA, 8, user32)
 LoadDLLfunc (GetClipboardData, 4, user32)
 LoadDLLfunc (GetForegroundWindow, 0, user32)
 LoadDLLfunc (GetKeyboardLayout, 4, user32)
-LoadDLLfunc (GetMessageW, 16, user32)
+LoadDLLfunc (GetMessageA, 16, user32)
 LoadDLLfunc (GetPriorityClipboardFormat, 8, user32)
 LoadDLLfunc (GetProcessWindowStation, 0, user32)
 LoadDLLfunc (GetThreadDesktop, 4, user32)
 LoadDLLfunc (GetUserObjectInformationW, 20, user32)
 LoadDLLfunc (GetWindowThreadProcessId, 8, user32)
 LoadDLLfunc (MessageBeep, 4, user32)
-LoadDLLfunc (MessageBoxW, 16, user32)
+LoadDLLfunc (MessageBoxA, 16, user32)
 LoadDLLfunc (MsgWaitForMultipleObjectsEx, 20, user32)
 LoadDLLfunc (OpenClipboard, 4, user32)
-LoadDLLfunc (PeekMessageW, 20, user32)
-LoadDLLfunc (PostMessageW, 16, user32)
+LoadDLLfunc (PeekMessageA, 20, user32)
+LoadDLLfunc (PostMessageA, 16, user32)
 LoadDLLfunc (PostQuitMessage, 4, user32)
-LoadDLLfunc (RegisterClassW, 4, user32)
-LoadDLLfunc (RegisterClipboardFormatW, 4, user32)
-LoadDLLfunc (SendNotifyMessageW, 16, user32)
+LoadDLLfunc (RegisterClassA, 4, user32)
+LoadDLLfunc (RegisterClipboardFormatA, 4, user32)
+LoadDLLfunc (SendMessageA, 16, user32)
 LoadDLLfunc (SetClipboardData, 8, user32)
 LoadDLLfunc (SetParent, 8, user32)
 LoadDLLfunc (SetProcessWindowStation, 4, user32)
 LoadDLLfunc (SetThreadDesktop, 4, user32)
+LoadDLLfunc (ShowWindowAsync, 8, user32)
 
 LoadDLLfuncEx3 (waveInAddBuffer, 12, winmm, 1, 0, 1)
 LoadDLLfuncEx3 (waveInClose, 4, winmm, 1, 0, 1)
