@@ -49,7 +49,6 @@ details. */
 #include "cygwin/in6.h"
 #include "ifaddrs.h"
 #include "tls_pbuf.h"
-#include "ntdll.h"
 #define _CYGWIN_IN_H
 #include <resolv.h>
 
@@ -498,12 +497,12 @@ fdsock (cygheap_fdmanip& fd, const device *dev, SOCKET soc)
      scanners or other network-oriented software replace normal sockets
      with their own kind, which is running through a filter driver called
      "layered service provider" (LSP).
-
+     
      LSP sockets are not kernel objects.  They are typically not marked as
      inheritable, nor are they IFS handles.  They are in fact not inheritable
      to child processes, and it does not help to mark them inheritable via
      SetHandleInformation.  Subsequent socket calls in the child process fail
-     with error 10038, WSAENOTSOCK.
+     with error 10038, WSAENOTSOCK. 
 
      The only way up to Windows Server 2003 to make these sockets usable in
      child processes is to duplicate them via WSADuplicateSocket/WSASocket
@@ -511,7 +510,7 @@ fdsock (cygheap_fdmanip& fd, const device *dev, SOCKET soc)
      we only do this on affected systems.  If we recognize a non-inheritable
      socket we switch to inheritance/dup via WSADuplicateSocket/WSASocket for
      that socket.
-
+     
      Starting with Vista there's another neat way to workaround these annoying
      LSP sockets.  WSAIoctl allows to fetch the underlying base socket, which
      is a normal, inheritable IFS handle.  So we fetch the base socket,
@@ -531,7 +530,7 @@ fdsock (cygheap_fdmanip& fd, const device *dev, SOCKET soc)
       ret = WSAIoctl (soc, SIO_BASE_HANDLE, NULL, 0, (void *) &base_soc,
 		      sizeof (base_soc), &bret, NULL, NULL);
       if (ret)
-	debug_printf ("WSAIoctl: %lu", WSAGetLastError ());
+      	debug_printf ("WSAIoctl: %lu", WSAGetLastError ());
       else if (base_soc != soc
 	       && GetHandleInformation ((HANDLE) base_soc, &flags)
 	       && (flags & HANDLE_FLAG_INHERIT))
@@ -554,6 +553,7 @@ fdsock (cygheap_fdmanip& fd, const device *dev, SOCKET soc)
   if (fixup)
     ((fhandler_socket *) fd)->init_fixup_before ();
   fd->set_flags (O_RDWR | O_BINARY);
+  fd->uninterruptible_io (true);
   debug_printf ("fd %d, name '%s', soc %p", (int) fd, dev->name, soc);
 
   /* Raise default buffer sizes (instead of WinSock default 8K).
@@ -639,29 +639,12 @@ cygwin_socket (int af, int type, int protocol)
 	  ((fhandler_socket *) fd)->set_nonblocking (true);
 	if (flags & SOCK_CLOEXEC)
 	  ((fhandler_socket *) fd)->set_close_on_exec (true);
-	if (type == SOCK_DGRAM)
-	  {
-	    /* Workaround the problem that a missing listener on a UDP socket
-	       in a call to sendto will result in select/WSAEnumNetworkEvents
-	       reporting that the socket has pending data and a subsequent call
-	       to recvfrom will return -1 with error set to WSAECONNRESET.
-
-	       This problem is a regression introduced in Windows 2000.
-	       Instead of fixing the problem, a new socket IOCTL code has
-	       been added, see http://support.microsoft.com/kb/263823 */
-	    BOOL cr = FALSE;
-	    DWORD blen;
-	    if (WSAIoctl (soc, SIO_UDP_CONNRESET, &cr, sizeof cr, NULL, 0,
-			  &blen, NULL, NULL) == SOCKET_ERROR)
-	      debug_printf ("Reset SIO_UDP_CONNRESET: WinSock error %lu",
-			    WSAGetLastError ());
-	  }
 	res = fd;
       }
   }
 
 done:
-  syscall_printf ("%R = socket(%d, %d (flags %p), %d)",
+  syscall_printf ("%d = socket (%d, %d (flags %p), %d)",
 		  res, af, type, flags, protocol);
   return res;
 }
@@ -681,7 +664,7 @@ cygwin_sendto (int fd, const void *buf, size_t len, int flags,
   else
     res = fh->sendto (buf, len, flags, to, tolen);
 
-  syscall_printf ("%R = sendto(%d, %p, %d, %x, %p, %d)",
+  syscall_printf ("%d = sendto (%d, %p, %d, %x, %p, %d)",
 		  res, fd, buf, len, flags, to, tolen);
   return res;
 }
@@ -701,7 +684,7 @@ cygwin_recvfrom (int fd, void *buf, size_t len, int flags,
   else if ((res = len) != 0)
     res = fh->recvfrom (buf, len, flags, from, fromlen);
 
-  syscall_printf ("%R = recvfrom(%d, %p, %d, %x, %p, %p)",
+  syscall_printf ("%d = recvfrom (%d, %p, %d, %x, %p, %p)",
 		  res, fd, buf, len, flags, from, fromlen);
   return res;
 }
@@ -740,12 +723,12 @@ cygwin_setsockopt (int fd, int level, int optname, const void *optval,
     res = -1;
   else
     {
-      /* Old applications still use the old WinSock1 IPPROTO_IP values. */
+      /* Old applications still use the old Winsock1 IPPROTO_IP values. */
       if (level == IPPROTO_IP && CYGWIN_VERSION_CHECK_FOR_USING_WINSOCK1_VALUES)
 	optname = convert_ws1_ip_optname (optname);
 
       /* Per POSIX we must not be able to reuse a complete duplicate of a
-	 local TCP address (same IP, same port), even if SO_REUSEADDR has been
+         local TCP address (same IP, same port), even if SO_REUSEADDR has been
 	 set.  That's unfortunately possible in WinSock, and this has never
 	 been changed to maintain backward compatibility.  Instead, the
 	 SO_EXCLUSIVEADDRUSE option has been added to allow an application to
@@ -816,7 +799,7 @@ cygwin_setsockopt (int fd, int level, int optname, const void *optval,
 	  }
     }
 
-  syscall_printf ("%R = setsockopt(%d, %d, %x, %p, %d)",
+  syscall_printf ("%d = setsockopt (%d, %d, %x, %p, %d)",
 		  res, fd, level, optname, optval, optlen);
   return res;
 }
@@ -839,14 +822,13 @@ cygwin_getsockopt (int fd, int level, int optname, void *optval,
     }
   else
     {
-      /* Old applications still use the old WinSock1 IPPROTO_IP values. */
+      /* Old applications still use the old Winsock1 IPPROTO_IP values. */
       if (level == IPPROTO_IP && CYGWIN_VERSION_CHECK_FOR_USING_WINSOCK1_VALUES)
 	optname = convert_ws1_ip_optname (optname);
       res = getsockopt (fh->get_socket (), level, optname, (char *) optval,
 			(int *) optlen);
-      if (res == SOCKET_ERROR)
-	set_winsock_errno ();
-      else if (level == SOL_SOCKET)
+
+      if (level == SOL_SOCKET)
 	{
 	  switch (optname)
 	    {
@@ -860,7 +842,7 @@ cygwin_getsockopt (int fd, int level, int optname, void *optval,
 	    case SO_KEEPALIVE:
 	    case SO_DONTROUTE:
 	      /* Regression in Vista and later:  instead of a 4 byte BOOL
-		 value, a 1 byte BOOLEAN value is returned, in contrast
+	         value, a 1 byte BOOLEAN value is returned, in contrast
 		 to older systems and the documentation.  Since an int
 		 type is expected by the calling application, we convert
 		 the result here. */
@@ -874,9 +856,19 @@ cygwin_getsockopt (int fd, int level, int optname, void *optval,
 	      break;
 	    }
 	}
+      if (optname == SO_ERROR)
+	{
+	  int *e = (int *) optval;
+
+	  debug_printf ("WinSock SO_ERROR = %d", *e);
+	  *e = find_winsock_errno (*e);
+	}
+
+      if (res)
+	set_winsock_errno ();
     }
 
-  syscall_printf ("%R = getsockopt(%d, %d, 0x%x, %p, %p)",
+  syscall_printf ("%d = getsockopt (%d, %d, 0x%x, %p, %p)",
 		  res, fd, level, optname, optval, optlen);
   return res;
 }
@@ -904,7 +896,7 @@ cygwin_connect (int fd, const struct sockaddr *name, socklen_t namelen)
   else
     res = fh->connect (name, namelen);
 
-  syscall_printf ("%R = connect(%d, %p, %d)", res, fd, name, namelen);
+  syscall_printf ("%d = connect (%d, %p, %d)", res, fd, name, namelen);
 
   return res;
 }
@@ -1189,34 +1181,57 @@ gethostby_helper (const char *name, const int af, const int type,
   string_ptr = (char *) (ret->h_addr_list + address_count + 1);
 
   /* Rescan the answers */
+  ancount = alias_count + address_count; /* Valid records */
   alias_count = address_count = 0;
-  prevptr->set_next (prevptr + 1);
 
-  for (curptr = anptr; curptr <= prevptr; curptr = curptr->next ())
+  for (i = 0, curptr = anptr; i < ancount; i++, curptr = curptr->next ())
     {
       antype = curptr->type;
       if (antype == ns_t_cname)
 	{
-	  dn_expand (msg, eomsg, curptr->name (), string_ptr, curptr->namelen1);
+	  complen = dn_expand (msg, eomsg, curptr->name (), string_ptr, string_size);
+#ifdef DEBUGGING
+	  if (complen != curptr->complen)
+	    goto debugging;
+#endif
 	  ret->h_aliases[alias_count++] = string_ptr;
-	  string_ptr += curptr->namelen1;
+	  namelen1 = curptr->namelen1;
+	  string_ptr += namelen1;
+	  string_size -= namelen1;
+	  continue;
 	}
-      else
-	{
-	  if (address_count == 0)
+      if (antype == type)
 	    {
-	      dn_expand (msg, eomsg, curptr->name (), string_ptr, curptr->namelen1);
-	      ret->h_name = string_ptr;
-	      string_ptr += curptr->namelen1;
+	      if (address_count == 0)
+		{
+		  complen = dn_expand (msg, eomsg, curptr->name(), string_ptr, string_size);
+#ifdef DEBUGGING
+		  if (complen != curptr->complen)
+		    goto debugging;
+#endif
+		  ret->h_name = string_ptr;
+		  namelen1 = curptr->namelen1;
+		  string_ptr += namelen1;
+		  string_size -= namelen1;
+		}
+	      ret->h_addr_list[address_count++] = string_ptr;
+	      if (addrsize_in != addrsize_out)
+		memcpy4to6 (string_ptr, curptr->data);
+	      else
+		memcpy (string_ptr, curptr->data, addrsize_in);
+	      string_ptr += addrsize_out;
+	      string_size -= addrsize_out;
+	      continue;
 	    }
-	  ret->h_addr_list[address_count++] = string_ptr;
-	  if (addrsize_in != addrsize_out)
-	    memcpy4to6 (string_ptr, curptr->data);
-	  else
-	    memcpy (string_ptr, curptr->data, addrsize_in);
-	  string_ptr += addrsize_out;
-	}
+#ifdef DEBUGGING
+      /* Should not get here */
+      goto debugging;
+#endif
     }
+#ifdef DEBUGGING
+  if (string_size < 0)
+    goto debugging;
+#endif
 
   free (msg);
 
@@ -1231,6 +1246,16 @@ gethostby_helper (const char *name, const int af, const int type,
      Should it be NO_RECOVERY ? */
   h_errno = TRY_AGAIN;
   return NULL;
+
+
+#ifdef DEBUGGING
+ debugging:
+   system_printf ("Please debug.");
+   free (msg);
+   free (ret);
+   h_errno = NO_RECOVERY;
+   return NULL;
+#endif
 }
 
 /* gethostbyname2: standards? */
@@ -1280,7 +1305,7 @@ cygwin_accept (int fd, struct sockaddr *peer, socklen_t *len)
   else
     res = fh->accept4 (peer, len, fh->is_nonblocking () ? SOCK_NONBLOCK : 0);
 
-  syscall_printf ("%R = accept(%d, %p, %p)", res, fd, peer, len);
+  syscall_printf ("%d = accept (%d, %p, %p)", res, fd, peer, len);
   return res;
 }
 
@@ -1302,7 +1327,7 @@ accept4 (int fd, struct sockaddr *peer, socklen_t *len, int flags)
   else
     res = fh->accept4 (peer, len, flags);
 
-  syscall_printf ("%R = accept4(%d, %p, %p, %p)", res, fd, peer, len, flags);
+  syscall_printf ("%d = accept4 (%d, %p, %p, %p)", res, fd, peer, len, flags);
   return res;
 }
 
@@ -1319,7 +1344,7 @@ cygwin_bind (int fd, const struct sockaddr *my_addr, socklen_t addrlen)
   else
     res = fh->bind (my_addr, addrlen);
 
-  syscall_printf ("%R = bind(%d, %p, %d)", res, fd, my_addr, addrlen);
+  syscall_printf ("%d = bind (%d, %p, %d)", res, fd, my_addr, addrlen);
   return res;
 }
 
@@ -1337,7 +1362,7 @@ cygwin_getsockname (int fd, struct sockaddr *addr, socklen_t *namelen)
   else
     res = fh->getsockname (addr, namelen);
 
-  syscall_printf ("%R =getsockname (%d, %p, %p)", res, fd, addr, namelen);
+  syscall_printf ("%d = getsockname (%d, %p, %p)", res, fd, addr, namelen);
   return res;
 }
 
@@ -1353,7 +1378,7 @@ cygwin_listen (int fd, int backlog)
   else
     res = fh->listen (backlog);
 
-  syscall_printf ("%R = listen(%d, %d)", res, fd, backlog);
+  syscall_printf ("%d = listen (%d, %d)", res, fd, backlog);
   return res;
 }
 
@@ -1370,7 +1395,7 @@ cygwin_shutdown (int fd, int how)
   else
     res = fh->shutdown (how);
 
-  syscall_printf ("%R = shutdown(%d, %d)", res, fd, how);
+  syscall_printf ("%d = shutdown (%d, %d)", res, fd, how);
   return res;
 }
 
@@ -1436,7 +1461,7 @@ cygwin_getpeername (int fd, struct sockaddr *name, socklen_t *len)
   else
     res = fh->getpeername (name, len);
 
-  syscall_printf ("%R = getpeername(%d) %d", res, fd, (fh ? fh->get_socket () : -1));
+  syscall_printf ("%d = getpeername (%d) %d", res, fd, (fh ? fh->get_socket () : -1));
   return res;
 }
 
@@ -1454,7 +1479,7 @@ cygwin_recv (int fd, void *buf, size_t len, int flags)
   else if ((res = len) != 0)
     res = fh->recvfrom (buf, len, flags, NULL, NULL);
 
-  syscall_printf ("%R = recv(%d, %p, %d, %x)", res, fd, buf, len, flags);
+  syscall_printf ("%d = recv (%d, %p, %d, %x)", res, fd, buf, len, flags);
   return res;
 }
 
@@ -1472,7 +1497,7 @@ cygwin_send (int fd, const void *buf, size_t len, int flags)
   else
     res = fh->sendto (buf, len, flags, NULL, 0);
 
-  syscall_printf ("%R = send(%d, %p, %d, %x)", res, fd, buf, len, flags);
+  syscall_printf ("%d = send (%d, %p, %d, %x)", res, fd, buf, len, flags);
   return res;
 }
 
@@ -1736,104 +1761,96 @@ get_flags (PIP_ADAPTER_ADDRESSES pap)
 static ULONG
 get_ipv4fromreg_ipcnt (const char *name)
 {
-  WCHAR regkey[256], *c;
-
-  c = wcpcpy (regkey, L"Tcpip\\Parameters\\Interfaces\\");
-  sys_mbstowcs (c, 220, name);
-  if (!NT_SUCCESS (RtlCheckRegistryKey (RTL_REGISTRY_SERVICES, regkey)))
-    return 0;
-
+  HKEY key;
+  LONG ret;
+  char regkey[256], *c;
   ULONG ifs = 1;
-  DWORD dhcp = 0;
-  UNICODE_STRING uipa = { 0, 0, NULL };
-  RTL_QUERY_REGISTRY_TABLE tab[3] = {
-    { NULL, RTL_QUERY_REGISTRY_DIRECT | RTL_QUERY_REGISTRY_NOSTRING,
-      L"EnableDHCP", &dhcp, REG_NONE, NULL, 0 },
-    { NULL, RTL_QUERY_REGISTRY_DIRECT | RTL_QUERY_REGISTRY_NOEXPAND,
-      L"IPAddress", &uipa, REG_NONE, NULL, 0 },
-    { NULL, 0, NULL, NULL, 0, NULL, 0 }
-  };
+  DWORD dhcp, size;
 
-  /* If DHCP is used, we have only one address. */
-  if (NT_SUCCESS (RtlQueryRegistryValues (RTL_REGISTRY_SERVICES, regkey, tab,
-					  NULL, NULL))
-      && uipa.Buffer)
+  c = stpcpy (regkey, "SYSTEM\\CurrentControlSet\\Services\\Tcpip\\"
+		      "Parameters\\Interfaces\\");
+  stpcpy (c, name);
+  if ((ret = RegOpenKeyEx (HKEY_LOCAL_MACHINE, regkey, 0, KEY_READ,
+			   &key)) != ERROR_SUCCESS)
     {
-      if (dhcp == 0)
-      for (ifs = 0, c = uipa.Buffer; *c; c += wcslen (c) + 1)
-	ifs++;
-      RtlFreeUnicodeString (&uipa);
+      if (ret != ERROR_FILE_NOT_FOUND)
+	debug_printf ("RegOpenKeyEx(%s), win32 error %ld", regkey, ret);
+      return 0;
     }
+  /* If DHCP is used, we have only one address. */
+  if ((ret = RegQueryValueEx (key, "EnableDHCP", NULL, NULL, (PBYTE) &dhcp,
+			      (size = sizeof dhcp, &size))) == ERROR_SUCCESS
+      && dhcp == 0
+      && (ret = RegQueryValueEx (key, "IPAddress", NULL, NULL, NULL,
+				 &size)) == ERROR_SUCCESS)
+    {
+      char *ipa = (char *) alloca (size);
+      RegQueryValueEx (key, "IPAddress", NULL, NULL, (PBYTE) ipa, &size);
+      for (ifs = 0, c = ipa; *c; c += strlen (c) + 1)
+	ifs++;
+    }
+  RegCloseKey (key);
   return ifs;
 }
 
 static void
 get_ipv4fromreg (struct ifall *ifp, const char *name, DWORD idx)
 {
-  WCHAR regkey[256], *c;
+  HKEY key;
+  LONG ret;
+  char regkey[256], *c;
+  DWORD ifs;
+  DWORD dhcp, size;
 
-  c = wcpcpy (regkey, L"Tcpip\\Parameters\\Interfaces\\");
-  sys_mbstowcs (c, 220, name);
-  if (!NT_SUCCESS (RtlCheckRegistryKey (RTL_REGISTRY_SERVICES, regkey)))
-    return;
-
-  ULONG ifs;
-  DWORD dhcp = 0;
-  UNICODE_STRING udipa = { 0, 0, NULL };
-  UNICODE_STRING udsub = { 0, 0, NULL };
-  UNICODE_STRING uipa = { 0, 0, NULL };
-  UNICODE_STRING usub = { 0, 0, NULL };
-  RTL_QUERY_REGISTRY_TABLE tab[6] = {
-    { NULL, RTL_QUERY_REGISTRY_DIRECT | RTL_QUERY_REGISTRY_NOSTRING,
-      L"EnableDHCP", &dhcp, REG_NONE, NULL, 0 },
-    { NULL, RTL_QUERY_REGISTRY_DIRECT | RTL_QUERY_REGISTRY_NOEXPAND,
-      L"DhcpIPAddress", &udipa, REG_NONE, NULL, 0 },
-    { NULL, RTL_QUERY_REGISTRY_DIRECT | RTL_QUERY_REGISTRY_NOEXPAND,
-      L"DhcpSubnetMask", &udsub, REG_NONE, NULL, 0 },
-    { NULL, RTL_QUERY_REGISTRY_DIRECT | RTL_QUERY_REGISTRY_NOEXPAND,
-      L"IPAddress", &uipa, REG_NONE, NULL, 0 },
-    { NULL, RTL_QUERY_REGISTRY_DIRECT | RTL_QUERY_REGISTRY_NOEXPAND,
-      L"SubnetMask", &usub, REG_NONE, NULL, 0 },
-    { NULL, 0, NULL, NULL, 0, NULL, 0 }
-  };
-
-  if (NT_SUCCESS (RtlQueryRegistryValues (RTL_REGISTRY_SERVICES, regkey, tab,
-					  NULL, NULL)))
+  c = stpcpy (regkey, "SYSTEM\\CurrentControlSet\\Services\\Tcpip\\"
+		      "Parameters\\Interfaces\\");
+  stpcpy (c, name);
+  if ((ret = RegOpenKeyEx (HKEY_LOCAL_MACHINE, regkey, 0, KEY_READ, &key))
+      != ERROR_SUCCESS)
     {
-#     define addr ((struct sockaddr_in *) &ifp->ifa_addr)
-#     define mask ((struct sockaddr_in *) &ifp->ifa_netmask)
-#     define brdc ((struct sockaddr_in *) &ifp->ifa_brddstaddr)
-#     define inet_uton(u, a) \
-	{ \
-	  char t[64]; \
-	  sys_wcstombs (t, 64, (u)); \
-	  cygwin_inet_aton (t, (a)); \
-	}
-      /* If DHCP is used, we have only one address. */
+      if (ret != ERROR_FILE_NOT_FOUND)
+	debug_printf ("RegOpenKeyEx(%s), win32 error %ld", regkey, ret);
+      return;
+    }
+  /* If DHCP is used, we have only one address. */
+  if ((ret = RegQueryValueEx (key, "EnableDHCP", NULL, NULL, (PBYTE) &dhcp,
+			      (size = sizeof dhcp, &size))) == ERROR_SUCCESS)
+    {
+#define addr ((struct sockaddr_in *) &ifp->ifa_addr)
+#define mask ((struct sockaddr_in *) &ifp->ifa_netmask)
+#define brdc ((struct sockaddr_in *) &ifp->ifa_brddstaddr)
       if (dhcp)
 	{
-	  if (udipa.Buffer)
-	    inet_uton (udipa.Buffer, &addr->sin_addr);
-	  if (udsub.Buffer)
-	    inet_uton (udsub.Buffer, &mask->sin_addr);
+	  if ((ret = RegQueryValueEx (key, "DhcpIPAddress", NULL, NULL,
+				      (PBYTE) regkey, (size = 256, &size)))
+	      == ERROR_SUCCESS)
+	    cygwin_inet_aton (regkey, &addr->sin_addr);
+	  if ((ret = RegQueryValueEx (key, "DhcpSubnetMask", NULL, NULL,
+				      (PBYTE) regkey, (size = 256, &size)))
+	      == ERROR_SUCCESS)
+	    cygwin_inet_aton (regkey, &mask->sin_addr);
 	}
       else
 	{
-	  if (uipa.Buffer)
+	  if ((ret = RegQueryValueEx (key, "IPAddress", NULL, NULL, NULL,
+				     &size)) == ERROR_SUCCESS)
 	    {
-	      for (ifs = 0, c = uipa.Buffer; *c && ifs < idx;
-		   c += wcslen (c) + 1)
+	      char *ipa = (char *) alloca (size);
+	      RegQueryValueEx (key, "IPAddress", NULL, NULL, (PBYTE) ipa, &size);
+	      for (ifs = 0, c = ipa; *c && ifs < idx; c += strlen (c) + 1)
 		ifs++;
 	      if (*c)
-		inet_uton (c, &addr->sin_addr);
+		cygwin_inet_aton (c, &addr->sin_addr);
 	    }
-	  if (usub.Buffer)
+	  if ((ret = RegQueryValueEx (key, "SubnetMask", NULL, NULL, NULL,
+				     &size)) == ERROR_SUCCESS)
 	    {
-	      for (ifs = 0, c = usub.Buffer; *c && ifs < idx;
-		   c += wcslen (c) + 1)
+	      char *ipa = (char *) alloca (size);
+	      RegQueryValueEx (key, "SubnetMask", NULL, NULL, (PBYTE) ipa, &size);
+	      for (ifs = 0, c = ipa; *c && ifs < idx; c += strlen (c) + 1)
 		ifs++;
 	      if (*c)
-		inet_uton (c, &mask->sin_addr);
+		cygwin_inet_aton (c, &mask->sin_addr);
 	    }
 	}
       if (ifp->ifa_ifa.ifa_flags & IFF_BROADCAST)
@@ -1843,16 +1860,8 @@ get_ipv4fromreg (struct ifall *ifp, const char *name, DWORD idx)
 #undef addr
 #undef mask
 #undef brdc
-#undef inet_uton
-      if (udipa.Buffer)
-	RtlFreeUnicodeString (&udipa);
-      if (udsub.Buffer)
-	RtlFreeUnicodeString (&udsub);
-      if (uipa.Buffer)
-	RtlFreeUnicodeString (&uipa);
-      if (usub.Buffer)
-	RtlFreeUnicodeString (&usub);
     }
+  RegCloseKey (key);
 }
 
 static void
@@ -2185,7 +2194,10 @@ get_2k_ifs ()
 	  if (ifrow->dwAdminStatus == IF_ADMIN_STATUS_UP)
 	    {
 	      ifp->ifa_ifa.ifa_flags |= IFF_UP | IFF_LOWER_UP;
-	      if (ifrow->dwOperStatus >= IF_OPER_STATUS_CONNECTED)
+	      /* Bug in NT4's IP Helper lib.  The dwOperStatus has just
+		 two values, 0 or 1, non operational, operational. */
+	      if (ifrow->dwOperStatus >= (wincap.has_broken_if_oper_status ()
+					  ? 1 : IF_OPER_STATUS_CONNECTED))
 		ifp->ifa_ifa.ifa_flags |= IFF_RUNNING;
 	    }
 	  /* Address */
@@ -2630,7 +2642,7 @@ socketpair (int family, int type, int protocol, int *sb)
   /* bind the socket to any unused port */
   sock_in.sin_family = AF_INET;
   sock_in.sin_port = 0;
-  sock_in.sin_addr.s_addr = htonl (INADDR_LOOPBACK);
+  sock_in.sin_addr.s_addr = INADDR_ANY;
   if (bind (newsock, (struct sockaddr *) &sock_in, sizeof (sock_in)) < 0)
     {
       debug_printf ("bind failed");
@@ -2770,8 +2782,6 @@ socketpair (int family, int type, int protocol, int *sb)
 	    sb[1] = sb1;
 	    res = 0;
 	  }
-	else
-	  sb0.release ();
       }
 
     if (res == -1)
@@ -2782,7 +2792,7 @@ socketpair (int family, int type, int protocol, int *sb)
   }
 
 done:
-  syscall_printf ("%R = socketpair(...)", res);
+  syscall_printf ("%d = socketpair (...)", res);
   return res;
 }
 
@@ -2816,7 +2826,7 @@ cygwin_recvmsg (int fd, struct msghdr *msg, int flags)
 	res = fh->recvmsg (msg, flags);
     }
 
-  syscall_printf ("%R = recvmsg(%d, %p, %x)", res, fd, msg, flags);
+  syscall_printf ("%d = recvmsg (%d, %p, %x)", res, fd, msg, flags);
   return res;
 }
 
@@ -2838,7 +2848,7 @@ cygwin_sendmsg (int fd, const struct msghdr *msg, int flags)
 	res = fh->sendmsg (msg, flags);
     }
 
-  syscall_printf ("%R = sendmsg(%d, %p, %x)", res, fd, msg, flags);
+  syscall_printf ("%d = sendmsg (%d, %p, %x)", res, fd, msg, flags);
   return res;
 }
 
@@ -3322,7 +3332,7 @@ ga_aistruct (struct addrinfo ***paipnext, const struct addrinfo *hintsp,
 
 /* Cygwin specific: The ga_clone function is split up to allow an easy
    duplication of addrinfo structs.  This is used to duplicate the
-   structures from WinSock, so that we have the allocation of the structs
+   structures from Winsock, so that we have the allocation of the structs
    returned to the application under control.  This is especially helpful
    for the AI_V4MAPPED case prior to Vista. */
 static struct addrinfo *
@@ -4248,7 +4258,7 @@ cygwin_getaddrinfo (const char *hostname, const char *servname,
 		    | AI_NUMERICSERV | AI_ADDRCONFIG | AI_V4MAPPED)))
     return EAI_BADFLAGS;
   /* AI_NUMERICSERV is not supported in our replacement getaddrinfo, nor
-     is it supported by WinSock prior to Vista.  We just check the servname
+     is it supported by Winsock prior to Vista.  We just check the servname
      parameter by ourselves here. */
   if (hints && (hints->ai_flags & AI_NUMERICSERV))
     {
@@ -4341,7 +4351,7 @@ cygwin_getnameinfo (const struct sockaddr *sa, socklen_t salen,
     return ipv4_getnameinfo (sa, salen, host, hostlen, serv, servlen, flags);
 
   /* When the incoming port number does not resolve to a well-known service,
-     WinSock's getnameinfo up to Windows 2003 returns with error WSANO_DATA
+     Winsock's getnameinfo up to Windows 2003 returns with error WSANO_DATA
      instead of setting `serv' to the numeric port number string, as required
      by RFC 3493.  This is fixed on Vista and later.  To avoid the error on
      systems up to Windows 2003, we check if the port number resolves
