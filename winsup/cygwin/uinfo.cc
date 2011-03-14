@@ -1,7 +1,7 @@
 /* uinfo.cc: user info (uid, gid, etc...)
 
    Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
-   2006, 2007, 2008, 2009, 2010, 2011 Red Hat, Inc.
+   2006, 2007, 2008 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -40,67 +40,49 @@ cygheap_user::init ()
   WCHAR user_name[UNLEN + 1];
   DWORD user_name_len = UNLEN + 1;
 
-  /* This code is only run if a Cygwin process gets started by a native
-     Win32 process.  We try to get the username from the environment,
-     first USERNAME (Win32), then USER (POSIX).  If that fails (which is
-     very unlikely), it only has an impact if we don't have an entry in
-     /etc/passwd for this user either.  In that case the username sticks
-     to "unknown".  Since this is called early in initialization, and
-     since we don't want pull in a dependency to any other DLL except
-     ntdll and kernel32 at this early stage, don't call GetUserName,
-     GetUserNameEx, NetWkstaUserGetInfo, etc. */
-  if (GetEnvironmentVariableW (L"USERNAME", user_name, user_name_len)
-      || GetEnvironmentVariableW (L"USER", user_name, user_name_len))
-    {
-      char mb_user_name[user_name_len = sys_wcstombs (NULL, 0, user_name)];
-      sys_wcstombs (mb_user_name, user_name_len, user_name);
-      set_name (mb_user_name);
-    }
-  else
-    set_name ("unknown");
+  if (!GetUserNameW (user_name, &user_name_len))
+    wcpcpy (user_name, L"unknown");
 
-  NTSTATUS status;
-  ULONG size;
+  char mb_user_name[user_name_len = sys_wcstombs (NULL, 0, user_name)];
+  sys_wcstombs (mb_user_name, user_name_len, user_name);
+  set_name (mb_user_name);
+
+  DWORD siz;
   PSECURITY_DESCRIPTOR psd;
 
-  status = NtQueryInformationToken (hProcToken, TokenPrimaryGroup,
-				    &groups.pgsid, sizeof (cygsid), &size);
-  if (!NT_SUCCESS (status))
-    system_printf ("NtQueryInformationToken (TokenPrimaryGroup), %p", status);
+  if (!GetTokenInformation (hProcToken, TokenPrimaryGroup,
+			    &groups.pgsid, sizeof (cygsid), &siz))
+    system_printf ("GetTokenInformation (TokenPrimaryGroup), %E");
 
   /* Get the SID from current process and store it in effec_cygsid */
-  status = NtQueryInformationToken (hProcToken, TokenUser, &effec_cygsid,
-				    sizeof (cygsid), &size);
-  if (!NT_SUCCESS (status))
+  if (!GetTokenInformation (hProcToken, TokenUser, &effec_cygsid,
+			    sizeof (cygsid), &siz))
     {
-      system_printf ("NtQueryInformationToken (TokenUser), %p", status);
+      system_printf ("GetTokenInformation (TokenUser), %E");
       return;
     }
 
   /* Set token owner to the same value as token user */
-  status = NtSetInformationToken (hProcToken, TokenOwner, &effec_cygsid,
-				  sizeof (cygsid));
-  if (!NT_SUCCESS (status))
-    debug_printf ("NtSetInformationToken(TokenOwner), %p", status);
+  if (!SetTokenInformation (hProcToken, TokenOwner, &effec_cygsid,
+			    sizeof (cygsid)))
+    debug_printf ("SetTokenInformation(TokenOwner), %E");
 
   /* Standard way to build a security descriptor with the usual DACL */
   PSECURITY_ATTRIBUTES sa_buf = (PSECURITY_ATTRIBUTES) alloca (1024);
   psd = (PSECURITY_DESCRIPTOR)
-		(sec_user_nih (sa_buf, sid()))->lpSecurityDescriptor;
+  		(sec_user_nih (sa_buf, sid()))->lpSecurityDescriptor;
 
-  BOOLEAN acl_exists, dummy;
+  BOOL acl_exists, dummy;
   TOKEN_DEFAULT_DACL dacl;
-
-  status = RtlGetDaclSecurityDescriptor (psd, &acl_exists, &dacl.DefaultDacl,
-					 &dummy);
-  if (NT_SUCCESS (status) && acl_exists && dacl.DefaultDacl)
+  if (GetSecurityDescriptorDacl (psd, &acl_exists, &dacl.DefaultDacl, &dummy)
+      && acl_exists && dacl.DefaultDacl)
     {
+      NTSTATUS status;
 
       /* Set the default DACL and the process DACL */
-      status = NtSetInformationToken (hProcToken, TokenDefaultDacl, &dacl,
-				      sizeof (dacl));
-      if (!NT_SUCCESS (status))
-	system_printf ("NtSetInformationToken (TokenDefaultDacl), %p", status);
+      if (!SetTokenInformation (hProcToken, TokenDefaultDacl, &dacl,
+      				sizeof (dacl)))
+	system_printf ("SetTokenInformation (TokenDefaultDacl), %E");
       if ((status = NtSetSecurityObject (NtCurrentProcess (),
 					 DACL_SECURITY_INFORMATION, psd)))
 	system_printf ("NtSetSecurityObject, %lx", status);
@@ -132,12 +114,9 @@ internal_getlogin (cygheap_user &user)
 	  if (gsid != user.groups.pgsid)
 	    {
 	      /* Set primary group to the group in /etc/passwd. */
-	      NTSTATUS status = NtSetInformationToken (hProcToken,
-						       TokenPrimaryGroup,
-						       &gsid, sizeof gsid);
-	      if (!NT_SUCCESS (status))
-		debug_printf ("NtSetInformationToken (TokenPrimaryGroup), %p",
-			      status);
+	      if (!SetTokenInformation (hProcToken, TokenPrimaryGroup,
+					&gsid, sizeof gsid))
+		debug_printf ("SetTokenInformation(TokenPrimaryGroup), %E");
 	      else
 		user.groups.pgsid = gsid;
 	      clear_procimptoken ();
@@ -187,7 +166,7 @@ uinfo_init ()
 extern "C" int
 getlogin_r (char *name, size_t namesize)
 {
-  const char *login = cygheap->user.name ();
+  char *login = getlogin ();
   size_t len = strlen (login) + 1;
   if (len > namesize)
     return ERANGE;
@@ -201,14 +180,7 @@ getlogin_r (char *name, size_t namesize)
 extern "C" char *
 getlogin (void)
 {
-  static char username[UNLEN];
-  int ret = getlogin_r (username, UNLEN);
-  if (ret)
-    {
-      set_errno (ret);
-      return NULL;
-    }
-  return username;
+  return strcpy (_my_tls.locals.username, cygheap->user.name ());
 }
 
 extern "C" __uid32_t
@@ -326,7 +298,7 @@ cygheap_user::ontherange (homebodies what, struct passwd *pw)
 	      if (!(ret = NetUserGetInfo (wlogsrv, wuser, 3, (LPBYTE *) &ui)))
 		{
 		  sys_wcstombs (homepath_env_buf, NT_MAX_PATH,
-				ui->usri3_home_dir);
+		  		ui->usri3_home_dir);
 		  if (!homepath_env_buf[0])
 		    {
 		      sys_wcstombs (homepath_env_buf, NT_MAX_PATH,
@@ -412,7 +384,7 @@ cygheap_user::env_domain (const char *name, size_t namelen)
 
   DWORD ulen = UNLEN + 1;
   WCHAR username[ulen];
-  DWORD dlen = MAX_DOMAIN_NAME_LEN + 1;
+  DWORD dlen = DNLEN + 1;
   WCHAR userdomain[dlen];
   SID_NAME_USE use;
 
@@ -470,16 +442,19 @@ cygheap_user::env_systemroot (const char *name, size_t namelen)
 {
   if (!psystemroot)
     {
-      int size = GetSystemWindowsDirectoryW (NULL, 0);
+      int size = GetWindowsDirectory (NULL, 0);
       if (size > 0)
 	{
-	  WCHAR wsystemroot[size];
-	  size = GetSystemWindowsDirectoryW (wsystemroot, size);
-	  if (size > 0)
-	    sys_wcstombs_alloc (&psystemroot, HEAP_STR, wsystemroot);
+	  psystemroot = (char *) cmalloc_abort (HEAP_STR, ++size);
+	  size = GetWindowsDirectory (psystemroot, size);
+	  if (size <= 0)
+	    {
+	      cfree (psystemroot);
+	      psystemroot = NULL;
+	    }
 	}
       if (size <= 0)
-	debug_printf ("GetSystemWindowsDirectoryW(), %E");
+	debug_printf ("GetWindowsDirectory(), %E");
     }
   return psystemroot;
 }
