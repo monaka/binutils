@@ -52,7 +52,7 @@ class __DIR_mounts
 	*c++ = '/';
       sys_wcstombs (c, mounts[idx].Length + 1,
 		    mounts[idx].Buffer, mounts[idx].Length / sizeof (WCHAR));
-      path_conv pc (fname, PC_SYM_NOFOLLOW | PC_POSIX | PC_KEEP_HANDLE);
+      path_conv pc (fname, PC_SYM_NOFOLLOW | PC_POSIX);
       if (!stat_worker (pc, &st))
 	ino = st.st_ino;
       return ino;
@@ -140,7 +140,8 @@ inline bool
 path_conv::isgood_inode (__ino64_t ino) const
 {
   /* We can't trust remote inode numbers of only 32 bit.  That means,
-     remote NT4 NTFS, as well as shares of Samba version < 3.0.
+     all remote inode numbers when running under NT4, as well as remote NT4
+     NTFS, as well as shares of Samba version < 3.0.
      The known exception are SFU NFS shares, which return the valid 32 bit
      inode number from the remote file system unchanged. */
   return hasgood_inode () && (ino > UINT32_MAX || !isremote () || fs_is_nfs ());
@@ -172,7 +173,7 @@ readdir_check_reparse_point (POBJECT_ATTRIBUTES attr)
 	{
 	  if (rp->ReparseTag == IO_REPARSE_TAG_MOUNT_POINT)
 	    {
-	      RtlInitCountedUnicodeString (&subst,
+	      RtlInitCountedUnicodeString (&subst, 
 		  (WCHAR *)((char *)rp->MountPointReparseBuffer.PathBuffer
 			    + rp->MountPointReparseBuffer.SubstituteNameOffset),
 		  rp->MountPointReparseBuffer.SubstituteNameLength);
@@ -180,7 +181,7 @@ readdir_check_reparse_point (POBJECT_ATTRIBUTES attr)
 	      if (RtlEqualUnicodePathPrefix (&subst, &ro_u_volume, TRUE))
 		ret = DT_DIR;
 	      else
-		ret = DT_LNK;
+	      	ret = DT_LNK;
 	    }
 	  else if (rp->ReparseTag == IO_REPARSE_TAG_SYMLINK)
 	    ret = DT_LNK;
@@ -347,7 +348,9 @@ fhandler_base::fstat_by_handle (struct __stat64 *buf)
      on the information stored in pc.fnoi.  So we overwrite them here. */
   if (get_io_handle ())
     {
-      status = file_get_fnoi (h, pc.fs_is_netapp (), pc.fnoi ());
+      PFILE_NETWORK_OPEN_INFORMATION pfnoi = pc.fnoi ();
+      status = NtQueryInformationFile (h, &io, pfnoi, sizeof *pfnoi,
+                                      FileNetworkOpenInformation);
       if (!NT_SUCCESS (status))
        {
 	 debug_printf ("%p = NtQueryInformationFile(%S, "
@@ -401,7 +404,8 @@ fhandler_base::fstat_by_name (struct __stat64 *buf)
     WCHAR buf[NAME_MAX + 1];
   } fdi_buf;
 
-  if (!ino && pc.hasgood_inode () && !pc.has_buggy_fileid_dirinfo ())
+  if (!ino && pc.hasgood_inode ()
+      && wincap.has_fileid_dirinfo () && !pc.has_buggy_fileid_dirinfo ())
     {
       RtlSplitUnicodePath (pc.get_nt_native_path (), &dirname, &basename);
       InitializeObjectAttributes (&attr, &dirname, pc.objcaseinsensitive (),
@@ -613,7 +617,7 @@ fhandler_base::fstat_helper (struct __stat64 *buf,
 	      IO_STATUS_BLOCK io;
 
 	      /* We have to re-open the file.  Either the file is not opened
-		 for reading, or the read will change the file position of the
+	      	 for reading, or the read will change the file position of the
 		 original handle. */
 	      pc.init_reopen_attr (&attr, h);
 	      status = NtOpenFile (&h, SYNCHRONIZE | FILE_READ_DATA,
@@ -657,15 +661,10 @@ fhandler_base::fstat_helper (struct __stat64 *buf,
     }
 
  done:
-  syscall_printf ("0 = fstat (%S, %p) st_size=%D, st_mode=%p, st_ino=%D"
-		  "st_atim=%x.%x st_ctim=%x.%x "
-		  "st_mtim=%x.%x st_birthtim=%x.%x",
-		  pc.get_nt_native_path (), buf,
-		  buf->st_size, buf->st_mode, buf->st_ino,
-		  buf->st_atim.tv_sec, buf->st_atim.tv_nsec,
-		  buf->st_ctim.tv_sec, buf->st_ctim.tv_nsec,
-		  buf->st_mtim.tv_sec, buf->st_mtim.tv_nsec,
-		  buf->st_birthtim.tv_sec, buf->st_birthtim.tv_nsec);
+  syscall_printf ("0 = fstat (%S, %p) st_atime=%x st_size=%D, st_mode=%p, "
+		  "st_ino=%D, sizeof=%d",
+		  pc.get_nt_native_path (), buf, buf->st_atime, buf->st_size,
+		  buf->st_mode, buf->st_ino, sizeof (*buf));
   return 0;
 }
 
@@ -763,7 +762,7 @@ fhandler_disk_file::fstatvfs (struct statvfs *sfs)
 out:
   if (opened)
     NtClose (fh);
-  syscall_printf ("%d = fstatvfs(%s, %p)", ret, get_name (), sfs);
+  syscall_printf ("%d = fstatvfs (%s, %p)", ret, get_name (), sfs);
   return ret;
 }
 
@@ -913,7 +912,7 @@ fhandler_disk_file::fchown (__uid32_t uid, __gid32_t gid)
 	attrib = S_IFLNK | STD_RBITS | STD_WBITS;
       res = set_file_attribute (get_handle (), pc, uid, gid, attrib);
       /* If you're running a Samba server which has no winbidd running, the
-	 uid<->SID mapping is disfunctional.  Even trying to chown to your
+         uid<->SID mapping is disfunctional.  Even trying to chown to your
 	 own account fails since the account used on the server is the UNIX
 	 account which gets used for the standard user mapping.  This is a
 	 default mechanism which doesn't know your real Windows SID.
@@ -929,8 +928,7 @@ fhandler_disk_file::fchown (__uid32_t uid, __gid32_t gid)
 
 	  if (old_uid == ILLEGAL_UID
 	      || (sid.getfrompw (internal_getpwuid (old_uid))
-		  && RtlEqualPrefixSid (sid,
-					well_known_samba_unix_user_fake_sid)))
+		  && EqualPrefixSid (sid, well_known_samba_unix_user_fake_sid)))
 	    {
 	      debug_printf ("Faking chown worked on standalone Samba");
 	      res = 0;
@@ -1039,7 +1037,7 @@ cant_access_acl:
 	      res = getacl (get_stat_handle (), pc, nentries, aclbufp);
 	      /* For this ENOSYS case, see security.cc:get_file_attribute(). */
 	      if (res == -1 && get_errno () == ENOSYS)
-		goto cant_access_acl;
+	      	goto cant_access_acl;
 	    break;
 	  case GETACLCNT:
 	    res = getacl (get_stat_handle (), pc, 0, NULL);
@@ -1359,12 +1357,12 @@ fhandler_base::utimens_fs (const struct timespec *tvp)
 }
 
 fhandler_disk_file::fhandler_disk_file () :
-  fhandler_base (), prw_handle (NULL)
+  fhandler_base ()
 {
 }
 
 fhandler_disk_file::fhandler_disk_file (path_conv &pc) :
-  fhandler_base (), prw_handle (NULL)
+  fhandler_base ()
 {
   set_name (pc);
 }
@@ -1373,39 +1371,6 @@ int
 fhandler_disk_file::open (int flags, mode_t mode)
 {
   return open_fs (flags, mode);
-}
-
-int
-fhandler_disk_file::close ()
-{
-  /* Close extra pread/pwrite handle, if it exists. */
-  if (prw_handle)
-    NtClose (prw_handle);
-  /* Delete all POSIX locks on the file.  Delete all flock locks on the
-     file if this is the last reference to this file. */
-  del_my_locks (on_close);
-  return fhandler_base::close ();
-}
-
-int
-fhandler_disk_file::dup (fhandler_base *child, int flags)
-{
-  fhandler_disk_file *fhc = (fhandler_disk_file *) child;
-
-  int ret = fhandler_base::dup (child, flags);
-  if (!ret && prw_handle
-      && !DuplicateHandle (GetCurrentProcess (), prw_handle,
-			   GetCurrentProcess (), &fhc->prw_handle,
-			   0, TRUE, DUPLICATE_SAME_ACCESS))
-    prw_handle = NULL;
-  return ret;
-}
-
-void
-fhandler_disk_file::fixup_after_fork (HANDLE parent)
-{
-  prw_handle = NULL;
-  fhandler_base::fixup_after_fork (parent);
 }
 
 int
@@ -1440,134 +1405,17 @@ fhandler_base::open_fs (int flags, mode_t mode)
     ino = pc.get_ino_by_handle (get_handle ());
     /* A unique ID is necessary to recognize fhandler entries which are
        duplicated by dup(2) or fork(2). */
-    NtAllocateLocallyUniqueId ((PLUID) &unique_id);
+    AllocateLocallyUniqueId ((PLUID) &unique_id);
 
 out:
-  syscall_printf ("%d = fhandler_disk_file::open(%S, %p)", res,
+  syscall_printf ("%d = fhandler_disk_file::open (%S, %p)", res,
 		  pc.get_nt_native_path (), flags);
   return res;
-}
-
-/* POSIX demands that pread/pwrite don't change the current file position.
-   While NtReadFile/NtWriteFile support atomic seek-and-io, both change the
-   file pointer if the file handle has been opened for synchonous I/O.
-   Using this handle for pread/pwrite would break atomicity, because the
-   read/write operation would have to be followed by a seek back to the old
-   file position.  What we do is to open another handle to the file on the
-   first call to either pread or pwrite.  This is used for any subsequent
-   pread/pwrite.  Thus the current file position of the "normal" file
-   handle is not touched.
-
-   FIXME:
-
-   Note that this is just a hack.  The problem with this approach is that
-   a change to the file permissions might disallow to open the file with
-   the required permissions to read or write.  This appears to be a border case,
-   but that's exactly what git does.  It creates the file for reading and
-   writing and after writing it, it chmods the file to read-only.  Then it
-   calls pread on the file to examine the content.  This works, but if git
-   would use the original handle to pwrite to the file, it would be broken
-   with our approach.
-
-   One way to implement this is to open the pread/pwrite handle right at
-   file open time.  We would simply maintain two handles, which wouldn't
-   be much of a problem given how we do that for other fhandler types as
-   well.
-
-   However, ultimately fhandler_disk_file should become a derived class of
-   fhandler_base_overlapped.  Each raw_read or raw_write would fetch the
-   actual file position, read/write from there, and then set the file
-   position again.  Fortunately, while the file position is not maintained
-   by the I/O manager, it can be fetched and set to a new value by all
-   processes holding a handle to that file object.  Pread and pwrite differ
-   from raw_read and raw_write just by not touching the current file pos.
-   Actually they could be merged with raw_read/raw_write if we add a position
-   parameter to the latter. */
-
-int
-fhandler_disk_file::prw_open (bool write)
-{
-  NTSTATUS status;
-  IO_STATUS_BLOCK io;
-  OBJECT_ATTRIBUTES attr;
-
-  /* First try to open with the original access mask */
-  ACCESS_MASK access = get_access ();
-  pc.init_reopen_attr (&attr, get_handle ());
-  status = NtOpenFile (&prw_handle, access, &attr, &io,
-		       FILE_SHARE_VALID_FLAGS, get_options ());
-  if (status == STATUS_ACCESS_DENIED)
-    {
-      /* If we get an access denied, chmod has been called.  Try again
-	 with just the required rights to perform the called function. */
-      access &= write ? ~GENERIC_READ : ~GENERIC_WRITE;
-      status = NtOpenFile (&prw_handle, access, &attr, &io,
-			   FILE_SHARE_VALID_FLAGS, get_options ());
-    }
-  debug_printf ("%x = NtOpenFile (%p, %x, %S, io, %x, %x)",
-		status, prw_handle, access, pc.get_nt_native_path (),
-		FILE_SHARE_VALID_FLAGS, get_options ());
-  if (!NT_SUCCESS (status))
-    {
-      __seterrno_from_nt_status (status);
-      return -1;
-    }
-  return 0;
 }
 
 ssize_t __stdcall
 fhandler_disk_file::pread (void *buf, size_t count, _off64_t offset)
 {
-  if ((get_flags () & O_ACCMODE) == O_WRONLY)
-    {
-      set_errno (EBADF);
-      return -1;
-    }
-
-  /* In binary mode, we can use an atomic NtReadFile call. */
-  if (rbinary ())
-    {
-      extern int __stdcall is_at_eof (HANDLE h);
-      NTSTATUS status;
-      IO_STATUS_BLOCK io;
-      LARGE_INTEGER off = { QuadPart:offset };
-
-      if (!prw_handle && prw_open (false))
-	goto non_atomic;
-      status = NtReadFile (prw_handle, NULL, NULL, NULL, &io, buf, count,
-			   &off, NULL);
-      if (!NT_SUCCESS (status))
-	{
-	  if (pc.isdir ())
-	    {
-	      set_errno (EISDIR);
-	      return -1;
-	    }
-	  if (status == (NTSTATUS) STATUS_ACCESS_VIOLATION)
-	    {
-	      if (is_at_eof (prw_handle))
-		return 0;
-	      switch (mmap_is_attached_or_noreserve (buf, count))
-		{
-		case MMAP_NORESERVE_COMMITED:
-		  status = NtReadFile (prw_handle, NULL, NULL, NULL, &io,
-				       buf, count, &off, NULL);
-		  if (NT_SUCCESS (status))
-		    return io.Information;
-		  break;
-		case MMAP_RAISE_SIGBUS:
-		  raise (SIGBUS);
-		default:
-		  break;
-		}
-	    }
-	  __seterrno_from_nt_status (status);
-	  return -1;
-	}
-    }
-
-non_atomic:
-  /* Text mode stays slow and non-atomic. */
   ssize_t res;
   _off64_t curpos = lseek (0, SEEK_CUR);
   if (curpos < 0 || lseek (offset, SEEK_SET) < 0)
@@ -1581,40 +1429,13 @@ non_atomic:
       else
 	res = -1;
     }
-  debug_printf ("%d = pread(%p, %d, %d)\n", res, buf, count, offset);
+  debug_printf ("%d = pread (%p, %d, %d)\n", res, buf, count, offset);
   return res;
 }
 
 ssize_t __stdcall
 fhandler_disk_file::pwrite (void *buf, size_t count, _off64_t offset)
 {
-  if ((get_flags () & O_ACCMODE) == O_RDONLY)
-    {
-      set_errno (EBADF);
-      return -1;
-    }
-
-  /* In binary mode, we can use an atomic NtWriteFile call. */
-  if (wbinary ())
-    {
-      NTSTATUS status;
-      IO_STATUS_BLOCK io;
-      LARGE_INTEGER off = { QuadPart:offset };
-
-      if (!prw_handle && prw_open (true))
-	goto non_atomic;
-      status = NtWriteFile (prw_handle, NULL, NULL, NULL, &io, buf, count,
-			    &off, NULL);
-      if (!NT_SUCCESS (status))
-	{
-	  __seterrno_from_nt_status (status);
-	  return -1;
-	}
-      return io.Information;
-    }
-
-non_atomic:
-  /* Text mode stays slow and non-atomic. */
   int res;
   _off64_t curpos = lseek (0, SEEK_CUR);
   if (curpos < 0 || lseek (offset, SEEK_SET) < 0)
@@ -1625,7 +1446,7 @@ non_atomic:
       if (lseek (curpos, SEEK_SET) < 0)
 	res = -1;
     }
-  debug_printf ("%d = pwrite(%p, %d, %d)\n", res, buf, count, offset);
+  debug_printf ("%d = pwrite (%p, %d, %d)\n", res, buf, count, offset);
   return res;
 }
 
@@ -1660,15 +1481,11 @@ fhandler_disk_file::mkdir (mode_t mode)
       nfs_attr->type = NF3DIR;
       nfs_attr->mode = (mode & 07777) & ~cygheap->umask;
     }
-  else if (has_acls () && !isremote ())
+  else if (has_acls ())
     /* If the filesystem supports ACLs, we will overwrite the DACL after the
        call to NtCreateFile.  This requires a handle with READ_CONTROL and
        WRITE_DAC access, otherwise get_file_sd and set_file_sd both have to
-       open the file again.
-       FIXME: On remote NTFS shares open sometimes fails because even the
-       creator of the file doesn't have the right to change the DACL.
-       I don't know what setting that is or how to recognize such a share,
-       so for now we don't request WRITE_DAC on remote drives. */
+       open the file again. */
     access |= READ_CONTROL | WRITE_DAC;
   status = NtCreateFile (&dir, access, pc.get_object_attr (attr, sa), &io, NULL,
 			 FILE_ATTRIBUTE_DIRECTORY, FILE_SHARE_VALID_FLAGS,
@@ -1721,12 +1538,10 @@ fhandler_disk_file::rmdir ()
       FILE_BASIC_INFORMATION fbi;
       NTSTATUS q_status;
 
-      q_status = NtQueryAttributesFile (pc.get_object_attr (attr, sec_none_nih),
-					&fbi);
+      q_status = NtQueryAttributesFile (pc.get_object_attr (attr, sec_none_nih),                                        &fbi);
       if (!NT_SUCCESS (status) && q_status == STATUS_OBJECT_NAME_NOT_FOUND)
 	status = STATUS_SUCCESS;
-      else if (pc.fs_is_samba ()
-	       && NT_SUCCESS (status) && NT_SUCCESS (q_status))
+      else if (NT_SUCCESS (status) && NT_SUCCESS (q_status))
 	status = STATUS_DIRECTORY_NOT_EMPTY;
     }
   if (!NT_SUCCESS (status))
@@ -1864,7 +1679,8 @@ fhandler_disk_file::opendir (int fd)
 	      dir->__flags |= dirent_set_d_ino;
 	      if (pc.fs_is_nfs ())
 		dir->__flags |= dirent_nfs_d_ino;
-	      else if (!pc.has_buggy_fileid_dirinfo ())
+	      else if (wincap.has_fileid_dirinfo ()
+		       && !pc.has_buggy_fileid_dirinfo ())
 		dir->__flags |= dirent_get_d_ino;
 	    }
 	}
@@ -2216,9 +2032,9 @@ go_ahead:
 					  pc.objcaseinsensitive (),
 					  get_handle (), NULL);
 	      /* FILE_OPEN_REPARSE_POINT on NFS is a no-op, so the normal
-		 NtOpenFile here returns the inode number of the symlink target,
+	         NtOpenFile here returns the inode number of the symlink target,
 		 rather than the inode number of the symlink itself.
-
+		 
 		 Worse, trying to open a symlink without setting the special
 		 "ActOnSymlink" EA triggers a bug in Windows 7 which results
 		 in a timeout of up to 20 seconds, followed by two exceptions
@@ -2285,7 +2101,7 @@ go_ahead:
       res = 0;
     }
 
-  syscall_printf ("%d = readdir(%p, %p) (L\"%lS\" > \"%ls\") (attr %p > type %d)",
+  syscall_printf ("%d = readdir (%p, %p) (L\"%lS\" > \"%ls\") (attr %p > type %d)",
 		  res, dir, &de, res ? NULL : &fname, res ? "***" : de->d_name,
 		  FileAttributes, de->d_type);
   return res;
@@ -2359,7 +2175,7 @@ fhandler_disk_file::closedir (DIR *dir)
       __seterrno_from_nt_status (status);
       res = -1;
     }
-  syscall_printf ("%d = closedir(%p, %s)", res, dir, get_name ());
+  syscall_printf ("%d = closedir (%p, %s)", res, dir, get_name ());
   return res;
 }
 
