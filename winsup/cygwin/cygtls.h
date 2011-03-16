@@ -1,6 +1,6 @@
 /* cygtls.h
 
-   Copyright 2003, 2004, 2005, 2008, 2009, 2010, 2011 Red Hat, Inc.
+   Copyright 2003, 2004, 2005, 2008, 2009, 2010 Red Hat, Inc.
 
 This software is a copyrighted work licensed under the terms of the
 Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
@@ -82,6 +82,9 @@ struct _local_storage
   char *namearray[2];
   int grp_pos;
 
+  /* console.cc */
+  unsigned rarg;
+
   /* dlfcn.cc */
   int dl_error;
   char dl_buffer[256];
@@ -108,18 +111,26 @@ struct _local_storage
     HANDLE *w4;				// note: malloced
   } select;
 
-  /* strerror errno.cc */
-  char strerror_buf[sizeof ("Unknown error -2147483648")];
-  char strerror_r_buf[sizeof ("Unknown error -2147483648")];
+  /* strerror */
+  char strerror_buf[sizeof ("Unknown error 4294967295")];
+
+  /* sysloc.cc */
+  wchar_t *process_ident;		// note: malloced
+  int process_logopt;
+  int process_facility;
+  int process_logmask;
 
   /* times.cc */
   char timezone_buf[20];
+  struct tm _localtime_buf;
 
-  /* strsig.cc */
-  char signamebuf[sizeof ("Unknown signal 4294967295   ")];
+  /* uinfo.cc */
+  char username[UNLEN + 1];
 
   /* net.cc */
   char *ntoa_buf;			// note: malloced
+  char signamebuf[sizeof ("Unknown signal 4294967295   ")];
+
   unionent *hostent_buf;		// note: malloced
   unionent *protoent_buf;		// note: malloced
   unionent *servent_buf;		// note: malloced
@@ -131,12 +142,8 @@ struct _local_storage
   int setmode_file;
   int setmode_mode;
 
-  /* thread.cc */
-  HANDLE cw_timer;
-
   /* All functions requiring temporary path buffers. */
   tls_pathbuf pathbufs;
-  char ttybuf[32];
 };
 
 typedef struct struct_waitq

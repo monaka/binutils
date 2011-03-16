@@ -1,7 +1,7 @@
 /* syslog.cc
 
    Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
-   2006, 2007, 2009, 2011 Red Hat, Inc.
+   2006, 2007, 2009 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -17,8 +17,6 @@ details. */
 #include <syslog.h>
 #include <unistd.h>
 #include <sys/un.h>
-#include <netinet/in.h>
-#include <iphlpapi.h>
 #include "cygerrno.h"
 #include "security.h"
 #include "path.h"
@@ -30,39 +28,30 @@ details. */
 
 #define CYGWIN_LOG_NAME L"Cygwin"
 
-static struct
-{
-  wchar_t *process_ident;
-  int process_logopt;
-  int process_facility;
-  int process_logmask;
-} syslog_globals = { NULL, 0, 0, LOG_UPTO (LOG_DEBUG) };
-
 /* openlog: save the passed args. Don't open the system log or /dev/log yet.  */
 extern "C" void
 openlog (const char *ident, int logopt, int facility)
 {
-    wchar_t *new_ident = NULL;
-
     debug_printf ("openlog called with (%s, %d, %d)",
 		       ident ? ident : "<NULL>", logopt, facility);
 
+    if (_my_tls.locals.process_ident != NULL)
+      {
+	free (_my_tls.locals.process_ident);
+	_my_tls.locals.process_ident = NULL;
+      }
     if (ident)
       {
-	sys_mbstowcs_alloc (&new_ident, HEAP_NOTHEAP, ident);
-	if (!new_ident)
-	    debug_printf ("failed to allocate memory for "
-			  "syslog_globals.process_ident");
-	else
+	sys_mbstowcs_alloc (&_my_tls.locals.process_ident, HEAP_NOTHEAP, ident);
+	if (!_my_tls.locals.process_ident)
 	  {
-	    wchar_t *old_ident = syslog_globals.process_ident;
-	    syslog_globals.process_ident = new_ident;
-	    if (old_ident)
-	      free (old_ident);
+	    debug_printf ("failed to allocate memory for "
+			  "_my_tls.locals.process_ident");
+	    return;
 	  }
       }
-    syslog_globals.process_logopt = logopt;
-    syslog_globals.process_facility = facility;
+    _my_tls.locals.process_logopt = logopt;
+    _my_tls.locals.process_facility = facility;
 }
 
 /* setlogmask: set the log priority mask and return previous mask.
@@ -71,10 +60,10 @@ int
 setlogmask (int maskpri)
 {
   if (maskpri == 0)
-    return syslog_globals.process_logmask;
+    return _my_tls.locals.process_logmask;
 
-  int old_mask = syslog_globals.process_logmask;
-  syslog_globals.process_logmask = maskpri;
+  int old_mask = _my_tls.locals.process_logmask;
+  _my_tls.locals.process_logmask = maskpri;
 
   return old_mask;
 }
@@ -188,63 +177,45 @@ static enum {
 static int syslogd_sock = -1;
 extern "C" int cygwin_socket (int, int, int);
 extern "C" int cygwin_connect (int, const struct sockaddr *, int);
-extern int get_inet_addr (const struct sockaddr *, int,
-			  struct sockaddr_storage *, int *,
-			  int * = NULL, int * = NULL);
 
 static void
 connect_syslogd ()
 {
+  struct __stat64 st;
   int fd;
   struct sockaddr_un sun;
-  struct sockaddr_storage sst;
-  int len, type;
 
   if (syslogd_inited != not_inited && syslogd_sock >= 0)
     close (syslogd_sock);
   syslogd_inited = inited_failed;
   syslogd_sock = -1;
+  if (stat64 (_PATH_LOG, &st) || !S_ISSOCK (st.st_mode))
+    return;
+  if ((fd = cygwin_socket (AF_LOCAL, SOCK_DGRAM, 0)) < 0)
+    return;
   sun.sun_family = AF_LOCAL;
   strncpy (sun.sun_path, _PATH_LOG, sizeof sun.sun_path);
-  if (get_inet_addr ((struct sockaddr *) &sun, sizeof sun, &sst, &len, &type))
-    return;
-  if ((fd = cygwin_socket (AF_LOCAL, type, 0)) < 0)
-    return;
-  if (cygwin_connect (fd, (struct sockaddr *) &sun, sizeof sun) == 0)
+  if (cygwin_connect (fd, (struct sockaddr *) &sun, sizeof sun))
     {
-      /* connect on a dgram socket always succeeds.  We still don't know
-	 if syslogd is actually listening. */
-      if (type == SOCK_DGRAM)
+      if (get_errno () != EPROTOTYPE)
 	{
-	  tmp_pathbuf tp;
-	  PMIB_UDPTABLE tab = (PMIB_UDPTABLE) tp.w_get ();
-	  DWORD size = 65536;
-	  bool found = false;
-	  struct sockaddr_in *sa = (struct sockaddr_in *) &sst;
-
-	  if (GetUdpTable (tab, &size, FALSE) == NO_ERROR)
-	    {
-	      for (DWORD i = 0; i < tab->dwNumEntries; ++i)
-		if (tab->table[i].dwLocalAddr == sa->sin_addr.s_addr
-		    && tab->table[i].dwLocalPort == sa->sin_port)
-		  {
-		    found = true;
-		    break;
-		  }
-	      if (!found)
-		{
-		  /* No syslogd is listening. */
-		  close (fd);
-		  return;
-		}
-	    }
+	  close (fd);
+	  return;
 	}
-      syslogd_inited = type == SOCK_DGRAM ? inited_dgram : inited_stream;
+      /* Retry with SOCK_STREAM. */
+      if ((fd = cygwin_socket (AF_LOCAL, SOCK_STREAM, 0)) < 0)
+	return;
+      if (cygwin_connect (fd, (struct sockaddr *) &sun, sizeof sun))
+	{
+	  close (fd);
+	  return;
+	}
+      syslogd_inited = inited_stream;
     }
+  else
+    syslogd_inited = inited_dgram;
   syslogd_sock = fd;
   fcntl64 (syslogd_sock, F_SETFD, FD_CLOEXEC);
-  debug_printf ("found /dev/log, fd = %d, type = %s",
-		fd, syslogd_inited == inited_stream ? "STREAM" : "DGRAM");
   return;
 }
 
@@ -256,7 +227,7 @@ try_connect_syslogd (int priority, const char *msg, int len)
   try_connect_guard.init ("try_connect_guard")->acquire ();
   if (syslogd_inited == not_inited)
     connect_syslogd ();
-  if (syslogd_inited != inited_failed)
+  if (syslogd_sock >= 0)
     {
       char pribuf[16];
       sprintf (pribuf, "<%d>", priority);
@@ -278,7 +249,7 @@ try_connect_syslogd (int priority, const char *msg, int len)
 	}
       /* If write fails and LOG_CONS is set, return failure to vsyslog so
 	 it falls back to the usual logging method for this OS. */
-      if (ret >= 0 || !(syslog_globals.process_logopt & LOG_CONS))
+      if (ret >= 0 || !(_my_tls.locals.process_logopt & LOG_CONS))
 	ret = syslogd_sock;
     }
   try_connect_guard.release ();
@@ -298,20 +269,20 @@ vsyslog (int priority, const char *message, va_list ap)
 {
   debug_printf ("%x %s", priority, message);
   /* If the priority fails the current mask, reject */
-  if ((LOG_MASK (LOG_PRI (priority)) & syslog_globals.process_logmask) == 0)
+  if ((LOG_MASK (LOG_PRI (priority)) & _my_tls.locals.process_logmask) == 0)
     {
       debug_printf ("failing message %x due to priority mask %x",
-		    priority, syslog_globals.process_logmask);
+		    priority, _my_tls.locals.process_logmask);
       return;
     }
 
   /* Set default facility to LOG_USER if not yet set via openlog. */
-  if (!syslog_globals.process_facility)
-    syslog_globals.process_facility = LOG_USER;
+  if (!_my_tls.locals.process_facility)
+    _my_tls.locals.process_facility = LOG_USER;
 
   /* Add default facility if not in the given priority. */
   if (!(priority & LOG_FACMASK))
-    priority |= syslog_globals.process_facility;
+    priority |= _my_tls.locals.process_facility;
 
   /* Translate %m in the message to error text */
   char *errtext = strerror (get_errno ());
@@ -385,12 +356,12 @@ vsyslog (int priority, const char *message, va_list ap)
 	pass.set_message ((char *) alloca (n));
 
       /* Deal with ident_string */
-      if (syslog_globals.process_ident != NULL)
+      if (_my_tls.locals.process_ident != NULL)
 	{
-	  if (pass.print ("%ls: ", syslog_globals.process_ident) == -1)
+	  if (pass.print ("%ls: ", _my_tls.locals.process_ident) == -1)
 	    return;
 	}
-      if (syslog_globals.process_logopt & LOG_PID)
+      if (_my_tls.locals.process_logopt & LOG_PID)
 	{
 	  if (pass.print ("PID %u: ", getpid ()) == -1)
 	    return;
@@ -406,7 +377,7 @@ vsyslog (int priority, const char *message, va_list ap)
   if (len != 0 && (total_msg[len - 1] == '\n'))
     total_msg[--len] = '\0';
 
-  if (syslog_globals.process_logopt & LOG_PERROR)
+  if (_my_tls.locals.process_logopt & LOG_PERROR)
     {
       write (STDERR_FILENO, total_msg, len);
       write (STDERR_FILENO, "\n", 1);
@@ -418,7 +389,7 @@ vsyslog (int priority, const char *message, va_list ap)
       /* If syslogd isn't present, open the event log and send the message */
       HANDLE hEventSrc;
 
-      hEventSrc = RegisterEventSourceW (NULL, syslog_globals.process_ident
+      hEventSrc = RegisterEventSourceW (NULL, _my_tls.locals.process_ident
 					      ?: CYGWIN_LOG_NAME);
       if (!hEventSrc)
 	debug_printf ("RegisterEventSourceW, %E");
