@@ -71,125 +71,95 @@ get_inet_addr (const struct sockaddr *in, int inlen,
   int secret_buf [4];
   int* secret_ptr = (secret ? : secret_buf);
 
-  switch (in->sa_family)
+  if (in->sa_family == AF_INET || in->sa_family == AF_INET6)
     {
-    case AF_LOCAL:
-      break;
-    case AF_INET:
-    case AF_INET6:
       memcpy (out, in, inlen);
       *outlen = inlen;
-      return 0;
-    default:
-      set_errno (EAFNOSUPPORT);
-      return SOCKET_ERROR;
+      return 1;
     }
-  /* AF_LOCAL/AF_UNIX only */
-  path_conv pc (in->sa_data, PC_SYM_FOLLOW);
-  if (pc.error)
+  else if (in->sa_family == AF_LOCAL)
     {
-      set_errno (pc.error);
-      return SOCKET_ERROR;
-    }
-  if (!pc.exists ())
-    {
-      set_errno (ENOENT);
-      return SOCKET_ERROR;
-    }
-  /* Do NOT test for the file being a socket file here.  The socket file
-     creation is not an atomic operation, so there is a chance that socket
-     files which are just in the process of being created are recognized
-     as non-socket files.  To work around this problem we now create the
-     file with all sharing disabled.  If the below NtOpenFile fails
-     with STATUS_SHARING_VIOLATION we know that the file already exists,
-     but the creating process isn't finished yet.  So we yield and try
-     again, until we can either open the file successfully, or some error
-     other than STATUS_SHARING_VIOLATION occurs.
-     Since we now don't know if the file is actually a socket file, we
-     perform this check here explicitely. */
-  NTSTATUS status;
-  HANDLE fh;
-  OBJECT_ATTRIBUTES attr;
-  IO_STATUS_BLOCK io;
+      NTSTATUS status;
+      HANDLE fh;
+      OBJECT_ATTRIBUTES attr;
+      IO_STATUS_BLOCK io;
 
-  pc.get_object_attr (attr, sec_none_nih);
-  do
-    {
-      status = NtOpenFile (&fh, GENERIC_READ | SYNCHRONIZE, &attr, &io,
-			   FILE_SHARE_VALID_FLAGS,
-			   FILE_SYNCHRONOUS_IO_NONALERT
-			   | FILE_OPEN_FOR_BACKUP_INTENT
-			   | FILE_NON_DIRECTORY_FILE);
-      if (status == STATUS_SHARING_VIOLATION)
+      path_conv pc (in->sa_data, PC_SYM_FOLLOW);
+      if (pc.error)
 	{
-	  /* While we hope that the sharing violation is only temporary, we
-	     also could easily get stuck here, waiting for a file in use by
-	     some greedy Win32 application.  Therefore we should never wait
-	     endlessly without checking for signals and thread cancel event. */
-	  pthread_testcancel ();
-	  /* Using IsEventSignalled like this is racy since another thread could
-	     be waiting for signal_arrived. */
-	  if (IsEventSignalled (signal_arrived)
-	      && !_my_tls.call_signal_handler ())
+	  set_errno (pc.error);
+	  return 0;
+	}
+      if (!pc.exists ())
+	{
+	  set_errno (ENOENT);
+	  return 0;
+	}
+      /* Do NOT test for the file being a socket file here.  The socket file
+	 creation is not an atomic operation, so there is a chance that socket
+	 files which are just in the process of being created are recognized
+	 as non-socket files.  To work around this problem we now create the
+	 file with all sharing disabled.  If the below NtOpenFile fails
+	 with STATUS_SHARING_VIOLATION we know that the file already exists,
+	 but the creating process isn't finished yet.  So we yield and try
+	 again, until we can either open the file successfully, or some error
+	 other than STATUS_SHARING_VIOLATION occurs.
+	 Since we now don't know if the file is actually a socket file, we
+	 perform this check here explicitely. */
+      pc.get_object_attr (attr, sec_none_nih);
+      do
+	{
+	  status = NtOpenFile (&fh, GENERIC_READ | SYNCHRONIZE, &attr, &io,
+			       FILE_SHARE_VALID_FLAGS,
+			       FILE_SYNCHRONOUS_IO_NONALERT
+			       | FILE_OPEN_FOR_BACKUP_INTENT);
+	  if (status == STATUS_SHARING_VIOLATION)
+	    yield ();
+	  else if (!NT_SUCCESS (status))
 	    {
-	      set_errno (EINTR);
-	      return SOCKET_ERROR;
+	      __seterrno_from_nt_status (status);
+	      return 0;
 	    }
-	  yield ();
 	}
-      else if (!NT_SUCCESS (status))
-	{
-	  __seterrno_from_nt_status (status);
-	  return SOCKET_ERROR;
-	}
-    }
-  while (status == STATUS_SHARING_VIOLATION);
-  /* Now test for the SYSTEM bit. */
-  FILE_BASIC_INFORMATION fbi;
-  status = NtQueryInformationFile (fh, &io, &fbi, sizeof fbi,
-				   FileBasicInformation);
-  if (!NT_SUCCESS (status))
-    {
-      __seterrno_from_nt_status (status);
-      return SOCKET_ERROR;
-    }
-  if (!(fbi.FileAttributes & FILE_ATTRIBUTE_SYSTEM))
-    {
+      while (status == STATUS_SHARING_VIOLATION);
+      int ret = 0;
+      char buf[128];
+      memset (buf, 0, sizeof buf);
+      status = NtReadFile (fh, NULL, NULL, NULL, &io, buf, 128, NULL, NULL);
       NtClose (fh);
-      set_errno (EBADF);
-      return SOCKET_ERROR;
-    }
-  /* Eventually check the content and fetch the required information. */
-  char buf[128];
-  memset (buf, 0, sizeof buf);
-  status = NtReadFile (fh, NULL, NULL, NULL, &io, buf, 128, NULL, NULL);
-  NtClose (fh);
-  if (NT_SUCCESS (status))
-    {
-      struct sockaddr_in sin;
-      char ctype;
-      sin.sin_family = AF_INET;
-      if (strncmp (buf, SOCKET_COOKIE, strlen (SOCKET_COOKIE)))
+      if (NT_SUCCESS (status))
 	{
-	  set_errno (EBADF);
-	  return SOCKET_ERROR;
+	  struct sockaddr_in sin;
+	  char ctype;
+	  sin.sin_family = AF_INET;
+	  if (strncmp (buf, SOCKET_COOKIE, strlen (SOCKET_COOKIE)))
+	    {
+	      set_errno (EBADF);
+	      return 0;
+	    }
+	  sscanf (buf + strlen (SOCKET_COOKIE), "%hu %c %08x-%08x-%08x-%08x",
+		  &sin.sin_port,
+		  &ctype,
+		  secret_ptr, secret_ptr + 1, secret_ptr + 2, secret_ptr + 3);
+	  sin.sin_port = htons (sin.sin_port);
+	  sin.sin_addr.s_addr = htonl (INADDR_LOOPBACK);
+	  memcpy (out, &sin, sizeof sin);
+	  *outlen = sizeof sin;
+	  if (type)
+	    *type = (ctype == 's' ? SOCK_STREAM :
+		     ctype == 'd' ? SOCK_DGRAM
+				  : 0);
+	  ret = 1;
 	}
-      sscanf (buf + strlen (SOCKET_COOKIE), "%hu %c %08x-%08x-%08x-%08x",
-	      &sin.sin_port,
-	      &ctype,
-	      secret_ptr, secret_ptr + 1, secret_ptr + 2, secret_ptr + 3);
-      sin.sin_port = htons (sin.sin_port);
-      sin.sin_addr.s_addr = htonl (INADDR_LOOPBACK);
-      memcpy (out, &sin, sizeof sin);
-      *outlen = sizeof sin;
-      if (type)
-	*type = (ctype == 's' ? SOCK_STREAM :
-		 ctype == 'd' ? SOCK_DGRAM
-			      : 0);
+      else
+	__seterrno_from_nt_status (status);
+      return ret;
+    }
+  else
+    {
+      set_errno (EAFNOSUPPORT);
       return 0;
     }
-  __seterrno_from_nt_status (status);
-  return SOCKET_ERROR;
 }
 
 /**********************************************************************/
@@ -510,7 +480,7 @@ search_wsa_event_slot (LONG new_serial_number)
     {
       HANDLE searchmtx;
       RtlInitUnicodeString (&uname, sock_shared_name (searchname,
-					wsa_events[slot].serial_number));
+      					wsa_events[slot].serial_number));
       InitializeObjectAttributes (&attr, &uname, 0, get_session_parent_dir (),
 				  NULL);
       status = NtOpenMutant (&searchmtx, READ_CONTROL, &attr);
@@ -626,15 +596,6 @@ fhandler_socket::evaluate_events (const long event_mask, long &events,
 	  wsock_events->events &= ~FD_CONNECT;
 	  wsock_events->connect_errorcode = 0;
 	}
-      /* This test makes the accept function behave as on Linux when
-	 accept is called on a socket for which shutdown for the read side
-	 has been called.  The second half of this code is in the shutdown
-	 method.  See there for more info. */
-      if ((event_mask & FD_ACCEPT) && (events & FD_CLOSE))
-	{
-	  WSASetLastError (WSAEINVAL);
-	  ret = SOCKET_ERROR;
-	}
       if (erase)
 	wsock_events->events &= ~(events & ~(FD_WRITE | FD_CLOSE));
     }
@@ -725,7 +686,7 @@ fhandler_socket::fixup_after_fork (HANDLE parent)
       fhandler_base::fixup_after_fork (parent);
       return;
     }
-
+    
   SOCKET new_sock = WSASocketW (FROM_PROTOCOL_INFO, FROM_PROTOCOL_INFO,
 				FROM_PROTOCOL_INFO, prot_info_ptr, 0,
 				WSA_FLAG_OVERLAPPED);
@@ -737,7 +698,7 @@ fhandler_socket::fixup_after_fork (HANDLE parent)
   else
     {
       /* Even though the original socket was not inheritable, the duplicated
-	 socket is potentially inheritable again. */
+         socket is potentially inheritable again. */
       SetHandleInformation ((HANDLE) new_sock, HANDLE_FLAG_INHERIT, 0);
       set_io_handle ((HANDLE) new_sock);
       debug_printf ("WSASocket succeeded (%lx)", new_sock);
@@ -752,7 +713,7 @@ fhandler_socket::fixup_after_exec ()
 }
 
 int
-fhandler_socket::dup (fhandler_base *child, int flags)
+fhandler_socket::dup (fhandler_base *child)
 {
   debug_printf ("here");
   fhandler_socket *fhs = (fhandler_socket *) child;
@@ -772,14 +733,31 @@ fhandler_socket::dup (fhandler_base *child, int flags)
       NtClose (fhs->wsock_mtx);
       return -1;
     }
+  fhs->wsock_events = wsock_events;
+
+  fhs->rmem (rmem ());
+  fhs->wmem (wmem ());
+  fhs->addr_family = addr_family;
+  fhs->set_socket_type (get_socket_type ());
   if (get_addr_family () == AF_LOCAL)
     {
       fhs->set_sun_path (get_sun_path ());
       fhs->set_peer_sun_path (get_peer_sun_path ());
+      if (get_socket_type () == SOCK_STREAM)
+	{
+	  fhs->sec_pid = sec_pid;
+	  fhs->sec_uid = sec_uid;
+	  fhs->sec_gid = sec_gid;
+	  fhs->sec_peer_pid = sec_peer_pid;
+	  fhs->sec_peer_uid = sec_peer_uid;
+	  fhs->sec_peer_gid = sec_peer_gid;
+	}
     }
+  fhs->connect_state (connect_state ());
+
   if (!need_fixup_before ())
     {
-      int ret = fhandler_base::dup (child, flags);
+      int ret = fhandler_base::dup (child);
       if (ret)
 	{
 	  NtClose (fhs->wsock_evt);
@@ -791,14 +769,14 @@ fhandler_socket::dup (fhandler_base *child, int flags)
   cygheap->user.deimpersonate ();
   fhs->init_fixup_before ();
   fhs->set_io_handle (get_io_handle ());
-  int ret = fhs->fixup_before_fork_exec (GetCurrentProcessId ());
-  cygheap->user.reimpersonate ();
-  if (!ret)
+  if (!fhs->fixup_before_fork_exec (GetCurrentProcessId ()))
     {
+      cygheap->user.reimpersonate ();
       fhs->fixup_after_fork (GetCurrentProcess ());
       if (fhs->get_io_handle() != (HANDLE) INVALID_SOCKET)
 	return 0;
     }
+  cygheap->user.reimpersonate ();
   cygheap->fdtab.dec_need_fixup_before ();
   NtClose (fhs->wsock_evt);
   NtClose (fhs->wsock_mtx);
@@ -894,6 +872,74 @@ fhandler_socket::link (const char *newpath)
   return fhandler_base::link (newpath);
 }
 
+#if 0
+/* This function doesn't work correctly.  It has been called in bind to check
+   if a local address is still in use, but it disables to bind in the
+   SO_REUSEADDR case even if only an accepted socket is still using the
+   local address, and even if said accepted socket is already in CLOSE_WAIT.
+   I keep this function in the code for later reference only. */
+static inline bool
+address_in_use (const struct sockaddr *addr)
+{
+  switch (addr->sa_family)
+    {
+    case AF_INET:
+      {
+	PMIB_TCPTABLE tab;
+	PMIB_TCPROW entry;
+	DWORD size = 0, i;
+	struct sockaddr_in *in = (struct sockaddr_in *) addr;
+
+	if (GetTcpTable (NULL, &size, FALSE) == ERROR_INSUFFICIENT_BUFFER)
+	  {
+	    tab = (PMIB_TCPTABLE) alloca (size += 16 * sizeof (PMIB_TCPROW));
+	    if (!GetTcpTable (tab, &size, FALSE))
+	      for (i = tab->dwNumEntries, entry = tab->table; i > 0;
+		   --i, ++entry)
+		if (entry->dwLocalAddr == in->sin_addr.s_addr
+		    && entry->dwLocalPort == in->sin_port
+		    && entry->dwState >= MIB_TCP_STATE_LISTEN
+		    && entry->dwState <= MIB_TCP_STATE_LAST_ACK)
+		  return true;
+	  }
+      }
+      break;
+    case AF_INET6:
+      {
+	/* This test works on XP SP2 and above which should cover almost
+	   all IPv6 users... */
+	PMIB_TCP6TABLE_OWNER_PID tab;
+	PMIB_TCP6ROW_OWNER_PID entry;
+	DWORD size = 0, i;
+	struct sockaddr_in6 *in6 = (struct sockaddr_in6 *) addr;
+
+	if (GetExtendedTcpTable (NULL, &size, FALSE, AF_INET6,
+				 TCP_TABLE_OWNER_PID_ALL, 0)
+	    == ERROR_INSUFFICIENT_BUFFER)
+	  {
+	    tab = (PMIB_TCP6TABLE_OWNER_PID)
+		  alloca (size += 16 * sizeof (PMIB_TCP6ROW_OWNER_PID));
+	    if (!GetExtendedTcpTable (tab, &size, FALSE, AF_INET6,
+				      TCP_TABLE_OWNER_PID_ALL, 0))
+	      for (i = tab->dwNumEntries, entry = tab->table; i > 0;
+		   --i, ++entry)
+		if (IN6_ARE_ADDR_EQUAL (entry->ucLocalAddr,
+					in6->sin6_addr.s6_addr)
+		    /* FIXME: Is testing for the scope required. too?!? */
+		    && entry->dwLocalPort == in6->sin6_port
+		    && entry->dwState >= MIB_TCP_STATE_LISTEN
+		    && entry->dwState <= MIB_TCP_STATE_LAST_ACK)
+		  return true;
+	  }
+      }
+      break;
+    default:
+      break;
+    }
+  return false;
+}
+#endif
+
 int
 fhandler_socket::bind (const struct sockaddr *name, int namelen)
 {
@@ -943,7 +989,7 @@ fhandler_socket::bind (const struct sockaddr *name, int namelen)
       mode_t mode = adjust_socket_file_mode ((S_IRWXU | S_IRWXG | S_IRWXO)
 					     & ~cygheap->umask);
       DWORD fattr = FILE_ATTRIBUTE_SYSTEM;
-      if (!(mode & (S_IWUSR | S_IWGRP | S_IWOTH)) && !pc.has_acls ())
+      if (!(mode & (S_IWUSR | S_IWGRP | S_IWOTH)))
 	fattr |= FILE_ATTRIBUTE_READONLY;
       SECURITY_ATTRIBUTES sa = sec_none_nih;
       NTSTATUS status;
@@ -955,12 +1001,8 @@ fhandler_socket::bind (const struct sockaddr *name, int namelen)
       /* If the filesystem supports ACLs, we will overwrite the DACL after the
 	 call to NtCreateFile.  This requires a handle with READ_CONTROL and
 	 WRITE_DAC access, otherwise get_file_sd and set_file_sd both have to
-	 open the file again.
-	 FIXME: On remote NTFS shares open sometimes fails because even the
-	 creator of the file doesn't have the right to change the DACL.
-	 I don't know what setting that is or how to recognize such a share,
-	 so for now we don't request WRITE_DAC on remote drives. */
-      if (pc.has_acls () && !pc.isremote ())
+	 open the file again. */
+      if (pc.has_acls ())
 	access |= READ_CONTROL | WRITE_DAC;
 
       status = NtCreateFile (&fh, access, pc.get_object_attr (attr, sa), &io,
@@ -1022,7 +1064,7 @@ fhandler_socket::bind (const struct sockaddr *name, int namelen)
 	  int ret = ::setsockopt (get_socket (), SOL_SOCKET,
 				  ~(SO_REUSEADDR),
 				  (const char *) &on, sizeof on);
-	  debug_printf ("%d = setsockopt(SO_EXCLUSIVEADDRUSE), %E", ret);
+	  debug_printf ("%d = setsockopt (SO_EXCLUSIVEADDRUSE), %E", ret);
 	}
       if (::bind (get_socket (), name, namelen))
 	set_winsock_errno ();
@@ -1037,25 +1079,23 @@ out:
 int
 fhandler_socket::connect (const struct sockaddr *name, int namelen)
 {
+  int res = -1;
   bool in_progress = false;
   struct sockaddr_storage sst;
   DWORD err;
   int type;
 
-  pthread_testcancel ();
-
-  if (get_inet_addr (name, namelen, &sst, &namelen, &type, connect_secret)
-      == SOCKET_ERROR)
-    return SOCKET_ERROR;
+  if (!get_inet_addr (name, namelen, &sst, &namelen, &type, connect_secret))
+    return -1;
 
   if (get_addr_family () == AF_LOCAL && get_socket_type () != type)
     {
       WSASetLastError (WSAEPROTOTYPE);
       set_winsock_errno ();
-      return SOCKET_ERROR;
+      return -1;
     }
 
-  int res = ::connect (get_socket (), (struct sockaddr *) &sst, namelen);
+  res = ::connect (get_socket (), (struct sockaddr *) &sst, namelen);
   if (!is_nonblocking ()
       && res == SOCKET_ERROR
       && WSAGetLastError () == WSAEWOULDBLOCK)
@@ -1092,7 +1132,7 @@ fhandler_socket::connect (const struct sockaddr *name, int namelen)
       if (!res && af_local_connect ())
 	{
 	  set_winsock_errno ();
-	  return SOCKET_ERROR;
+	  return -1;
 	}
     }
 
@@ -1114,7 +1154,7 @@ fhandler_socket::listen (int backlog)
     {
       /* It's perfectly valid to call listen on an unbound INET socket.
 	 In this case the socket is automatically bound to an unused
-	 port number, listening on all interfaces.  On WinSock, listen
+	 port number, listening on all interfaces.  On Winsock, listen
 	 fails with WSAEINVAL when it's called on an unbound socket.
 	 So we have to bind manually here to have POSIX semantics. */
       if (get_addr_family () == AF_INET)
@@ -1158,8 +1198,6 @@ fhandler_socket::accept4 (struct sockaddr *peer, int *len, int flags)
   /* Allows NULL peer and len parameters. */
   struct sockaddr_storage lpeer;
   int llen = sizeof (struct sockaddr_storage);
-
-  pthread_testcancel ();
 
   int res = 0;
   while (!(res = wait_for_events (FD_ACCEPT | FD_CLOSE, 0))
@@ -1208,7 +1246,7 @@ fhandler_socket::accept4 (struct sockaddr *peer, int *len, int flags)
 	  if (peer)
 	    {
 	      if (get_addr_family () == AF_LOCAL)
-		{
+	      	{
 		  /* FIXME: Right now we have no way to determine the
 		     bound socket name of the peer's socket.  For now
 		     we just fake an unbound socket on the other side. */
@@ -1246,7 +1284,7 @@ fhandler_socket::getsockname (struct sockaddr *name, int *namelen)
       sun.sun_family = AF_LOCAL;
       sun.sun_path[0] = '\0';
       if (get_sun_path ())
-	strncat (sun.sun_path, get_sun_path (), UNIX_PATH_LEN - 1);
+      	strncat (sun.sun_path, get_sun_path (), UNIX_PATH_LEN - 1);
       memcpy (name, &sun, min (*namelen, (int) SUN_LEN (&sun) + 1));
       *namelen = (int) SUN_LEN (&sun) + (get_sun_path () ? 1 : 0);
       res = 0;
@@ -1268,7 +1306,7 @@ fhandler_socket::getsockname (struct sockaddr *name, int *namelen)
 	{
 	  if (WSAGetLastError () == WSAEINVAL)
 	    {
-	      /* WinSock returns WSAEINVAL if the socket is locally
+	      /* Winsock returns WSAEINVAL if the socket is locally
 		 unbound.  Per SUSv3 this is not an error condition.
 		 We're faking a valid return value here by creating the
 		 same content in the sockaddr structure as on Linux. */
@@ -1320,7 +1358,7 @@ fhandler_socket::getpeername (struct sockaddr *name, int *namelen)
       sun.sun_family = AF_LOCAL;
       sun.sun_path[0] = '\0';
       if (get_peer_sun_path ())
-	strncat (sun.sun_path, get_peer_sun_path (), UNIX_PATH_LEN - 1);
+      	strncat (sun.sun_path, get_peer_sun_path (), UNIX_PATH_LEN - 1);
       memcpy (name, &sun, min (*namelen, (int) SUN_LEN (&sun) + 1));
       *namelen = (int) SUN_LEN (&sun) + (get_peer_sun_path () ? 1 : 0);
     }
@@ -1331,14 +1369,6 @@ fhandler_socket::getpeername (struct sockaddr *name, int *namelen)
     }
 
   return res;
-}
-
-void __stdcall
-fhandler_socket::read (void *in_ptr, size_t& len)
-{
-  WSABUF wsabuf = { len, (char *) in_ptr };
-  WSAMSG wsamsg = { NULL, 0, &wsabuf, 1, { 0,  NULL }, 0 };
-  len = recv_internal (&wsamsg);
 }
 
 int
@@ -1426,7 +1456,7 @@ fhandler_socket::recv_internal (LPWSAMSG wsamsg)
 	res = WSARecvMsg (get_socket (), wsamsg, &wret, NULL, NULL);
       /* This is working around a really weird problem in WinSock.
 
-	 Assume you create a socket, fork the process (thus duplicating
+         Assume you create a socket, fork the process (thus duplicating
 	 the socket), connect the socket in the child, then call recv
 	 on the original socket handle in the parent process.
 	 In this scenario, calls to WinSock's recvfrom and WSARecvFrom
@@ -1438,8 +1468,8 @@ fhandler_socket::recv_internal (LPWSAMSG wsamsg)
 	 is bound locally, but in the parent process, WinSock doesn't know
 	 about that and fails, while the same test is omitted in the recv
 	 functions.
-
-	 This also covers another weird case: WinSock returns WSAEFAULT if
+	 
+	 This also covers another weird case: Winsock returns WSAEFAULT if
 	 namelen is a valid pointer while name is NULL.  Both parameters are
 	 ignored for TCP sockets, so this only occurs when using UDP socket. */
       else if (!wsamsg->name || get_socket_type () == SOCK_STREAM)
@@ -1502,8 +1532,6 @@ ssize_t
 fhandler_socket::recvfrom (void *ptr, size_t len, int flags,
 			   struct sockaddr *from, int *fromlen)
 {
-  pthread_testcancel ();
-
   WSABUF wsabuf = { len, (char *) ptr };
   WSAMSG wsamsg = { from, from && fromlen ? *fromlen : 0,
 		    &wsabuf, 1,
@@ -1518,8 +1546,6 @@ fhandler_socket::recvfrom (void *ptr, size_t len, int flags,
 ssize_t
 fhandler_socket::recvmsg (struct msghdr *msg, int flags)
 {
-  pthread_testcancel ();
-
   /* TODO: Descriptor passing on AF_LOCAL sockets. */
 
   /* Disappointing but true:  Even if WSARecvMsg is supported, it's only
@@ -1556,14 +1582,6 @@ fhandler_socket::recvmsg (struct msghdr *msg, int flags)
 }
 
 int
-fhandler_socket::write (const void *ptr, size_t len)
-{
-  WSABUF wsabuf = { len, (char *) ptr };
-  WSAMSG wsamsg = { NULL, 0, &wsabuf, 1, { 0, NULL }, 0 };
-  return send_internal (&wsamsg, 0);
-}
-
-int
 fhandler_socket::writev (const struct iovec *const iov, const int iovcnt,
 			 ssize_t tot)
 {
@@ -1587,7 +1605,7 @@ fhandler_socket::send_internal (struct _WSAMSG *wsamsg, int flags)
   WSABUF buf;
   bool use_sendmsg = false;
   DWORD wait_flags = flags & MSG_DONTWAIT;
-  bool nosignal = !!(flags & MSG_NOSIGNAL);
+  bool nosignal = !(flags & MSG_NOSIGNAL);
 
   flags &= (MSG_OOB | MSG_DONTROUTE);
   if (wsamsg->Control.len > 0)
@@ -1599,7 +1617,7 @@ fhandler_socket::send_internal (struct _WSAMSG *wsamsg, int flags)
       /* FIXME: Look for a way to split a message into the least number of
 		pieces to minimize the number of WsaSendTo calls. */
       if (get_socket_type () == SOCK_STREAM)
-	{
+      	{
 	  buf.buf = wsamsg->lpBuffers[i].buf + off;
 	  buf.len = wsamsg->lpBuffers[i].len - off;
 	  /* See net.cc:fdsock() and MSDN KB 823764 */
@@ -1650,8 +1668,7 @@ fhandler_socket::send_internal (struct _WSAMSG *wsamsg, int flags)
 	 EPIPE is generated if the local end has been shut down on a connection
 	 oriented socket.  In this case the process will also receive a SIGPIPE
 	 unless MSG_NOSIGNAL is set.  */
-      if ((get_errno () == ECONNABORTED || get_errno () == ESHUTDOWN)
-	  && get_socket_type () == SOCK_STREAM)
+      if (get_errno () == ESHUTDOWN && get_socket_type () == SOCK_STREAM)
 	{
 	  set_errno (EPIPE);
 	  if (!nosignal)
@@ -1668,9 +1685,7 @@ fhandler_socket::sendto (const void *ptr, size_t len, int flags,
 {
   struct sockaddr_storage sst;
 
-  pthread_testcancel ();
-
-  if (to && get_inet_addr (to, tolen, &sst, &tolen) == SOCKET_ERROR)
+  if (to && !get_inet_addr (to, tolen, &sst, &tolen))
     return SOCKET_ERROR;
 
   WSABUF wsabuf = { len, (char *) ptr };
@@ -1686,16 +1701,6 @@ fhandler_socket::sendmsg (const struct msghdr *msg, int flags)
 {
   /* TODO: Descriptor passing on AF_LOCAL sockets. */
 
-  struct sockaddr_storage sst;
-  int len = 0;
-
-  pthread_testcancel ();
-
-  if (msg->msg_name
-      && get_inet_addr ((struct sockaddr *) msg->msg_name, msg->msg_namelen,
-			&sst, &len) == SOCKET_ERROR)
-    return SOCKET_ERROR;
-
   WSABUF wsabuf[msg->msg_iovlen];
   WSABUF *wsaptr = wsabuf;
   const struct iovec *iovptr = msg->msg_iov;
@@ -1704,7 +1709,7 @@ fhandler_socket::sendmsg (const struct msghdr *msg, int flags)
       wsaptr->len = iovptr->iov_len;
       (wsaptr++)->buf = (char *) (iovptr++)->iov_base;
     }
-  WSAMSG wsamsg = { msg->msg_name ? (struct sockaddr *) &sst : NULL, len,
+  WSAMSG wsamsg = { (struct sockaddr *) msg->msg_name, msg->msg_namelen,
 		    wsabuf, msg->msg_iovlen,
 		    /* Disappointing but true:  Even if WSASendMsg is
 		       supported, it's only supported for datagram and
@@ -1722,37 +1727,22 @@ fhandler_socket::shutdown (int how)
 {
   int res = ::shutdown (get_socket (), how);
 
-  /* Linux allows to call shutdown for any socket, even if it's not connected.
-     This also disables to call accept on this socket, if shutdown has been
-     called with the SHUT_RD or SHUT_RDWR parameter.  In contrast, WinSock
-     only allows to call shutdown on a connected socket.  The accept function
-     is in no way affected.  So, what we do here is to fake success, and to
-     change the event settings so that an FD_CLOSE event is triggered for the
-     calling Cygwin function.  The evaluate_events method handles the call
-     from accept specially to generate a Linux-compatible behaviour. */
-  if (res && WSAGetLastError () != WSAENOTCONN)
+  if (res)
     set_winsock_errno ();
   else
-    {
-      res = 0;
-      switch (how)
-	{
-	case SHUT_RD:
-	  saw_shutdown_read (true);
-	  wsock_events->events |= FD_CLOSE;
-	  SetEvent (wsock_evt);
-	  break;
-	case SHUT_WR:
-	  saw_shutdown_write (true);
-	  break;
-	case SHUT_RDWR:
-	  saw_shutdown_read (true);
-	  saw_shutdown_write (true);
-	  wsock_events->events |= FD_CLOSE;
-	  SetEvent (wsock_evt);
-	  break;
-	}
-    }
+    switch (how)
+      {
+      case SHUT_RD:
+	saw_shutdown_read (true);
+	break;
+      case SHUT_WR:
+	saw_shutdown_write (true);
+	break;
+      case SHUT_RDWR:
+	saw_shutdown_read (true);
+	saw_shutdown_write (true);
+	break;
+      }
   return res;
 }
 
@@ -1809,7 +1799,7 @@ fhandler_socket::close ()
 #define CONV_OLD_TO_NEW_SIO(old) (((old)&0xff00ffff)|(((long)sizeof(struct ifreq)&IOCPARM_MASK)<<16))
 
 struct __old_ifreq {
-#define __OLD_IFNAMSIZ	16
+#define __OLD_IFNAMSIZ        16
   union {
     char    ifrn_name[__OLD_IFNAMSIZ];   /* if name, e.g. "en0" */
   } ifr_ifrn;
@@ -2000,7 +1990,7 @@ fhandler_socket::ioctl (unsigned int cmd, void *p)
 	res = ioctlsocket (get_socket (), cmd, (unsigned long *) p);
       break;
     }
-  syscall_printf ("%d = ioctl_socket(%x, %x)", res, cmd, p);
+  syscall_printf ("%d = ioctl_socket (%x, %x)", res, cmd, p);
   return res;
 }
 
