@@ -227,7 +227,7 @@ feclearexcept (int excepts)
   return fesetenv (&fenv);
 }
 
-/*  This function raises the supported exceptions indicated by
+/*  This function raises the supported exceptions indicated by 
    excepts.  If more than one exception bit in excepts is set the order
    in which the exceptions are raised is undefined except that overflow
    (FE_OVERFLOW) or underflow (FE_UNDERFLOW) are raised before inexact
@@ -423,7 +423,7 @@ _feinitialise (void)
   __asm__ volatile ("cpuid" : "=d" (edx), "+a" (eax) :: "%ecx", "%ebx");
   /* If this flag isn't set, or if the OS doesn't support SSE (NT4, at least
      up to SP4) we'll avoid trying to execute any SSE.  */
-  if ((edx & (1 << 25)) != 0)
+  if ((edx & (1 << 25)) != 0 && wincap.supports_sse ())
     use_sse = true;
 
   /* Reset FPU: extended prec, all exceptions cleared and masked off.  */
