@@ -10,7 +10,6 @@ details. */
 #include "winsup.h"
 #include "cygerrno.h"
 #include "perprocess.h"
-#include "sync.h"
 #include "dll_init.h"
 #include "environ.h"
 #include "security.h"
@@ -19,7 +18,6 @@ details. */
 #include "dtable.h"
 #include "cygheap.h"
 #include "pinfo.h"
-#include "child_info.h"
 #include "cygtls.h"
 #include "exception.h"
 #include <wchar.h>
@@ -28,11 +26,7 @@ details. */
 
 extern void __stdcall check_sanity_and_sync (per_process *);
 
-#define fabort fork_info->abort
-
 dll_list dlls;
-
-muto dll_list::protect;
 
 static bool dll_global_dtors_recorded;
 
@@ -40,11 +34,6 @@ static bool dll_global_dtors_recorded;
 void
 dll_global_dtors ()
 {
-  /* Don't attempt to call destructors if we're still in fork processing
-     since that likely means fork is failing and everything will not have been
-     set up.  */
-  if (in_forkee)
-    return;
   int recorded = dll_global_dtors_recorded;
   dll_global_dtors_recorded = false;
   if (recorded && dlls.start.next)
@@ -89,7 +78,7 @@ dll::init ()
   /* This should be a no-op.  Why didn't we just import this variable? */
   if (!p.envptr)
     p.envptr = &__cygwin_environ;
-  else if (*(p.envptr) != __cygwin_environ)
+  else
     *(p.envptr) = __cygwin_environ;
 
   /* Don't run constructors or the "main" if we've forked. */
@@ -118,18 +107,6 @@ dll_list::operator[] (const PWCHAR name)
   return NULL;
 }
 
-/* Look for a dll based on is short name only (no path) */
-dll *
-dll_list::find_by_modname (const PWCHAR name)
-{
-  dll *d = &start;
-  while ((d = d->next) != NULL)
-    if (!wcscasecmp (name, d->modname))
-      return d;
-
-  return NULL;
-}
-
 #define RETRIES 1000
 
 /* Allocate space for a dll struct. */
@@ -139,29 +116,12 @@ dll_list::alloc (HINSTANCE h, per_process *p, dll_type type)
   WCHAR name[NT_MAX_PATH];
   DWORD namelen = GetModuleFileNameW (h, name, sizeof (name));
 
-  guard (true);
   /* Already loaded? */
   dll *d = dlls[name];
   if (d)
     {
       if (!in_forkee)
 	d->count++;	/* Yes.  Bump the usage count. */
-      else
-	{
-	  if (d->p.data_start != p->data_start)
-	    fabort ("data segment start: parent(%p) != child(%p)",
-		    d->p.data_start, p->data_start);
-	  else if (d->p.data_end != p->data_end)
-	    fabort ("data segment end: parent(%p) != child(%p)",
-		    d->p.data_end, p->data_end);
-	  else if (d->p.bss_start != p->bss_start)
-	    fabort ("data segment start: parent(%p) != child(%p)",
-		    d->p.bss_start, p->bss_start);
-	  else if (d->p.bss_end != p->bss_end)
-	    fabort ("bss segment end: parent(%p) != child(%p)",
-		    d->p.bss_end, p->bss_end);
-	}
-      d->p = p;
     }
   else
     {
@@ -175,136 +135,20 @@ dll_list::alloc (HINSTANCE h, per_process *p, dll_type type)
       d->handle = h;
       d->has_dtors = true;
       d->p = p;
-      d->ndeps = 0;
-      d->deps = NULL;
-      d->modname = wcsrchr (d->name, L'\\');
-      if (d->modname)
-       d->modname++;
-      d->image_size = ((pefile*)h)->optional_hdr ()->SizeOfImage;
-      d->preferred_base = (void*) ((pefile*)h)->optional_hdr()->ImageBase;
       d->type = type;
-      append (d);
+      if (end == NULL)
+	end = &start;	/* Point to "end" of dll chain. */
+      end->next = d;	/* Standard linked list stuff. */
+      d->next = NULL;
+      d->prev = end;
+      end = d;
+      tot++;
       if (type == DLL_LOAD)
 	loaded_dlls++;
     }
-  guard (false);
   assert (p->envptr != NULL);
   return d;
 }
-
-void
-dll_list::append (dll* d)
-{
-  if (end == NULL)
-    end = &start;	/* Point to "end" of dll chain. */
-  end->next = d;	/* Standard linked list stuff. */
-  d->next = NULL;
-  d->prev = end;
-  end = d;
-}
-
-void dll_list::populate_deps (dll* d)
-{
-  WCHAR wmodname[NT_MAX_PATH];
-  pefile* pef = (pefile*) d->handle;
-  PIMAGE_DATA_DIRECTORY dd = pef->idata_dir (IMAGE_DIRECTORY_ENTRY_IMPORT);
-  /* Annoyance: calling crealloc with a NULL pointer will use the
-     wrong heap and crash, so we have to replicate some code */
-  long maxdeps = 4;
-  d->deps = (dll**) cmalloc (HEAP_2_DLL, maxdeps*sizeof (dll*));
-  d->ndeps = 0;
-  for (PIMAGE_IMPORT_DESCRIPTOR id=
-	(PIMAGE_IMPORT_DESCRIPTOR) pef->rva (dd->VirtualAddress);
-      dd->Size && id->Name;
-      id++)
-    {
-      char* modname = pef->rva (id->Name);
-      sys_mbstowcs (wmodname, NT_MAX_PATH, modname);
-      if (dll* dep = find_by_modname (wmodname))
-	{
-	  if (d->ndeps >= maxdeps)
-	    {
-	      maxdeps = 2*(1+maxdeps);
-	      d->deps = (dll**) crealloc (d->deps, maxdeps*sizeof (dll*));
-	    }
-	  d->deps[d->ndeps++] = dep;
-	}
-    }
-
-  /* add one to differentiate no deps from unknown */
-  d->ndeps++;
-}
-
-
-void
-dll_list::topsort ()
-{
-  /* Anything to do? */
-  if (!end)
-    return;
-
-  /* make sure we have all the deps available */
-  dll* d = &start;
-  while ((d = d->next))
-    if (!d->ndeps)
-      populate_deps (d);
-
-  /* unlink head and tail pointers so the sort can rebuild the list */
-  d = start.next;
-  start.next = end = NULL;
-  topsort_visit (d, true);
-
-  /* clear node markings made by the sort */
-  d = &start;
-  while ((d = d->next))
-    {
-#ifdef DEBUGGING
-      paranoid_printf ("%W", d->modname);
-      for (int i = 1; i < -d->ndeps; i++)
-	paranoid_printf ("-> %W", d->deps[i - 1]->modname);
-#endif
-
-      /* It would be really nice to be able to keep this information
-	 around for next time, but we don't have an easy way to
-	 invalidate cached dependencies when a module unloads. */
-      d->ndeps = 0;
-      cfree (d->deps);
-      d->deps = NULL;
-    }
-}
-
-/* A recursive in-place topological sort. The result is ordered so that
-   dependencies of a dll appear before it in the list.
-
-   NOTE: this algorithm is guaranteed to terminate with a "partial
-   order" of dlls but does not do anything smart about cycles: an
-   arbitrary dependent dll will necessarily appear first. Perhaps not
-   surprisingly, Windows ships several dlls containing dependency
-   cycles, including SspiCli/RPCRT4.dll and a lovely tangle involving
-   USP10/LPK/GDI32/USER32.dll). Fortunately, we don't care about
-   Windows DLLs here, and cygwin dlls should behave better */
-void
-dll_list::topsort_visit (dll* d, bool seek_tail)
-{
-  /* Recurse to the end of the dll chain, then visit nodes as we
-     unwind. We do this because once we start visiting nodes we can no
-     longer trust any _next_ pointers.
-
-     We "mark" visited nodes (to avoid revisiting them) by negating
-     ndeps (undone once the sort completes). */
-  if (seek_tail && d->next)
-    topsort_visit (d->next, true);
-
-  if (d->ndeps > 0)
-    {
-      d->ndeps = -d->ndeps;
-      for (long i = 1; i < -d->ndeps; i++)
-	topsort_visit (d->deps[i - 1], false);
-
-      append (d);
-    }
-}
-
 
 dll *
 dll_list::find (void *retaddr)
@@ -326,35 +170,27 @@ void
 dll_list::detach (void *retaddr)
 {
   dll *d;
-  /* Don't attempt to call destructors if we're still in fork processing
-     since that likely means fork is failing and everything will not have been
-     set up.  */
-  if (!myself || in_forkee)
+  if (!myself || !(d = find (retaddr)))
     return;
-  guard (true);
-  if ((d = find (retaddr)))
+  if (d->count <= 0)
+    system_printf ("WARNING: trying to detach an already detached dll ...");
+  if (--d->count == 0)
     {
-      if (d->count <= 0)
-	system_printf ("WARNING: trying to detach an already detached dll ...");
-      if (--d->count == 0)
-	{
-	  /* Ensure our exception handler is enabled for destructors */
-	  exception protect;
-	  /* Call finalize function if we are not already exiting */
-	  if (!exit_state)
-	    __cxa_finalize (d);
-	  d->run_dtors ();
-	  d->prev->next = d->next;
-	  if (d->next)
-	    d->next->prev = d->prev;
-	  if (d->type == DLL_LOAD)
-	    loaded_dlls--;
-	  if (end == d)
-	    end = d->prev;
-	  cfree (d);
-	}
+      /* Ensure our exception handler is enabled for destructors */
+      exception protect;
+      /* Call finalize function if we are not already exiting */
+      if (!exit_state)
+	__cxa_finalize (d);
+      d->run_dtors ();
+      d->prev->next = d->next;
+      if (d->next)
+	d->next->prev = d->prev;
+      if (d->type == DLL_LOAD)
+	loaded_dlls--;
+      if (end == d)
+	end = d->prev;
+      cfree (d);
     }
-  guard (false);
 }
 
 /* Initialization for all linked DLLs, called by dll_crt0_1. */
@@ -370,65 +206,55 @@ dll_list::init ()
 
 #define A64K (64 * 1024)
 
-
-/* Reserve the chunk of free address space starting _here_ and (usually)
-   covering at least _dll_size_ bytes. However, we must take care not
-   to clobber the dll's target address range because it often overlaps.
- */
-static DWORD
-reserve_at (const PWCHAR name, DWORD here, DWORD dll_base, DWORD dll_size)
+/* Mark every memory address up to "here" as reserved.  This may force
+   Windows NT to load a DLL in the next available, lowest slot. */
+static void
+reserve_upto (const PWCHAR name, DWORD here)
 {
   DWORD size;
   MEMORY_BASIC_INFORMATION mb;
+  for (DWORD start = 0x10000; start < here; start += size)
+    if (!VirtualQuery ((void *) start, &mb, sizeof (mb)))
+      size = A64K;
+    else
+      {
+	size = A64K * ((mb.RegionSize + A64K - 1) / A64K);
+	start = A64K * (((DWORD) mb.BaseAddress + A64K - 1) / A64K);
 
-  if (!VirtualQuery ((void *) here, &mb, sizeof (mb)))
-    fabort ("couldn't examine memory at %08lx while mapping %W, %E",
-	    here, name);
-  if (mb.State != MEM_FREE)
-    return 0;
-
-  size = mb.RegionSize;
-
-  // don't clobber the space where we want the dll to land
-  DWORD end = here + size;
-  DWORD dll_end = dll_base + dll_size;
-  if (dll_base < here && dll_end > here)
-      here = dll_end; // the dll straddles our left edge
-  else if (dll_base >= here && dll_base < end)
-      end = dll_base; // the dll overlaps partly or fully to our right
-
-  size = end - here;
-  if (!VirtualAlloc ((void *) here, size, MEM_RESERVE, PAGE_NOACCESS))
-    fabort ("couldn't allocate memory %p(%d) for '%W' alignment, %E\n",
-	    here, size, name);
-  return here;
+	if (start + size > here)
+	  size = here - start;
+	if (mb.State == MEM_FREE &&
+	    !VirtualAlloc ((void *) start, size, MEM_RESERVE, PAGE_NOACCESS))
+	  api_fatal ("couldn't allocate memory %p(%d) for '%W' alignment, %E\n",
+		     start, size, name);
+      }
 }
 
-/* Release the memory previously allocated by "reserve_at" above. */
+/* Release all of the memory previously allocated by "upto" above.
+   Note that this may also free otherwise reserved memory.  If that becomes
+   a problem, we'll have to keep track of the memory that we reserve above. */
 static void
-release_at (const PWCHAR name, DWORD here)
+release_upto (const PWCHAR name, DWORD here)
 {
-  if (!VirtualFree ((void *) here, 0, MEM_RELEASE))
-    fabort ("couldn't release memory %p for '%W' alignment, %E\n",
-	    here, name);
-}
-
-/* Step 1: Reserve memory for all DLL_LOAD dlls. This is to prevent
-   anything else from taking their spot as we compensate for Windows
-   randomly relocating things.
-
-   NOTE: because we can't depend on LoadLibraryExW to do the right
-   thing, we have to do a vanilla VirtualAlloc instead. One possible
-   optimization might attempt a LoadLibraryExW first, in case it lands
-   in the right place, but then we have to find a way of tracking
-   which dlls ended up needing VirtualAlloc after all.  */
-void
-dll_list::reserve_space ()
-{
-  for (dll* d = dlls.istart (DLL_LOAD); d; d = dlls.inext ())
-    if (!VirtualAlloc (d->handle, d->image_size, MEM_RESERVE, PAGE_NOACCESS))
-      fabort ("address space needed by '%W' (%p) is already occupied",
-	      d->modname, d->handle);
+  DWORD size;
+  MEMORY_BASIC_INFORMATION mb;
+  for (DWORD start = 0x10000; start < here; start += size)
+    if (!VirtualQuery ((void *) start, &mb, sizeof (mb)))
+      size = 64 * 1024;
+    else
+      {
+	size = mb.RegionSize;
+	if (!(mb.State == MEM_RESERVE && mb.AllocationProtect == PAGE_NOACCESS
+	    && (((void *) start < cygheap->user_heap.base
+		 || (void *) start > cygheap->user_heap.top)
+		 && ((void *) start < (void *) cygheap
+		     || (void *) start
+			> (void *) ((char *) cygheap + CYGHEAPSIZE)))))
+	  continue;
+	if (!VirtualFree ((void *) start, 0, MEM_RELEASE))
+	  api_fatal ("couldn't release memory %p(%d) for '%W' alignment, %E\n",
+		     start, size, name);
+      }
 }
 
 /* Reload DLLs after a fork.  Iterates over the list of dynamically loaded
@@ -437,102 +263,47 @@ dll_list::reserve_space ()
 void
 dll_list::load_after_fork (HANDLE parent)
 {
-  // moved to frok::child for performance reasons:
-  // dll_list::reserve_space();
-
-  load_after_fork_impl (parent, dlls.istart (DLL_LOAD), 0);
-}
-
-static int const DLL_RETRY_MAX = 6;
-void dll_list::load_after_fork_impl (HANDLE parent, dll* d, int retries)
-{
-  /* Step 2: For each dll which did not map at its preferred base
-     address in the parent, try to coerce it to land at the same spot
-     as before. If not, unload it, reserve the memory around it, and
-     try again. Use recursion to remember blocked regions address
-     space so we can release them later.
-
-     We DONT_RESOLVE_DLL_REFERENCES at first in case the DLL lands in
-     the wrong spot;
-
-     NOTE: This step skips DLLs which loaded at their preferred
-     address in the parent because they should behave (we already
-     verified that their preferred address in the child is
-     available). However, this may fail on a Vista/Win7 machine with
-     ASLR active, because the ASLR base address will usually not equal
-     the preferred base recorded in the dll. In this case, we should
-     make the LoadLibraryExW call unconditional.
-   */
-  for ( ; d; d = dlls.inext ())
-    if (d->handle != d->preferred_base)
-      {
-	/* See if the DLL will load in proper place. If not, unload it,
-	   reserve the memory around it, and try again.
-
-	   If this is the first attempt, we need to release the
-	   dll's protective reservation from step 1
-	 */
-	if (!retries && !VirtualFree (d->handle, 0, MEM_RELEASE))
-	  fabort ("unable to release protective reservation for %W (%08lx), %E",
-		  d->modname, d->handle);
-
-	HMODULE h = LoadLibraryExW (d->name, NULL, DONT_RESOLVE_DLL_REFERENCES);
-	if (!h)
-	  fabort ("unable to create interim mapping for %W, %E",
-		  d->name);
-	if (h != d->handle)
-	  {
-	    sigproc_printf ("%W loaded in wrong place: %08lx != %08lx",
-			    d->modname, h, d->handle);
-	    FreeLibrary (h);
-	    DWORD reservation = reserve_at (d->modname, (DWORD) h,
-					    (DWORD) d->handle, d->image_size);
-	    if (!reservation)
-	      fabort ("unable to block off %p to prevent %W from loading there",
-		      h, d->modname);
-
-	    if (retries < DLL_RETRY_MAX)
-	      load_after_fork_impl (parent, d, retries+1);
-	    else
-	       fabort ("unable to remap %W to same address as parent (%08lx) - try running rebaseall",
-		       d->modname, d->handle);
-
-	    /* once the above returns all the dlls are mapped; release
-	       the reservation and continue unwinding */
-	    sigproc_printf ("releasing blocked space at %08lx", reservation);
-	    release_at (d->modname, reservation);
-	    return;
-	  }
-      }
-
-  /* Step 3: try to load each dll for real after either releasing the
-     protective reservation (for well-behaved dlls) or unloading the
-     interim mapping (for rebased dlls) . The dll list is sorted in
-     dependency order, so we shouldn't pull in any additional dlls
-     outside our control.  */
-  for (dll *d = dlls.istart (DLL_LOAD); d; d = dlls.inext ())
-    {
-      if (d->handle == d->preferred_base)
+  for (dll *d = &dlls.start; (d = d->next) != NULL; )
+    if (d->type == DLL_LOAD)
+      for (int i = 0; i < 2; i++)
 	{
-	  if (!VirtualFree (d->handle, 0, MEM_RELEASE))
-	    fabort ("unable to release protective reservation for %W (%08lx), %E",
-		    d->modname, d->handle);
+	  /* See if DLL will load in proper place.  If so, free it and reload
+	     it the right way.
+	     It stinks that we can't invert the order of the initial LoadLibrary
+	     and FreeLibrary since Microsoft documentation seems to imply that
+	     should do what we want.  However, once a library is loaded as
+	     above, the second LoadLibrary will not execute its startup code
+	     unless it is first unloaded. */
+	  HMODULE h = LoadLibraryExW (d->name, NULL, DONT_RESOLVE_DLL_REFERENCES);
+
+	  if (!h)
+	    system_printf ("can't reload %W, %E", d->name);
+	  else
+	    {
+	      FreeLibrary (h);
+	      if (h == d->handle)
+		h = LoadLibraryW (d->name);
+	    }
+	  /* If we reached here on the second iteration of the for loop
+	     then there is a lot of memory to release. */
+	  if (i > 0)
+	    release_upto (d->name, (DWORD) d->handle);
+	  if (h == d->handle)
+	    break;		/* Success */
+
+	  if (i > 0)
+	    /* We tried once to relocate the dll and it failed. */
+	    api_fatal ("unable to remap %W to same address as parent: %p != %p",
+		       d->name, d->handle, h);
+
+	  /* Dll loaded in the wrong place.  Dunno why this happens but it
+	     always seems to happen when there are multiple DLLs attempting to
+	     load into the same address space.  In the "forked" process, the
+	     second DLL always loads into a different location. So, block all
+	     of the memory up to the new load address and try again. */
+	  reserve_upto (d->name, (DWORD) d->handle);
 	}
-      else
-	{
-	  /* Free the library using our parent's handle: it's identical
-	     to ours or we wouldn't have gotten this far */
-	  if (!FreeLibrary (d->handle))
-	    fabort ("unable to unload interim mapping of %W, %E",
-		    d->modname);
-	}
-      HMODULE h = LoadLibraryW (d->name);
-      if (!h)
-	fabort ("unable to map %W, %E", d->name);
-      if (h != d->handle)
-	fabort ("unable to map %W to same address as parent: %p != %p",
-		d->modname, d->handle, h);
-    }
+  in_forkee = false;
 }
 
 struct dllcrt0_info
@@ -540,25 +311,27 @@ struct dllcrt0_info
   HMODULE h;
   per_process *p;
   int res;
-  dllcrt0_info (HMODULE h0, per_process *p0): h (h0), p (p0) {}
+  dllcrt0_info (HMODULE h0, per_process *p0): h(h0), p(p0) {}
 };
 
 extern "C" int
 dll_dllcrt0 (HMODULE h, per_process *p)
 {
-  if (dynamically_loaded)
-    return 1;
   dllcrt0_info x (h, p);
-  dll_dllcrt0_1 (&x);
+
+  if (_my_tls.isinitialized ())
+    dll_dllcrt0_1 (&x);
+  else
+    _my_tls.call ((DWORD (*) (void *, void *)) dll_dllcrt0_1, &x);
   return x.res;
 }
 
 void
 dll_dllcrt0_1 (VOID *x)
 {
-  HMODULE& h = ((dllcrt0_info *) x)->h;
-  per_process*& p = ((dllcrt0_info *) x)->p;
-  int& res = ((dllcrt0_info *) x)->res;
+  HMODULE& h = ((dllcrt0_info *)x)->h;
+  per_process*& p = ((dllcrt0_info *)x)->p;
+  int& res = ((dllcrt0_info *)x)->res;
 
   if (p == NULL)
     p = &__cygwin_user_data;
@@ -590,7 +363,11 @@ dll_dllcrt0_1 (VOID *x)
      However, that's just a note for the record; at the moment, we can't
      see any need to worry about this happening.  */
 
-  check_sanity_and_sync (p);
+  /* Partially initialize Cygwin guts for non-cygwin apps. */
+  if (dynamically_loaded && user_data->magic_biscuit == 0)
+    dll_crt0 (p);
+  else
+    check_sanity_and_sync (p);
 
   dll_type type;
 
@@ -654,7 +431,6 @@ void __stdcall
 update_envptrs ()
 {
   for (dll *d = dlls.istart (DLL_ANY); d; d = dlls.inext ())
-    if (*(d->p.envptr) != __cygwin_environ)
-      *(d->p.envptr) = __cygwin_environ;
+    *(d->p.envptr) = __cygwin_environ;
   *main_environ = __cygwin_environ;
 }
