@@ -1,7 +1,8 @@
 /* PPC GNU/Linux native support.
 
-   Copyright (C) 1988-1989, 1991-1992, 1994, 1996, 2000-2012 Free
-   Software Foundation, Inc.
+   Copyright (C) 1988, 1989, 1991, 1992, 1994, 1996, 2000, 2001, 2002, 2003,
+   2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011
+   Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -1653,6 +1654,7 @@ static int
 ppc_linux_insert_hw_breakpoint (struct gdbarch *gdbarch,
 				  struct bp_target_info *bp_tgt)
 {
+  ptid_t ptid;
   struct lwp_info *lp;
   struct ppc_hw_breakpoint p;
 
@@ -1679,8 +1681,8 @@ ppc_linux_insert_hw_breakpoint (struct gdbarch *gdbarch,
       p.addr2 = 0;
     }
 
-  ALL_LWPS (lp)
-    booke_insert_point (&p, TIDGET (lp->ptid));
+  ALL_LWPS (lp, ptid)
+    booke_insert_point (&p, TIDGET (ptid));
 
   return 0;
 }
@@ -1689,6 +1691,7 @@ static int
 ppc_linux_remove_hw_breakpoint (struct gdbarch *gdbarch,
 				  struct bp_target_info *bp_tgt)
 {
+  ptid_t ptid;
   struct lwp_info *lp;
   struct ppc_hw_breakpoint p;
 
@@ -1715,8 +1718,8 @@ ppc_linux_remove_hw_breakpoint (struct gdbarch *gdbarch,
       p.addr2 = 0;
     }
 
-  ALL_LWPS (lp)
-    booke_remove_point (&p, TIDGET (lp->ptid));
+  ALL_LWPS (lp, ptid)
+    booke_remove_point (&p, TIDGET (ptid));
 
   return 0;
 }
@@ -1734,62 +1737,6 @@ get_trigger_type (int rw)
     t = PPC_BREAKPOINT_TRIGGER_READ | PPC_BREAKPOINT_TRIGGER_WRITE;
 
   return t;
-}
-
-/* Insert a new masked watchpoint at ADDR using the mask MASK.
-   RW may be hw_read for a read watchpoint, hw_write for a write watchpoint
-   or hw_access for an access watchpoint.  Returns 0 on success and throws
-   an error on failure.  */
-
-static int
-ppc_linux_insert_mask_watchpoint (struct target_ops *ops, CORE_ADDR addr,
-				  CORE_ADDR mask, int rw)
-{
-  struct lwp_info *lp;
-  struct ppc_hw_breakpoint p;
-
-  gdb_assert (have_ptrace_booke_interface ());
-
-  p.version = PPC_DEBUG_CURRENT_VERSION;
-  p.trigger_type = get_trigger_type (rw);
-  p.addr_mode = PPC_BREAKPOINT_MODE_MASK;
-  p.condition_mode = PPC_BREAKPOINT_CONDITION_NONE;
-  p.addr = addr;
-  p.addr2 = mask;
-  p.condition_value = 0;
-
-  ALL_LWPS (lp)
-    booke_insert_point (&p, TIDGET (lp->ptid));
-
-  return 0;
-}
-
-/* Remove a masked watchpoint at ADDR with the mask MASK.
-   RW may be hw_read for a read watchpoint, hw_write for a write watchpoint
-   or hw_access for an access watchpoint.  Returns 0 on success and throws
-   an error on failure.  */
-
-static int
-ppc_linux_remove_mask_watchpoint (struct target_ops *ops, CORE_ADDR addr,
-				  CORE_ADDR mask, int rw)
-{
-  struct lwp_info *lp;
-  struct ppc_hw_breakpoint p;
-
-  gdb_assert (have_ptrace_booke_interface ());
-
-  p.version = PPC_DEBUG_CURRENT_VERSION;
-  p.trigger_type = get_trigger_type (rw);
-  p.addr_mode = PPC_BREAKPOINT_MODE_MASK;
-  p.condition_mode = PPC_BREAKPOINT_CONDITION_NONE;
-  p.addr = addr;
-  p.addr2 = mask;
-  p.condition_value = 0;
-
-  ALL_LWPS (lp)
-    booke_remove_point (&p, TIDGET (lp->ptid));
-
-  return 0;
 }
 
 /* Check whether we have at least one free DVC register.  */
@@ -2009,8 +1956,7 @@ create_watchpoint_request (struct ppc_hw_breakpoint *p, CORE_ADDR addr,
 			   int len, int rw, struct expression *cond,
 			   int insert)
 {
-  if (len == 1
-      || !(booke_debug_info.features & PPC_DEBUG_FEATURE_DATA_BP_RANGE))
+  if (len == 1)
     {
       int use_condition;
       CORE_ADDR data_value;
@@ -2055,6 +2001,7 @@ ppc_linux_insert_watchpoint (CORE_ADDR addr, int len, int rw,
 			     struct expression *cond)
 {
   struct lwp_info *lp;
+  ptid_t ptid;
   int ret = -1;
 
   if (have_ptrace_booke_interface ())
@@ -2063,8 +2010,8 @@ ppc_linux_insert_watchpoint (CORE_ADDR addr, int len, int rw,
 
       create_watchpoint_request (&p, addr, len, rw, cond, 1);
 
-      ALL_LWPS (lp)
-	booke_insert_point (&p, TIDGET (lp->ptid));
+      ALL_LWPS (lp, ptid)
+	booke_insert_point (&p, TIDGET (ptid));
 
       ret = 0;
     }
@@ -2107,8 +2054,8 @@ ppc_linux_insert_watchpoint (CORE_ADDR addr, int len, int rw,
 
       saved_dabr_value = dabr_value;
 
-      ALL_LWPS (lp)
-	if (ptrace (PTRACE_SET_DEBUGREG, TIDGET (lp->ptid), 0,
+      ALL_LWPS (lp, ptid)
+	if (ptrace (PTRACE_SET_DEBUGREG, TIDGET (ptid), 0,
 		    saved_dabr_value) < 0)
 	  return -1;
 
@@ -2123,6 +2070,7 @@ ppc_linux_remove_watchpoint (CORE_ADDR addr, int len, int rw,
 			     struct expression *cond)
 {
   struct lwp_info *lp;
+  ptid_t ptid;
   int ret = -1;
 
   if (have_ptrace_booke_interface ())
@@ -2131,16 +2079,16 @@ ppc_linux_remove_watchpoint (CORE_ADDR addr, int len, int rw,
 
       create_watchpoint_request (&p, addr, len, rw, cond, 0);
 
-      ALL_LWPS (lp)
-	booke_remove_point (&p, TIDGET (lp->ptid));
+      ALL_LWPS (lp, ptid)
+	booke_remove_point (&p, TIDGET (ptid));
 
       ret = 0;
     }
   else
     {
       saved_dabr_value = 0;
-      ALL_LWPS (lp)
-	if (ptrace (PTRACE_SET_DEBUGREG, TIDGET (lp->ptid), 0,
+      ALL_LWPS (lp, ptid)
+	if (ptrace (PTRACE_SET_DEBUGREG, TIDGET (ptid), 0,
 		    saved_dabr_value) < 0)
 	  return -1;
 
@@ -2151,9 +2099,9 @@ ppc_linux_remove_watchpoint (CORE_ADDR addr, int len, int rw,
 }
 
 static void
-ppc_linux_new_thread (struct lwp_info *lp)
+ppc_linux_new_thread (ptid_t ptid)
 {
-  int tid = TIDGET (lp->ptid);
+  int tid = TIDGET (ptid);
 
   if (have_ptrace_booke_interface ())
     {
@@ -2274,26 +2222,6 @@ ppc_linux_watchpoint_addr_within_range (struct target_ops *target,
 
   /* Check whether [start, start+length-1] intersects [addr, addr+mask].  */
   return start <= addr + mask && start + length - 1 >= addr;
-}
-
-/* Return the number of registers needed for a masked hardware watchpoint.  */
-
-static int
-ppc_linux_masked_watch_num_registers (struct target_ops *target,
-				      CORE_ADDR addr, CORE_ADDR mask)
-{
-  if (!have_ptrace_booke_interface ()
-	   || (booke_debug_info.features & PPC_DEBUG_FEATURE_DATA_BP_MASK) == 0)
-    return -1;
-  else if ((mask & 0xC0000000) != 0xC0000000)
-    {
-      warning (_("The given mask covers kernel address space "
-		 "and cannot be used.\n"));
-
-      return -2;
-    }
-  else
-    return 2;
 }
 
 static void
@@ -2510,14 +2438,11 @@ _initialize_ppc_linux_nat (void)
   t->to_region_ok_for_hw_watchpoint = ppc_linux_region_ok_for_hw_watchpoint;
   t->to_insert_watchpoint = ppc_linux_insert_watchpoint;
   t->to_remove_watchpoint = ppc_linux_remove_watchpoint;
-  t->to_insert_mask_watchpoint = ppc_linux_insert_mask_watchpoint;
-  t->to_remove_mask_watchpoint = ppc_linux_remove_mask_watchpoint;
   t->to_stopped_by_watchpoint = ppc_linux_stopped_by_watchpoint;
   t->to_stopped_data_address = ppc_linux_stopped_data_address;
   t->to_watchpoint_addr_within_range = ppc_linux_watchpoint_addr_within_range;
   t->to_can_accel_watchpoint_condition
     = ppc_linux_can_accel_watchpoint_condition;
-  t->to_masked_watch_num_registers = ppc_linux_masked_watch_num_registers;
   t->to_ranged_break_num_registers = ppc_linux_ranged_break_num_registers;
 
   t->to_read_description = ppc_linux_read_description;
