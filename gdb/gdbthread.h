@@ -1,6 +1,6 @@
 /* Multi-process/thread control defs for GDB, the GNU debugger.
-   Copyright (C) 1987-1993, 1997-2000, 2007-2012 Free Software
-   Foundation, Inc.
+   Copyright (C) 1987, 1988, 1989, 1990, 1991, 1992, 1993, 1997, 1998, 1999,
+   2000, 2007, 2008, 2009, 2010 Free Software Foundation, Inc.
    Contributed by Lynx Real-Time Systems, Inc.  Los Gatos, CA.
    
 
@@ -29,28 +29,42 @@ struct symtab;
 #include "ui-out.h"
 #include "inferior.h"
 
-/* Frontend view of the thread state.  Possible extensions: stepping,
-   finishing, until(ling),...  */
-enum thread_state
+struct thread_info
 {
-  THREAD_STOPPED,
-  THREAD_RUNNING,
-  THREAD_EXITED,
-};
+  struct thread_info *next;
+  ptid_t ptid;			/* "Actual process id";
+				    In fact, this may be overloaded with 
+				    kernel thread id, etc.  */
+  int num;			/* Convenient handle (GDB thread id) */
 
-/* Inferior thread specific part of `struct infcall_control_state'.
+  /* Non-zero means the thread is executing.  Note: this is different
+     from saying that there is an active target and we are stopped at
+     a breakpoint, for instance.  This is a real indicator whether the
+     thread is off and running.  */
+  /* This field is internal to thread.c.  Never access it directly,
+     use is_executing instead.  */
+  int executing_;
 
-   Inferior process counterpart is `struct inferior_control_state'.  */
+  /* Frontend view of the thread state.  Note that the RUNNING/STOPPED
+     states are different from EXECUTING.  When the thread is stopped
+     internally while handling an internal event, like a software
+     single-step breakpoint, EXECUTING will be false, but running will
+     still be true.  As a possible future extension, this could turn
+     into enum { stopped, exited, stepping, finishing, until(ling),
+     running ... }  */
+  /* This field is internal to thread.c.  Never access it directly,
+     use is_running instead.  */
+  int state_;
 
-struct thread_control_state
-{
+  /* If this is > 0, then it means there's code out there that relies
+     on this thread being listed.  Don't delete it from the lists even
+     if we detect it exiting.  */
+  int refcount;
+
   /* User/external stepping state.  */
 
   /* Step-resume or longjmp-resume breakpoint.  */
   struct breakpoint *step_resume_breakpoint;
-
-  /* Exception-resume breakpoint.  */
-  struct breakpoint *exception_resume_breakpoint;
 
   /* Range to single step within.
 
@@ -61,7 +75,7 @@ struct thread_control_state
      step for a single instruction (FIXME: it might clean up
      wait_for_inferior in a minor way if this were changed to the
      address of the instruction and that address plus one.  But maybe
-     not).  */
+     not.).  */
   CORE_ADDR step_range_start;	/* Inclusive */
   CORE_ADDR step_range_end;	/* Exclusive */
 
@@ -73,6 +87,17 @@ struct thread_control_state
   /* Similarly, the frame ID of the underlying stack frame (skipping
      any inlined frames).  */
   struct frame_id step_stack_frame_id;
+
+  int current_line;
+  struct symtab *current_symtab;
+
+  /* Internal stepping state.  */
+
+  /* Record the pc of the thread the last time it stopped.  This is
+     maintained by proceed and keep_going, and used in
+     adjust_pc_after_break to distinguish a hardware single-step
+     SIGTRAP from a breakpoint SIGTRAP.  */
+  CORE_ADDR prev_pc;
 
   /* Nonzero if we are presently stepping over a breakpoint.
 
@@ -98,98 +123,23 @@ struct thread_control_state
      by keep_going.  */
   int trap_expected;
 
-  /* Nonzero if the thread is being proceeded for a "finish" command
-     or a similar situation when stop_registers should be saved.  */
-  int proceed_to_finish;
-
-  /* Nonzero if the thread is being proceeded for an inferior function
-     call.  */
-  int in_infcall;
-
-  enum step_over_calls_kind step_over_calls;
-
-  /* Nonzero if stopped due to a step command.  */
-  int stop_step;
-
-  /* Chain containing status of breakpoint(s) the thread stopped
-     at.  */
-  bpstat stop_bpstat;
-};
-
-/* Inferior thread specific part of `struct infcall_suspend_state'.
-
-   Inferior process counterpart is `struct inferior_suspend_state'.  */
-
-struct thread_suspend_state
-{
-  /* Last signal that the inferior received (why it stopped).  */
-  enum target_signal stop_signal;
-};
-
-struct thread_info
-{
-  struct thread_info *next;
-  ptid_t ptid;			/* "Actual process id";
-				    In fact, this may be overloaded with 
-				    kernel thread id, etc.  */
-  int num;			/* Convenient handle (GDB thread id) */
-
-  /* The name of the thread, as specified by the user.  This is NULL
-     if the thread does not have a user-given name.  */
-  char *name;
-
-  /* Non-zero means the thread is executing.  Note: this is different
-     from saying that there is an active target and we are stopped at
-     a breakpoint, for instance.  This is a real indicator whether the
-     thread is off and running.  */
-  int executing;
-
-  /* Frontend view of the thread state.  Note that the RUNNING/STOPPED
-     states are different from EXECUTING.  When the thread is stopped
-     internally while handling an internal event, like a software
-     single-step breakpoint, EXECUTING will be false, but running will
-     still be true.  As a possible future extension, this could turn
-     into enum { stopped, exited, stepping, finishing, until(ling),
-     running ... }  */
-  int state;
-
-  /* If this is > 0, then it means there's code out there that relies
-     on this thread being listed.  Don't delete it from the lists even
-     if we detect it exiting.  */
-  int refcount;
-
-  /* State of GDB control of inferior thread execution.
-     See `struct thread_control_state'.  */
-  struct thread_control_state control;
-
-  /* State of inferior thread to restore after GDB is done with an inferior
-     call.  See `struct thread_suspend_state'.  */
-  struct thread_suspend_state suspend;
-
-  int current_line;
-  struct symtab *current_symtab;
-
-  /* Internal stepping state.  */
-
-  /* Record the pc of the thread the last time it stopped.  This is
-     maintained by proceed and keep_going, and used in
-     adjust_pc_after_break to distinguish a hardware single-step
-     SIGTRAP from a breakpoint SIGTRAP.  */
-  CORE_ADDR prev_pc;
-
   /* Should we step over breakpoint next time keep_going is called?  */
   int stepping_over_breakpoint;
 
   /* Set to TRUE if we should finish single-stepping over a breakpoint
-     after hitting the current step-resume breakpoint.  The context here
-     is that GDB is to do `next' or `step' while signal arrives.
-     When stepping over a breakpoint and signal arrives, GDB will attempt
-     to skip signal handler, so it inserts a step_resume_breakpoint at the
-     signal return address, and resume inferior.
-     step_after_step_resume_breakpoint is set to TRUE at this moment in
-     order to keep GDB in mind that there is still a breakpoint to step over
-     when GDB gets back SIGTRAP from step_resume_breakpoint.  */
+     after hitting the current step-resume breakpoint.  */
   int step_after_step_resume_breakpoint;
+
+  /* This is set TRUE when a catchpoint of a shared library event
+     triggers.  Since we don't wish to leave the inferior in the
+     solib hook when we report the event, we step the inferior
+     back to user code before stopping and reporting the event.  */
+  int stepping_through_solib_after_catch;
+
+  /* When stepping_through_solib_after_catch is TRUE, this is a
+     list of the catchpoints that should be reported as triggering
+     when we finally do stop stepping.  */
+  bpstat stepping_through_solib_catchpoints;
 
   /* Per-thread command support.  */
 
@@ -203,6 +153,19 @@ struct thread_info
      command.  */
   struct continuation *intermediate_continuations;
 
+  /* Nonzero if the thread is being proceeded for a "finish" command
+     or a similar situation when stop_registers should be saved.  */
+  int proceed_to_finish;
+
+  /* Nonzero if the thread is being proceeded for an inferior function
+     call.  */
+  int in_infcall;
+
+  enum step_over_calls_kind step_over_calls;
+
+  /* Nonzero if stopped due to a step command.  */
+  int stop_step;
+
   /* If stepping, nonzero means step count is > 1 so don't print frame
      next time inferior stops if it stops due to stepping.  */
   int step_multi;
@@ -212,12 +175,15 @@ struct thread_info
      resume of the thread, and not immediately.  */
   struct target_waitstatus pending_follow;
 
+  /* Last signal that the inferior received (why it stopped).  */
+  enum target_signal stop_signal;
+
+  /* Chain containing status of breakpoint(s) the thread stopped
+     at.  */
+  bpstat stop_bpstat;
+
   /* True if this thread has been explicitly requested to stop.  */
   int stop_requested;
-
-  /* The initiating frame of a nexting operation, used for deciding
-     which exceptions to intercept.  */
-  struct frame_id initiating_frame;
 
   /* Private data used by the target vector implementation.  */
   struct private_thread_info *private;
@@ -252,11 +218,8 @@ extern void delete_thread (ptid_t);
    exited, for example.  */
 extern void delete_thread_silent (ptid_t);
 
-/* Delete a step_resume_breakpoint from the thread database.  */
+/* Delete a step_resume_breakpoint from the thread database. */
 extern void delete_step_resume_breakpoint (struct thread_info *);
-
-/* Delete an exception_resume_breakpoint from the thread database.  */
-extern void delete_exception_resume_breakpoint (struct thread_info *);
 
 /* Translate the integer thread id (GDB's homegrown id, not the system's)
    into a "pid" (which may be overloaded with extra thread information).  */
@@ -347,7 +310,7 @@ extern int any_running (void);
    marks all threads.
 
    Note that this is different from the running state.  See the
-   description of state and executing fields of struct
+   description of state_ and executing_ fields of struct
    thread_info.  */
 extern void set_executing (ptid_t ptid, int executing);
 
@@ -378,7 +341,7 @@ extern struct cmd_list_element *thread_cmd_list;
    `set print thread-events'.  */
 extern int print_thread_events;
 
-extern void print_thread_info (struct ui_out *uiout, char *threads,
+extern void print_thread_info (struct ui_out *uiout, int thread,
 			       int pid);
 
 extern struct cleanup *make_cleanup_restore_current_thread (void);
