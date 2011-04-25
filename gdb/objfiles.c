@@ -1,6 +1,8 @@
 /* GDB routines for manipulating objfiles.
 
-   Copyright (C) 1992-2004, 2007-2012 Free Software Foundation, Inc.
+   Copyright (C) 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001,
+   2002, 2003, 2004, 2007, 2008, 2009, 2010, 2011
+   Free Software Foundation, Inc.
 
    Contributed by Cygnus Support, using pieces from other GDB modules.
 
@@ -62,6 +64,7 @@ static void objfile_free_data (struct objfile *objfile);
 /* Externally visible variables that are owned by this module.
    See declarations in objfile.h for more info.  */
 
+struct objfile *current_objfile;	/* For symbol file being read in */
 struct objfile *rt_common_objfile;	/* For runtime common symbols */
 
 struct objfile_pspace_info
@@ -160,6 +163,12 @@ add_to_objfile_sections (struct bfd *abfd, struct bfd_section *asect,
 int
 build_objfile_section_table (struct objfile *objfile)
 {
+  /* objfile->sections can be already set when reading a mapped symbol
+     file.  I believe that we do need to rebuild the section table in
+     this case (we rebuild other things derived from the bfd), but we
+     can't free the old one (it's in the objfile_obstack).  So we just
+     waste some memory.  */
+
   objfile->sections_end = 0;
   bfd_map_over_sections (objfile->obfd,
 			 add_to_objfile_sections, (void *) objfile);
@@ -237,6 +246,10 @@ allocate_objfile (bfd *abfd, int flags)
   objfile->sect_index_data = -1;
   objfile->sect_index_bss = -1;
   objfile->sect_index_rodata = -1;
+
+  /* We don't yet have a C++-specific namespace symtab.  */
+
+  objfile->cp_namespace_symtab = NULL;
 
   /* Add this file onto the tail of the linked list of other such files.  */
 
@@ -340,6 +353,29 @@ entry_point_address (void)
     error (_("Entry point address is not known."));
 
   return retval;
+}
+
+/* Create the terminating entry of OBJFILE's minimal symbol table.
+   If OBJFILE->msymbols is zero, allocate a single entry from
+   OBJFILE->objfile_obstack; otherwise, just initialize
+   OBJFILE->msymbols[OBJFILE->minimal_symbol_count].  */
+void
+terminate_minimal_symbol_table (struct objfile *objfile)
+{
+  if (! objfile->msymbols)
+    objfile->msymbols = ((struct minimal_symbol *)
+                         obstack_alloc (&objfile->objfile_obstack,
+                                        sizeof (objfile->msymbols[0])));
+
+  {
+    struct minimal_symbol *m
+      = &objfile->msymbols[objfile->minimal_symbol_count];
+
+    memset (m, 0, sizeof (*m));
+    /* Don't rely on these enumeration values being 0's.  */
+    MSYMBOL_TYPE (m) = mst_unknown;
+    SYMBOL_SET_LANGUAGE (m, language_unknown);
+  }
 }
 
 /* Iterator on PARENT and every separate debug objfile of PARENT.
@@ -551,10 +587,6 @@ free_objfile (struct objfile *objfile)
      lists.  */
   preserve_values (objfile);
 
-  /* It still may reference data modules have associated with the objfile and
-     the symbol file data.  */
-  forget_cached_source_info_for_objfile (objfile);
-
   /* First do any symbol file specific actions required when we are
      finished with a particular symbol file.  Note that if the objfile
      is using reusable symbol information (via mmalloc) then each of
@@ -567,8 +599,7 @@ free_objfile (struct objfile *objfile)
       (*objfile->sf->sym_finish) (objfile);
     }
 
-  /* Discard any data modules have associated with the objfile.  The function
-     still may reference objfile->obfd.  */
+  /* Discard any data modules have associated with the objfile.  */
   objfile_free_data (objfile);
 
   gdb_bfd_unref (objfile->obfd);
@@ -605,9 +636,13 @@ free_objfile (struct objfile *objfile)
 
   {
     struct symtab_and_line cursal = get_current_source_symtab_and_line ();
+    struct symtab *s;
 
-    if (cursal.symtab && cursal.symtab->objfile == objfile)
-      clear_current_source_symtab_and_line ();
+    ALL_OBJFILE_SYMTABS (objfile, s)
+      {
+	if (s == cursal.symtab)
+	  clear_current_source_symtab_and_line ();
+      }
   }
 
   /* The last thing we do is free the objfile struct itself.  */
@@ -1092,7 +1127,7 @@ insert_section_p (const struct bfd *abfd,
 {
   const bfd_vma lma = bfd_section_lma (abfd, section);
 
-  if (overlay_debugging && lma != 0 && lma != bfd_section_vma (abfd, section)
+  if (lma != 0 && lma != bfd_section_vma (abfd, section)
       && (bfd_get_file_flags (abfd) & BFD_IN_MEMORY) == 0)
     /* This is an overlay section.  IN_MEMORY check is needed to avoid
        discarding sections from the "system supplied DSO" (aka vdso)
