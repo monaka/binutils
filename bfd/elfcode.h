@@ -1,6 +1,6 @@
 /* ELF executable support for BFD.
    Copyright 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000,
-   2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011
+   2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010
    Free Software Foundation, Inc.
 
    Written by Fred Fish @ Cygnus Support, from information published
@@ -198,7 +198,6 @@ elf_swap_symbol_in (bfd *abfd,
     }
   else if (dst->st_shndx >= (SHN_LORESERVE & 0xffff))
     dst->st_shndx += SHN_LORESERVE - (SHN_LORESERVE & 0xffff);
-  dst->st_target_internal = 0;
   return TRUE;
 }
 
@@ -499,6 +498,7 @@ elf_object_p (bfd *abfd)
   asection *s;
   bfd_size_type amt;
   const bfd_target *target;
+  const bfd_target * const *target_ptr;
 
   preserve.marker = NULL;
 
@@ -587,9 +587,34 @@ elf_object_p (bfd *abfd)
       && (ebd->elf_machine_alt1 == 0
 	  || i_ehdrp->e_machine != ebd->elf_machine_alt1)
       && (ebd->elf_machine_alt2 == 0
-	  || i_ehdrp->e_machine != ebd->elf_machine_alt2)
-      && ebd->elf_machine_code != EM_NONE)
-    goto got_wrong_format_error;
+	  || i_ehdrp->e_machine != ebd->elf_machine_alt2))
+    {
+      if (ebd->elf_machine_code != EM_NONE)
+	goto got_wrong_format_error;
+
+      /* This is the generic ELF target.  Let it match any ELF target
+	 for which we do not have a specific backend.  */
+      for (target_ptr = bfd_target_vector; *target_ptr != NULL; target_ptr++)
+	{
+	  const struct elf_backend_data *back;
+
+	  if ((*target_ptr)->flavour != bfd_target_elf_flavour)
+	    continue;
+	  back = xvec_get_elf_backend_data (*target_ptr);
+	  if (back->s->arch_size != ARCH_SIZE)
+	    continue;
+	  if (back->elf_machine_code == i_ehdrp->e_machine
+	      || (back->elf_machine_alt1 != 0
+		  && back->elf_machine_alt1 == i_ehdrp->e_machine)
+	      || (back->elf_machine_alt2 != 0
+		  && back->elf_machine_alt2 == i_ehdrp->e_machine))
+	    {
+	      /* target_ptr is an ELF backend which matches this
+		 object file, so reject the generic ELF target.  */
+	      goto got_wrong_format_error;
+	    }
+	}
+    }
 
   if (i_ehdrp->e_type == ET_EXEC)
     abfd->flags |= EXEC_P;
@@ -607,9 +632,43 @@ elf_object_p (bfd *abfd)
     }
 
   if (ebd->elf_machine_code != EM_NONE
-      && i_ehdrp->e_ident[EI_OSABI] != ebd->elf_osabi
-      && ebd->elf_osabi != ELFOSABI_NONE)
-    goto got_wrong_format_error;
+      && i_ehdrp->e_ident[EI_OSABI] != ebd->elf_osabi)
+    {
+      if (ebd->elf_osabi != ELFOSABI_NONE)
+	goto got_wrong_format_error;
+
+      /* This is an ELFOSABI_NONE ELF target.  Let it match any ELF
+	 target of the compatible machine for which we do not have a
+	 backend with matching ELFOSABI.  */
+      for (target_ptr = bfd_target_vector;
+	   *target_ptr != NULL;
+	   target_ptr++)
+	{
+	  const struct elf_backend_data *back;
+
+	  /* Skip this target and targets with incompatible byte
+	     order.  */
+	  if (*target_ptr == target
+	      || (*target_ptr)->flavour != bfd_target_elf_flavour
+	      || (*target_ptr)->byteorder != target->byteorder
+	      || ((*target_ptr)->header_byteorder
+		  != target->header_byteorder))
+	    continue;
+
+	  back = xvec_get_elf_backend_data (*target_ptr);
+	  if (back->elf_osabi == i_ehdrp->e_ident[EI_OSABI]
+	      && (back->elf_machine_code == i_ehdrp->e_machine
+		  || (back->elf_machine_alt1 != 0
+		      && back->elf_machine_alt1 == i_ehdrp->e_machine)
+		  || (back->elf_machine_alt2 != 0
+		      && back->elf_machine_alt2 == i_ehdrp->e_machine)))
+	    {
+	      /* target_ptr is an ELF backend which matches this
+		 object file, so reject the ELFOSABI_NONE ELF target.  */
+	      goto got_wrong_format_error;
+	    }
+	}
+    }
 
   if (i_ehdrp->e_shoff != 0)
     {
@@ -1097,28 +1156,8 @@ elf_checksum_contents (bfd *abfd,
       elf_swap_shdr_out (abfd, &i_shdr, &x_shdr);
       (*process) (&x_shdr, sizeof x_shdr, arg);
 
-      /* PR ld/12451:
-	 Process the section's contents, if it has some.  Read them in if necessary.  */
       if (i_shdr.contents)
 	(*process) (i_shdr.contents, i_shdr.sh_size, arg);
-      else if (i_shdr.sh_type != SHT_NOBITS)
-	{
-	  asection *sec;
-
-	  sec = bfd_section_from_elf_index (abfd, count);
-	  if (sec != NULL)
-	    {
-	      if (sec->contents == NULL)
-		{
-		  /* Force rereading from file.  */
-		  sec->flags &= ~SEC_IN_MEMORY;
-		  if (! bfd_malloc_and_get_section (abfd, sec, & sec->contents))
-		    continue;
-		}
-	      if (sec->contents != NULL)
-		(*process) (sec->contents, i_shdr.sh_size, arg);
-	    }
-	}
     }
 
   return TRUE;
@@ -1829,22 +1868,6 @@ NAME(_bfd_elf,bfd_from_remote_memory)
   if (loadbasep)
     *loadbasep = loadbase;
   return nbfd;
-}
-
-/* Function for ELF_R_INFO.  */
-
-bfd_vma
-NAME(elf,r_info) (bfd_vma sym, bfd_vma type)
-{
-  return ELF_R_INFO (sym, type);
-}
-
-/* Function for ELF_R_SYM.  */
-
-bfd_vma
-NAME(elf,r_sym) (bfd_vma r_info)
-{
-  return ELF_R_SYM (r_info);
 }
 
 #include "elfcore.h"
