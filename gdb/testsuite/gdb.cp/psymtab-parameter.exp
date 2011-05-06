@@ -1,4 +1,4 @@
-# Copyright 2011-2012 Free Software Foundation, Inc.
+# Copyright 2011 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -35,6 +35,5 @@ gdb_test_no_output "set language c++"
 # XFAIL than FAIL here.  For example -readnow breaks it.
 gdb_test_no_output "maintenance info symtabs"
 
-# GDB has shown only the `long func<short>()' ELF symbol before, not the DWARF
-# symbol
-gdb_test "complete p 'func<short>(" "p 'func<short>\\(\\)"
+# GDB has shown only the `func(int)' entry before.
+gdb_test "complete break 'func(" "break 'func\\(int\\)\r\nbreak 'func\\(typedefed\\)"
