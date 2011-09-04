@@ -1,6 +1,28 @@
 /* M32R opcode support.  -*- C -*-
-   Copyright (C) 2000, 2001, 2004, 2005 Red Hat, Inc.
-   This file is part of CGEN.  */
+
+   Copyright 1998, 1999, 2000, 2001, 2004, 2005, 2007, 2009
+   Free Software Foundation, Inc.
+
+   Contributed by Red Hat Inc; developed under contract from
+   Mitsubishi Electric Corporation.
+
+   This file is part of the GNU Binutils.
+
+   This program is free software; you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation; either version 3 of the License, or
+   (at your option) any later version.
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
+   MA 02110-1301, USA.  */
+
 
 /* This file is an addendum to m32r.cpu.  Heavy use of C code isn't
    appropriate in .cpu files, so it resides here.  This especially applies
@@ -101,7 +123,7 @@ parse_hi16 (CGEN_CPU_DESC cd,
 	return MISSING_CLOSING_PARENTHESIS;
       ++*strp;
       if (errmsg == NULL
-  	  && result_type == CGEN_PARSE_OPERAND_RESULT_NUMBER)
+	  && result_type == CGEN_PARSE_OPERAND_RESULT_NUMBER)
 	{
 	  value >>= 16;
 	  value &= 0xffff;
@@ -113,17 +135,17 @@ parse_hi16 (CGEN_CPU_DESC cd,
     {
       *strp += 6;
       errmsg = cgen_parse_address (cd, strp, opindex, BFD_RELOC_M32R_HI16_SLO,
- 				   & result_type, & value);
+				   & result_type, & value);
       if (**strp != ')')
 	return MISSING_CLOSING_PARENTHESIS;
       ++*strp;
       if (errmsg == NULL
 	  && result_type == CGEN_PARSE_OPERAND_RESULT_NUMBER)
-        {
-          value += 0x8000;
-          value >>= 16;
+	{
+	  value += 0x8000;
+	  value >>= 16;
 	  value &= 0xffff;
-        }
+	}
       *valuep = value;
       return errmsg;
     }
@@ -136,7 +158,10 @@ parse_hi16 (CGEN_CPU_DESC cd,
    handles the case where low() isn't present.  */
 
 static const char *
-parse_slo16 (CGEN_CPU_DESC cd, const char ** strp, int opindex, long * valuep)
+parse_slo16 (CGEN_CPU_DESC cd,
+	     const char ** strp,
+	     int opindex,
+	     long * valuep)
 {
   const char *errmsg;
   enum cgen_parse_operand_result result_type;
@@ -213,15 +238,38 @@ parse_ulo16 (CGEN_CPU_DESC cd,
 /* -- */
 
 /* -- dis.c */
-/* Immediate values are prefixed with '#'.  */
 
-#define CGEN_PRINT_NORMAL(cd, info, value, attrs, pc, length)	\
-  do								\
-    {								\
-      if (CGEN_BOOL_ATTR ((attrs), CGEN_OPERAND_HASH_PREFIX))	\
-        (*info->fprintf_func) (info->stream, "#");		\
-    }								\
-  while (0)
+/* Print signed operands with '#' prefixes.  */
+
+static void
+print_signed_with_hash_prefix (CGEN_CPU_DESC cd ATTRIBUTE_UNUSED,
+			       void * dis_info,
+			       long value,
+			       unsigned int attrs ATTRIBUTE_UNUSED,
+			       bfd_vma pc ATTRIBUTE_UNUSED,
+			       int length ATTRIBUTE_UNUSED)
+{
+  disassemble_info *info = (disassemble_info *) dis_info;
+
+  (*info->fprintf_func) (info->stream, "#");
+  (*info->fprintf_func) (info->stream, "%ld", value);
+}
+
+/* Print unsigned operands with '#' prefixes.  */
+
+static void
+print_unsigned_with_hash_prefix (CGEN_CPU_DESC cd ATTRIBUTE_UNUSED,
+				 void * dis_info,
+				 long value,
+				 unsigned int attrs ATTRIBUTE_UNUSED,
+				 bfd_vma pc ATTRIBUTE_UNUSED,
+				 int length ATTRIBUTE_UNUSED)
+{
+  disassemble_info *info = (disassemble_info *) dis_info;
+
+  (*info->fprintf_func) (info->stream, "#");
+  (*info->fprintf_func) (info->stream, "0x%lx", value);
+}
 
 /* Handle '#' prefixes as operands.  */
 
@@ -256,7 +304,7 @@ my_print_insn (CGEN_CPU_DESC cd,
   /* Read the base part of the insn.  */
 
   status = (*info->read_memory_func) (pc - ((!big_p && (pc & 3) != 0) ? 2 : 0),
-                                      buf, buflen, info);
+				      buf, buflen, info);
   if (status != 0)
     {
       (*info->memory_error_func) (status, pc, info);
