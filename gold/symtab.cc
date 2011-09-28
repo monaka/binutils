@@ -602,16 +602,20 @@ Symbol_table::gc_mark_undef_symbols(Layout* layout)
 }
 
 void
-Symbol_table::gc_mark_symbol(Symbol* sym)
+Symbol_table::gc_mark_symbol_for_shlib(Symbol* sym)
 {
-  // Add the object and section to the work list.
-  Relobj* obj = static_cast<Relobj*>(sym->object());
-  bool is_ordinary;
-  unsigned int shndx = sym->shndx(&is_ordinary);
-  if (is_ordinary && shndx != elfcpp::SHN_UNDEF)
+  if (!sym->is_from_dynobj() 
+      && sym->is_externally_visible())
     {
-      gold_assert(this->gc_!= NULL);
-      this->gc_->worklist().push(Section_id(obj, shndx));
+      //Add the object and section to the work list.
+      Relobj* obj = static_cast<Relobj*>(sym->object());
+      bool is_ordinary;
+      unsigned int shndx = sym->shndx(&is_ordinary);
+      if (is_ordinary && shndx != elfcpp::SHN_UNDEF)
+        {
+          gold_assert(this->gc_!= NULL);
+          this->gc_->worklist().push(Section_id(obj, shndx));
+        }
     }
 }
 
@@ -622,7 +626,16 @@ Symbol_table::gc_mark_dyn_syms(Symbol* sym)
 {
   if (sym->in_dyn() && sym->source() == Symbol::FROM_OBJECT
       && !sym->object()->is_dynamic())
-    this->gc_mark_symbol(sym);
+    {
+      Relobj* obj = static_cast<Relobj*>(sym->object()); 
+      bool is_ordinary;
+      unsigned int shndx = sym->shndx(&is_ordinary);
+      if (is_ordinary && shndx != elfcpp::SHN_UNDEF)
+        {
+          gold_assert(this->gc_ != NULL);
+          this->gc_->worklist().push(Section_id(obj, shndx));
+        }
+    }
 }
 
 // Make TO a symbol which forwards to FROM.
@@ -1130,14 +1143,6 @@ Symbol_table::add_from_relobj(
       bool is_default_version = false;
       bool is_forced_local = false;
 
-      // FIXME: For incremental links, we don't store version information,
-      // so we need to ignore version symbols for now.
-      if (parameters->incremental_update() && ver != NULL)
-	{
-	  namelen = ver - name;
-	  ver = NULL;
-	}
-
       if (ver != NULL)
         {
           // The symbol name is of the form foo@VERSION or foo@@VERSION
@@ -1238,16 +1243,11 @@ Symbol_table::add_from_relobj(
       if (is_forced_local)
 	this->force_local(res);
 
-      // Do not treat this symbol as garbage if this symbol will be
-      // exported to the dynamic symbol table.  This is true when
-      // building a shared library or using --export-dynamic and
-      // the symbol is externally visible.
-      if (parameters->options().gc_sections()
-	  && res->is_externally_visible()
-	  && !res->is_from_dynobj()
-          && (parameters->options().shared()
-	      || parameters->options().export_dynamic()))
-        this->gc_mark_symbol(res);
+      // If building a shared library using garbage collection, do not 
+      // treat externally visible symbols as garbage.
+      if (parameters->options().gc_sections() 
+          && parameters->options().shared())
+        this->gc_mark_symbol_for_shlib(res);
 
       if (is_defined_in_discarded_section)
 	res->set_is_defined_in_discarded_section();
@@ -1345,11 +1345,6 @@ Symbol_table::add_from_dynobj(
       gold_error(_("--just-symbols does not make sense with a shared object"));
       return;
     }
-
-  // FIXME: For incremental links, we don't store version information,
-  // so we need to ignore version symbols for now.
-  if (parameters->incremental_update())
-    versym = NULL;
 
   if (versym != NULL && versym_size / 2 < count)
     {
@@ -2814,12 +2809,6 @@ Symbol_table::sized_write_globals(const Stringpool* sympool,
       typename elfcpp::Elf_types<size>::Elf_Addr sym_value = sym->value();
       typename elfcpp::Elf_types<size>::Elf_Addr dynsym_value = sym_value;
       elfcpp::STB binding = sym->binding();
-
-      // If --no-gnu-unique is set, change STB_GNU_UNIQUE to STB_GLOBAL.
-      if (binding == elfcpp::STB_GNU_UNIQUE
-	  && !parameters->options().gnu_unique())
-	binding = elfcpp::STB_GLOBAL;
-
       switch (sym->source())
 	{
 	case Symbol::FROM_OBJECT:
