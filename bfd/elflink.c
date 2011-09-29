@@ -110,17 +110,17 @@ _bfd_elf_create_got_section (bfd *abfd, struct bfd_link_info *info)
 
   flags = bed->dynamic_sec_flags;
 
-  s = bfd_make_section_anyway_with_flags (abfd,
-					  (bed->rela_plts_and_copies_p
-					   ? ".rela.got" : ".rel.got"),
-					  (bed->dynamic_sec_flags
-					   | SEC_READONLY));
+  s = bfd_make_section_with_flags (abfd,
+				   (bed->rela_plts_and_copies_p
+				    ? ".rela.got" : ".rel.got"),
+				   (bed->dynamic_sec_flags
+				    | SEC_READONLY));
   if (s == NULL
       || ! bfd_set_section_alignment (abfd, s, bed->s->log_file_align))
     return FALSE;
   htab->srelgot = s;
 
-  s = bfd_make_section_anyway_with_flags (abfd, ".got", flags);
+  s = bfd_make_section_with_flags (abfd, ".got", flags);
   if (s == NULL
       || !bfd_set_section_alignment (abfd, s, bed->s->log_file_align))
     return FALSE;
@@ -128,7 +128,7 @@ _bfd_elf_create_got_section (bfd *abfd, struct bfd_link_info *info)
 
   if (bed->want_got_plt)
     {
-      s = bfd_make_section_anyway_with_flags (abfd, ".got.plt", flags);
+      s = bfd_make_section_with_flags (abfd, ".got.plt", flags);
       if (s == NULL
 	  || !bfd_set_section_alignment (abfd, s,
 					 bed->s->log_file_align))
@@ -206,44 +206,44 @@ _bfd_elf_link_create_dynamic_sections (bfd *abfd, struct bfd_link_info *info)
      shared library does not.  */
   if (info->executable)
     {
-      s = bfd_make_section_anyway_with_flags (abfd, ".interp",
-					      flags | SEC_READONLY);
+      s = bfd_make_section_with_flags (abfd, ".interp",
+				       flags | SEC_READONLY);
       if (s == NULL)
 	return FALSE;
     }
 
   /* Create sections to hold version informations.  These are removed
      if they are not needed.  */
-  s = bfd_make_section_anyway_with_flags (abfd, ".gnu.version_d",
-					  flags | SEC_READONLY);
+  s = bfd_make_section_with_flags (abfd, ".gnu.version_d",
+				   flags | SEC_READONLY);
   if (s == NULL
       || ! bfd_set_section_alignment (abfd, s, bed->s->log_file_align))
     return FALSE;
 
-  s = bfd_make_section_anyway_with_flags (abfd, ".gnu.version",
-					  flags | SEC_READONLY);
+  s = bfd_make_section_with_flags (abfd, ".gnu.version",
+				   flags | SEC_READONLY);
   if (s == NULL
       || ! bfd_set_section_alignment (abfd, s, 1))
     return FALSE;
 
-  s = bfd_make_section_anyway_with_flags (abfd, ".gnu.version_r",
-					  flags | SEC_READONLY);
+  s = bfd_make_section_with_flags (abfd, ".gnu.version_r",
+				   flags | SEC_READONLY);
   if (s == NULL
       || ! bfd_set_section_alignment (abfd, s, bed->s->log_file_align))
     return FALSE;
 
-  s = bfd_make_section_anyway_with_flags (abfd, ".dynsym",
-					  flags | SEC_READONLY);
+  s = bfd_make_section_with_flags (abfd, ".dynsym",
+				   flags | SEC_READONLY);
   if (s == NULL
       || ! bfd_set_section_alignment (abfd, s, bed->s->log_file_align))
     return FALSE;
 
-  s = bfd_make_section_anyway_with_flags (abfd, ".dynstr",
-					  flags | SEC_READONLY);
+  s = bfd_make_section_with_flags (abfd, ".dynstr",
+				   flags | SEC_READONLY);
   if (s == NULL)
     return FALSE;
 
-  s = bfd_make_section_anyway_with_flags (abfd, ".dynamic", flags);
+  s = bfd_make_section_with_flags (abfd, ".dynamic", flags);
   if (s == NULL
       || ! bfd_set_section_alignment (abfd, s, bed->s->log_file_align))
     return FALSE;
@@ -259,8 +259,7 @@ _bfd_elf_link_create_dynamic_sections (bfd *abfd, struct bfd_link_info *info)
 
   if (info->emit_hash)
     {
-      s = bfd_make_section_anyway_with_flags (abfd, ".hash",
-					      flags | SEC_READONLY);
+      s = bfd_make_section_with_flags (abfd, ".hash", flags | SEC_READONLY);
       if (s == NULL
 	  || ! bfd_set_section_alignment (abfd, s, bed->s->log_file_align))
 	return FALSE;
@@ -269,8 +268,8 @@ _bfd_elf_link_create_dynamic_sections (bfd *abfd, struct bfd_link_info *info)
 
   if (info->emit_gnu_hash)
     {
-      s = bfd_make_section_anyway_with_flags (abfd, ".gnu.hash",
-					      flags | SEC_READONLY);
+      s = bfd_make_section_with_flags (abfd, ".gnu.hash",
+				       flags | SEC_READONLY);
       if (s == NULL
 	  || ! bfd_set_section_alignment (abfd, s, bed->s->log_file_align))
 	return FALSE;
@@ -321,7 +320,7 @@ _bfd_elf_create_dynamic_sections (bfd *abfd, struct bfd_link_info *info)
   if (bed->plt_readonly)
     pltflags |= SEC_READONLY;
 
-  s = bfd_make_section_anyway_with_flags (abfd, ".plt", pltflags);
+  s = bfd_make_section_with_flags (abfd, ".plt", pltflags);
   if (s == NULL
       || ! bfd_set_section_alignment (abfd, s, bed->plt_alignment))
     return FALSE;
@@ -338,10 +337,10 @@ _bfd_elf_create_dynamic_sections (bfd *abfd, struct bfd_link_info *info)
 	return FALSE;
     }
 
-  s = bfd_make_section_anyway_with_flags (abfd,
-					  (bed->rela_plts_and_copies_p
-					   ? ".rela.plt" : ".rel.plt"),
-					  flags | SEC_READONLY);
+  s = bfd_make_section_with_flags (abfd,
+				   (bed->rela_plts_and_copies_p
+				    ? ".rela.plt" : ".rel.plt"),
+				   flags | SEC_READONLY);
   if (s == NULL
       || ! bfd_set_section_alignment (abfd, s, bed->s->log_file_align))
     return FALSE;
@@ -358,8 +357,9 @@ _bfd_elf_create_dynamic_sections (bfd *abfd, struct bfd_link_info *info)
 	 image and use a R_*_COPY reloc to tell the dynamic linker to
 	 initialize them at run time.  The linker script puts the .dynbss
 	 section into the .bss section of the final image.  */
-      s = bfd_make_section_anyway_with_flags (abfd, ".dynbss",
-					      (SEC_ALLOC | SEC_LINKER_CREATED));
+      s = bfd_make_section_with_flags (abfd, ".dynbss",
+				       (SEC_ALLOC
+					| SEC_LINKER_CREATED));
       if (s == NULL)
 	return FALSE;
 
@@ -376,10 +376,10 @@ _bfd_elf_create_dynamic_sections (bfd *abfd, struct bfd_link_info *info)
 	 copy relocs.  */
       if (! info->shared)
 	{
-	  s = bfd_make_section_anyway_with_flags (abfd,
-						  (bed->rela_plts_and_copies_p
-						   ? ".rela.bss" : ".rel.bss"),
-						  flags | SEC_READONLY);
+	  s = bfd_make_section_with_flags (abfd,
+					   (bed->rela_plts_and_copies_p
+					    ? ".rela.bss" : ".rel.bss"),
+					   flags | SEC_READONLY);
 	  if (s == NULL
 	      || ! bfd_set_section_alignment (abfd, s, bed->s->log_file_align))
 	    return FALSE;
@@ -1238,6 +1238,7 @@ _bfd_elf_merge_symbol (bfd *abfd,
 	{
 	  h->def_dynamic = 0;
 	  h->ref_dynamic = 1;
+	  h->dynamic_def = 1;
 	}
       /* FIXME: Should we check type and size for protected symbol?  */
       h->size = 0;
@@ -4352,6 +4353,7 @@ error_free_dyn:
 		    {
 		      h->def_dynamic = 0;
 		      h->ref_dynamic = 1;
+		      h->dynamic_def = 1;
 		    }
 		}
 	      if (! info->executable
@@ -4364,10 +4366,7 @@ error_free_dyn:
 	      if (! definition)
 		h->ref_dynamic = 1;
 	      else
-		{
-		  h->def_dynamic = 1;
-		  h->dynamic_def = 1;
-		}
+		h->def_dynamic = 1;
 	      if (h->def_regular
 		  || h->ref_regular
 		  || (h->u.weakdef != NULL
@@ -4376,13 +4375,11 @@ error_free_dyn:
 		dynsym = TRUE;
 	    }
 
-	  /* We don't want to make debug symbol dynamic.  */
 	  if (definition && (sec->flags & SEC_DEBUGGING) && !info->relocatable)
-	    dynsym = FALSE;
-
-	  /* Nor should we make plugin symbols dynamic.  */
-	  if ((abfd->flags & BFD_PLUGIN) != 0)
-	    dynsym = FALSE;
+	    {
+	      /* We don't want to make debug symbol dynamic.  */
+	      dynsym = FALSE;
+	    }
 
 	  if (definition)
 	    h->target_internal = isym->st_target_internal;
@@ -4515,8 +4512,6 @@ error_free_dyn:
 	{
 	  struct bfd_hash_entry *p;
 	  struct elf_link_hash_entry *h;
-	  bfd_size_type size;
-	  unsigned int alignment_power;
 
 	  for (p = htab->root.table.table[i]; p != NULL; p = p->next)
 	    {
@@ -4526,20 +4521,6 @@ error_free_dyn:
 	      if (h->dynindx >= old_dynsymcount)
 		_bfd_elf_strtab_delref (htab->dynstr, h->dynstr_index);
 
-	      /* Preserve the maximum alignment and size for common
-		 symbols even if this dynamic lib isn't on DT_NEEDED
-		 since it can still be loaded at the run-time by another
-		 dynamic lib.  */
-	      if (h->root.type == bfd_link_hash_common)
-		{
-		  size = h->root.u.c.size;
-		  alignment_power = h->root.u.c.p->alignment_power;
-		}
-	      else
-		{
-		  size = 0;
-		  alignment_power = 0;
-		}
 	      memcpy (p, old_ent, htab->root.table.entsize);
 	      old_ent = (char *) old_ent + htab->root.table.entsize;
 	      h = (struct elf_link_hash_entry *) p;
@@ -4547,13 +4528,6 @@ error_free_dyn:
 		{
 		  memcpy (h->root.u.i.link, old_ent, htab->root.table.entsize);
 		  old_ent = (char *) old_ent + htab->root.table.entsize;
-		}
-	      else if (h->root.type == bfd_link_hash_common)
-		{
-		  if (size > h->root.u.c.size)
-		    h->root.u.c.size = size;
-		  if (alignment_power > h->root.u.c.p->alignment_power)
-		    h->root.u.c.p->alignment_power = alignment_power;
 		}
 	    }
 	}
@@ -8659,11 +8633,10 @@ elf_link_output_extsym (struct bfd_hash_entry *bh, void *data)
 
   /* We should also warn if a forced local symbol is referenced from
      shared libraries.  */
-  if (!finfo->info->relocatable
-      && finfo->info->executable
+  if (! finfo->info->relocatable
+      && (! finfo->info->shared)
       && h->forced_local
       && h->ref_dynamic
-      && h->def_regular
       && !h->dynamic_def
       && !h->dynamic_weak
       && ! elf_link_check_versioned_symbol (finfo->info, bed, h))
@@ -8705,12 +8678,10 @@ elf_link_output_extsym (struct bfd_hash_entry *bh, void *data)
 	   && bfd_hash_lookup (finfo->info->keep_hash,
 			       h->root.root.string, FALSE, FALSE) == NULL)
     strip = TRUE;
-  else if ((h->root.type == bfd_link_hash_defined
-	    || h->root.type == bfd_link_hash_defweak)
-	   && ((finfo->info->strip_discarded
-		&& elf_discarded_section (h->root.u.def.section))
-	       || (h->root.u.def.section->owner != NULL
-		   && (h->root.u.def.section->owner->flags & BFD_PLUGIN) != 0)))
+  else if (finfo->info->strip_discarded
+	   && (h->root.type == bfd_link_hash_defined
+	       || h->root.type == bfd_link_hash_defweak)
+	   && elf_discarded_section (h->root.u.def.section))
     strip = TRUE;
   else if ((h->root.type == bfd_link_hash_undefined
 	    || h->root.type == bfd_link_hash_undefweak)
@@ -11188,11 +11159,13 @@ bfd_elf_final_link (bfd *abfd, struct bfd_link_info *info)
 	goto error_return;
 
       /* Check for DT_TEXTREL (late, in case the backend removes it).  */
-      if (((info->warn_shared_textrel && info->shared)
-	   || info->error_textrel)
-	  && (o = bfd_get_section_by_name (dynobj, ".dynamic")) != NULL)
+      if (info->warn_shared_textrel && info->shared)
 	{
 	  bfd_byte *dyncon, *dynconend;
+
+	  /* Fix up .dynamic entries.  */
+	  o = bfd_get_section_by_name (dynobj, ".dynamic");
+	  BFD_ASSERT (o != NULL);
 
 	  dyncon = o->contents;
 	  dynconend = o->contents + o->size;
@@ -11204,12 +11177,8 @@ bfd_elf_final_link (bfd *abfd, struct bfd_link_info *info)
 
 	      if (dyn.d_tag == DT_TEXTREL)
 		{
-		  if (info->error_textrel)
-		    info->callbacks->einfo
-		      (_("%P%X: read-only segment has dynamic relocations.\n"));
-		  else
-		    info->callbacks->einfo
-		      (_("%P: warning: creating a DT_TEXTREL in a shared object.\n"));
+		 info->callbacks->einfo
+		    (_("%P: warning: creating a DT_TEXTREL in a shared object.\n"));
 		  break;
 		}
 	    }
@@ -11574,7 +11543,6 @@ _bfd_elf_gc_mark_rsec (struct bfd_link_info *info, asection *sec,
       while (h->root.type == bfd_link_hash_indirect
 	     || h->root.type == bfd_link_hash_warning)
 	h = (struct elf_link_hash_entry *) h->root.u.i.link;
-      h->mark = 1;
       return (*gc_mark_hook) (sec, info, cookie->rel, h, NULL);
     }
 
@@ -11722,21 +11690,19 @@ struct elf_gc_sweep_symbol_info
 static bfd_boolean
 elf_gc_sweep_symbol (struct elf_link_hash_entry *h, void *data)
 {
-  if (!h->mark
-      && (((h->root.type == bfd_link_hash_defined
-	    || h->root.type == bfd_link_hash_defweak)
-	   && !(h->def_regular
-		&& h->root.u.def.section->gc_mark))
-	  || h->root.type == bfd_link_hash_undefined
-	  || h->root.type == bfd_link_hash_undefweak))
+  if (((h->root.type == bfd_link_hash_defined
+	|| h->root.type == bfd_link_hash_defweak)
+       && !h->root.u.def.section->gc_mark
+       && (!(h->root.u.def.section->owner->flags & DYNAMIC)
+	   || (h->plt.refcount <= 0
+	       && h->got.refcount <= 0)))
+      || (h->root.type == bfd_link_hash_undefined
+	  && h->plt.refcount <= 0
+	  && h->got.refcount <= 0))
     {
-      struct elf_gc_sweep_symbol_info *inf;
-
-      inf = (struct elf_gc_sweep_symbol_info *) data;
+      struct elf_gc_sweep_symbol_info *inf =
+	(struct elf_gc_sweep_symbol_info *) data;
       (*inf->hide_symbol) (inf->info, h, TRUE);
-      h->def_regular = 0;
-      h->ref_regular = 0;
-      h->ref_regular_nonweak = 0;
     }
 
   return TRUE;
@@ -11945,13 +11911,12 @@ bfd_elf_gc_mark_dynamic_ref_symbol (struct elf_link_hash_entry *h, void *inf)
   if ((h->root.type == bfd_link_hash_defined
        || h->root.type == bfd_link_hash_defweak)
       && (h->ref_dynamic
-	  || ((!info->executable || info->export_dynamic)
+	  || (!info->executable
 	      && h->def_regular
 	      && ELF_ST_VISIBILITY (h->other) != STV_INTERNAL
 	      && ELF_ST_VISIBILITY (h->other) != STV_HIDDEN
-	      && (strchr (h->root.root.string, ELF_VER_CHR) != NULL
-		  || !bfd_hide_sym_by_version (info->version_info,
-					       h->root.root.string)))))
+	      && !bfd_hide_sym_by_version (info->version_info,
+					   h->root.root.string))))
     h->root.u.def.section->flags |= SEC_KEEP;
 
   return TRUE;
