@@ -1966,8 +1966,6 @@ elf32_arm_nabi_grok_psinfo (bfd *abfd, Elf_Internal_Note *note)
 	return FALSE;
 
       case 124:		/* Linux/ARM elf_prpsinfo.  */
-	elf_tdata (abfd)->core_pid
-	 = bfd_get_32 (abfd, note->descdata + 12);
 	elf_tdata (abfd)->core_program
 	 = _bfd_elfcore_strndup (abfd, note->descdata + 28, 16);
 	elf_tdata (abfd)->core_command
@@ -1988,54 +1986,6 @@ elf32_arm_nabi_grok_psinfo (bfd *abfd, Elf_Internal_Note *note)
   return TRUE;
 }
 
-static char *
-elf32_arm_nabi_write_core_note (bfd *abfd, char *buf, int *bufsiz,
-				int note_type, ...)
-{
-  switch (note_type)
-    {
-    default:
-      return NULL;
-
-    case NT_PRPSINFO:
-      {
-	char data[124];
-	va_list ap;
-
-	va_start (ap, note_type);
-	memset (data, 0, sizeof (data));
-	strncpy (data + 28, va_arg (ap, const char *), 16);
-	strncpy (data + 44, va_arg (ap, const char *), 80);
-	va_end (ap);
-
-	return elfcore_write_note (abfd, buf, bufsiz,
-				   "CORE", note_type, data, sizeof (data));
-      }
-
-    case NT_PRSTATUS:
-      {
-	char data[148];
-	va_list ap;
-	long pid;
-	int cursig;
-	const void *greg;
-
-	va_start (ap, note_type);
-	memset (data, 0, sizeof (data));
-	pid = va_arg (ap, long);
-	bfd_put_32 (abfd, pid, data + 24);
-	cursig = va_arg (ap, int);
-	bfd_put_16 (abfd, cursig, data + 12);
-	greg = va_arg (ap, const void *);
-	memcpy (data + 72, greg, 72);
-	va_end (ap);
-
-	return elfcore_write_note (abfd, buf, bufsiz,
-				   "CORE", note_type, data, sizeof (data));
-      }
-    }
-}
-
 #define TARGET_LITTLE_SYM               bfd_elf32_littlearm_vec
 #define TARGET_LITTLE_NAME              "elf32-littlearm"
 #define TARGET_BIG_SYM                  bfd_elf32_bigarm_vec
@@ -2043,7 +1993,6 @@ elf32_arm_nabi_write_core_note (bfd *abfd, char *buf, int *bufsiz,
 
 #define elf_backend_grok_prstatus	elf32_arm_nabi_grok_prstatus
 #define elf_backend_grok_psinfo		elf32_arm_nabi_grok_psinfo
-#define elf_backend_write_core_note	elf32_arm_nabi_write_core_note
 
 typedef unsigned long int insn32;
 typedef unsigned short int insn16;
@@ -2405,32 +2354,9 @@ static const insn_sequence elf32_arm_stub_a8_veneer_blx[] =
     ARM_REL_INSN(0xea000000, -8)	/* b original_branch_dest.  */
   };
 
-/* For each section group there can be a specially created linker section
-   to hold the stubs for that group.  The name of the stub section is based
-   upon the name of another section within that group with the suffix below
-   applied.
-
-   PR 13049: STUB_SUFFIX used to be ".stub", but this allowed the user to
-   create what appeared to be a linker stub section when it actually
-   contained user code/data.  For example, consider this fragment:
-   
-     const char * stubborn_problems[] = { "np" };
-
-   If this is compiled with "-fPIC -fdata-sections" then gcc produces a
-   section called:
-
-     .data.rel.local.stubborn_problems
-
-   This then causes problems in arm32_arm_build_stubs() as it triggers:
-
-      // Ignore non-stub sections.
-      if (!strstr (stub_sec->name, STUB_SUFFIX))
-	continue;
-
-   And so the section would be ignored instead of being processed.  Hence
-   the change in definition of STUB_SUFFIX to a name that cannot be a valid
-   C identifier.  */
-#define STUB_SUFFIX ".__stub"
+/* Section name for stubs is the associated section name plus this
+   string.  */
+#define STUB_SUFFIX ".stub"
 
 /* One entry per long/short branch stub defined above.  */
 #define DEF_STUBS \
@@ -3631,7 +3557,7 @@ arm_type_of_stub (struct bfd_link_info *info,
 		  stub_type = (info->shared | globals->pic_veneer)
 		    /* PIC stubs.  */
 		    ? ((globals->use_blx
-			&& (r_type == R_ARM_THM_CALL))
+			&& (r_type ==R_ARM_THM_CALL))
 		       /* V5T and above. Stub starts with ARM code, so
 			  we must be able to switch mode before
 			  reaching it, which is only possible for 'bl'
@@ -3642,7 +3568,7 @@ arm_type_of_stub (struct bfd_link_info *info,
 
 		    /* non-PIC stubs.  */
 		    : ((globals->use_blx
-			&& (r_type == R_ARM_THM_CALL))
+			&& (r_type ==R_ARM_THM_CALL))
 		       /* V5T and above.  */
 		       ? arm_stub_long_branch_any_any
 		       /* V4T.  */
@@ -3871,9 +3797,7 @@ elf32_arm_create_or_find_stub_sec (asection **link_sec_p, asection *section,
   asection *stub_sec;
 
   link_sec = htab->stub_group[section->id].link_sec;
-  BFD_ASSERT (link_sec != NULL);
   stub_sec = htab->stub_group[section->id].stub_sec;
-
   if (stub_sec == NULL)
     {
       stub_sec = htab->stub_group[link_sec->id].stub_sec;
@@ -6982,7 +6906,7 @@ elf32_thumb_to_arm_stub (struct bfd_link_info * info,
 	{
 	  (*_bfd_error_handler)
 	    (_("%B(%s): warning: interworking not enabled.\n"
-	       "  first occurrence: %B: Thumb call to ARM"),
+	       "  first occurrence: %B: thumb call to arm"),
 	     sym_sec->owner, input_bfd, name);
 
 	  return FALSE;
@@ -8296,6 +8220,7 @@ elf32_arm_final_link_relocate (reloc_howto_type *           howto,
 		{
 		  /* The target is out of reach, so redirect the
 		     branch to the local stub for this function.  */
+
 		  stub_entry = elf32_arm_get_stub_entry (input_section,
 							 sym_sec, h,
 							 rel, globals,
@@ -10462,9 +10387,7 @@ elf32_arm_relocate_section (bfd *                  output_bfd,
 	 not process them.  */
       if (unresolved_reloc
           && !((input_section->flags & SEC_DEBUGGING) != 0
-               && h->def_dynamic)
-	  && _bfd_elf_section_offset (output_bfd, info, input_section,
-				      rel->r_offset) != (bfd_vma) -1)
+               && h->def_dynamic))
 	{
 	  (*_bfd_error_handler)
 	    (_("%B(%A+0x%lx): unresolvable %s relocation against symbol `%s'"),
@@ -11600,7 +11523,7 @@ elf32_arm_merge_eabi_attributes (bfd *ibfd, bfd *obfd)
 	case Tag_PCS_config:
 	  if (out_attr[i].i == 0)
 	    out_attr[i].i = in_attr[i].i;
-	  else if (in_attr[i].i != 0 && out_attr[i].i != in_attr[i].i)
+	  else if (in_attr[i].i != 0 && out_attr[i].i != 0)
 	    {
 	      /* It's sometimes ok to mix different configs, so this is only
 	         a warning.  */
@@ -12698,8 +12621,7 @@ elf32_arm_find_nearest_line (bfd *          abfd,
 
   /* We skip _bfd_dwarf1_find_nearest_line since no known ARM toolchain uses it.  */
 
-  if (_bfd_dwarf2_find_nearest_line (abfd, dwarf_debug_sections,
-                                     section, symbols, offset,
+  if (_bfd_dwarf2_find_nearest_line (abfd, section, symbols, offset,
 				     filename_ptr, functionname_ptr,
 				     line_ptr, 0,
 				     & elf_tdata (abfd)->dwarf2_find_line_info))
