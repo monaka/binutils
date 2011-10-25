@@ -1,6 +1,6 @@
 /* Linker command language support.
    Copyright 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000,
-   2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012
+   2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011
    Free Software Foundation, Inc.
 
    This file is part of the GNU Binutils.
@@ -4596,7 +4596,7 @@ dprint_statement (lang_statement_union_type *s, int n)
 static void
 insert_pad (lang_statement_union_type **ptr,
 	    fill_type *fill,
-	    bfd_size_type alignment_needed,
+	    unsigned int alignment_needed,
 	    asection *output_section,
 	    bfd_vma dot)
 {
@@ -4651,7 +4651,7 @@ size_input_section
   if (!((lang_input_statement_type *) i->owner->usrdata)->just_syms_flag
       && (i->flags & SEC_EXCLUDE) == 0)
     {
-      bfd_size_type alignment_needed;
+      unsigned int alignment_needed;
       asection *o;
 
       /* Align this section first to the input sections requirement,
@@ -6590,7 +6590,7 @@ lang_process (void)
 	       plugin_error_plugin ());
       /* Open any newly added files, updating the file chains.  */
       link_info.loading_lto_outputs = TRUE;
-      open_input_bfds (*added.tail, OPEN_BFD_NORMAL);
+      open_input_bfds (added.head, OPEN_BFD_NORMAL);
       /* Restore the global list pointer now they have all been added.  */
       lang_list_remove_tail (stat_ptr, &added);
       /* And detach the fresh ends of the file lists.  */
