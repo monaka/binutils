@@ -420,6 +420,8 @@ elf_x86_64_write_core_note (bfd *abfd, char *buf, int *bufsiz,
 			    int note_type, ...)
 {
   const struct elf_backend_data *bed = get_elf_backend_data (abfd);
+  const void *p;
+  int size;
   va_list ap;
   const char *fname, *psargs;
   long pid;
@@ -443,8 +445,8 @@ elf_x86_64_write_core_note (bfd *abfd, char *buf, int *bufsiz,
 	  memset (&data, 0, sizeof (data));
 	  strncpy (data.pr_fname, fname, sizeof (data.pr_fname));
 	  strncpy (data.pr_psargs, psargs, sizeof (data.pr_psargs));
-	  return elfcore_write_note (abfd, buf, bufsiz, "CORE", note_type,
-				     &data, sizeof (data));
+	  p = (const void *) &data;
+	  size = sizeof (data);
 	}
       else
 	{
@@ -452,10 +454,10 @@ elf_x86_64_write_core_note (bfd *abfd, char *buf, int *bufsiz,
 	  memset (&data, 0, sizeof (data));
 	  strncpy (data.pr_fname, fname, sizeof (data.pr_fname));
 	  strncpy (data.pr_psargs, psargs, sizeof (data.pr_psargs));
-	  return elfcore_write_note (abfd, buf, bufsiz, "CORE", note_type,
-				     &data, sizeof (data));
+	  p = (const void *) &data;
+	  size = sizeof (data);
 	}
-      /* NOTREACHED */
+      break;
 
     case NT_PRSTATUS:
       va_start (ap, note_type);
@@ -473,8 +475,8 @@ elf_x86_64_write_core_note (bfd *abfd, char *buf, int *bufsiz,
 	      prstat.pr_pid = pid;
 	      prstat.pr_cursig = cursig;
 	      memcpy (&prstat.pr_reg, gregs, sizeof (prstat.pr_reg));
-	      return elfcore_write_note (abfd, buf, bufsiz, "CORE", note_type,
-					 &prstat, sizeof (prstat));
+	      p = (const void *) &prstat;
+	      size = sizeof (prstat);
 	    }
 	  else
 	    {
@@ -483,8 +485,8 @@ elf_x86_64_write_core_note (bfd *abfd, char *buf, int *bufsiz,
 	      prstat.pr_pid = pid;
 	      prstat.pr_cursig = cursig;
 	      memcpy (&prstat.pr_reg, gregs, sizeof (prstat.pr_reg));
-	      return elfcore_write_note (abfd, buf, bufsiz, "CORE", note_type,
-					 &prstat, sizeof (prstat));
+	      p = (const void *) &prstat;
+	      size = sizeof (prstat);
 	    }
 	}
       else
@@ -494,11 +496,14 @@ elf_x86_64_write_core_note (bfd *abfd, char *buf, int *bufsiz,
 	  prstat.pr_pid = pid;
 	  prstat.pr_cursig = cursig;
 	  memcpy (&prstat.pr_reg, gregs, sizeof (prstat.pr_reg));
-	  return elfcore_write_note (abfd, buf, bufsiz, "CORE", note_type,
-				     &prstat, sizeof (prstat));
+	  p = (const void *) &prstat;
+	  size = sizeof (prstat);
 	}
+      break;
     }
-  /* NOTREACHED */
+
+  return elfcore_write_note (abfd, buf, bufsiz, "CORE", note_type, p,
+			     size);
 }
 #endif
 
@@ -508,7 +513,7 @@ elf_x86_64_write_core_note (bfd *abfd, char *buf, int *bufsiz,
    section.  */
 
 #define ELF64_DYNAMIC_INTERPRETER "/lib/ld64.so.1"
-#define ELF32_DYNAMIC_INTERPRETER "/lib/ldx32.so.1"
+#define ELF32_DYNAMIC_INTERPRETER "/lib/ld32.so.1"
 
 /* If ELIMINATE_COPY_RELOCS is non-zero, the linker will try to avoid
    copying dynamic variables from a shared lib into an app's dynbss
@@ -693,11 +698,6 @@ struct elf_x86_64_link_hash_table
   /* The offset into sgot of the GOT entry used by the PLT entry
      above.  */
   bfd_vma tlsdesc_got;
-
-  /* The index of the next R_X86_64_JUMP_SLOT entry in .rela.plt.  */
-  bfd_vma next_jump_slot_index;
-  /* The index of the next R_X86_64_IRELATIVE entry in .rela.plt.  */
-  bfd_vma next_irelative_index;
 };
 
 /* Get the x86-64 ELF linker hash table from a link_info structure.  */
@@ -839,8 +839,6 @@ elf_x86_64_link_hash_table_create (bfd *abfd)
   ret->tls_ld_got.refcount = 0;
   ret->sgotplt_jump_table_size = 0;
   ret->tls_module_base = NULL;
-  ret->next_jump_slot_index = 0; 
-  ret->next_irelative_index = 0;
 
   if (ABI_64_P (abfd))
     {
@@ -2669,18 +2667,10 @@ elf_x86_64_size_dynamic_sections (bfd *output_bfd,
      incremented.  However, when we reserve space for TLS descriptors,
      it's not incremented, so in order to compute the space reserved
      for them, it suffices to multiply the reloc count by the jump
-     slot size.
-
-     PR ld/13302: We start next_irelative_index at the end of .rela.plt
-     so that R_X86_64_IRELATIVE entries come last.  */
+     slot size.  */
   if (htab->elf.srelplt)
-    {
-      htab->sgotplt_jump_table_size
-	= elf_x86_64_compute_jump_table_size (htab);
-      htab->next_irelative_index = htab->elf.srelplt->reloc_count - 1;
-    }
-  else if (htab->elf.irelplt)
-    htab->next_irelative_index = htab->elf.irelplt->reloc_count - 1;
+    htab->sgotplt_jump_table_size
+      = elf_x86_64_compute_jump_table_size (htab);
 
   if (htab->tlsdesc_plt)
     {
@@ -3151,12 +3141,11 @@ elf_x86_64_relocate_section (bfd *output_bfd,
 		}
 
 	      /* Generate dynamic relcoation only when there is a
-		 non-GOT reference in a shared object.  */
+		 non-GOF reference in a shared object.  */
 	      if (info->shared && h->non_got_ref)
 		{
 		  Elf_Internal_Rela outrel;
 		  asection *sreloc;
-		  bfd_boolean relocate;
 
 		  /* Need a dynamic relocation to get the real function
 		     address.  */
@@ -3176,15 +3165,15 @@ elf_x86_64_relocate_section (bfd *output_bfd,
 		      || info->executable)
 		    {
 		      /* This symbol is resolved locally.  */
-		      outrel.r_info = htab->r_info (0, R_X86_64_RELATIVE);
-		      outrel.r_addend = relocation;
-		      relocate = FALSE;
+		      outrel.r_info = htab->r_info (0, R_X86_64_IRELATIVE);
+		      outrel.r_addend = (h->root.u.def.value
+					 + h->root.u.def.section->output_section->vma
+					 + h->root.u.def.section->output_offset);
 		    }
 		  else
 		    {
 		      outrel.r_info = htab->r_info (h->dynindx, r_type);
 		      outrel.r_addend = 0;
-		      relocate = FALSE;
 		    }
 
 		  sreloc = htab->elf.irelifunc;
@@ -3195,8 +3184,7 @@ elf_x86_64_relocate_section (bfd *output_bfd,
 		     we need to include the symbol value so that it
 		     becomes an addend for the dynamic reloc.  For an
 		     internal symbol, we have updated addend.  */
-		  if (! relocate)
-		    continue;
+		  continue;
 		}
 	      /* FALLTHROUGH */
 	    case R_X86_64_PC32:
@@ -3472,6 +3460,7 @@ elf_x86_64_relocate_section (bfd *output_bfd,
 	case R_X86_64_PC16:
 	case R_X86_64_PC32:
 	  if (info->shared
+	      && ABI_64_P (output_bfd)
 	      && (input_section->flags & SEC_ALLOC) != 0
 	      && (input_section->flags & SEC_READONLY) != 0
 	      && h != NULL)
@@ -4097,9 +4086,7 @@ elf_x86_64_relocate_section (bfd *output_bfd,
 	 not process them.  */
       if (unresolved_reloc
 	  && !((input_section->flags & SEC_DEBUGGING) != 0
-	       && h->def_dynamic)
-	  && _bfd_elf_section_offset (output_bfd, info, input_section,
-				      rel->r_offset) != (bfd_vma) -1)
+	       && h->def_dynamic))
 	(*_bfd_error_handler)
 	  (_("%B(%A+0x%lx): unresolvable %s relocation against symbol `%s'"),
 	   input_bfd,
@@ -4216,13 +4203,13 @@ elf_x86_64_finish_dynamic_symbol (bfd *output_bfd,
 
       if (plt == htab->elf.splt)
 	{
-	  got_offset = h->plt.offset / PLT_ENTRY_SIZE - 1;
-	  got_offset = (got_offset + 3) * GOT_ENTRY_SIZE;
+	  plt_index = h->plt.offset / PLT_ENTRY_SIZE - 1;
+	  got_offset = (plt_index + 3) * GOT_ENTRY_SIZE;
 	}
       else
 	{
-	  got_offset = h->plt.offset / PLT_ENTRY_SIZE;
-	  got_offset = got_offset * GOT_ENTRY_SIZE;
+	  plt_index = h->plt.offset / PLT_ENTRY_SIZE;
+	  got_offset = plt_index * GOT_ENTRY_SIZE;
 	}
 
       /* Fill in the entry in the procedure linkage table.  */
@@ -4243,6 +4230,17 @@ elf_x86_64_finish_dynamic_symbol (bfd *output_bfd,
 		       - h->plt.offset
 		       - 6),
 		  plt->contents + h->plt.offset + 2);
+
+      /* Don't fill PLT entry for static executables.  */
+      if (plt == htab->elf.splt)
+	{
+	  /* Put relocation index.  */
+	  bfd_put_32 (output_bfd, plt_index,
+		      plt->contents + h->plt.offset + 7);
+	  /* Put offset for jmp .PLT0.  */
+	  bfd_put_32 (output_bfd, - (h->plt.offset + PLT_ENTRY_SIZE),
+		      plt->contents + h->plt.offset + 12);
+	}
 
       /* Fill in the entry in the global offset table, initially this
 	 points to the pushq instruction in the PLT which is at offset 6.  */
@@ -4267,25 +4265,11 @@ elf_x86_64_finish_dynamic_symbol (bfd *output_bfd,
 	  rela.r_addend = (h->root.u.def.value
 			   + h->root.u.def.section->output_section->vma
 			   + h->root.u.def.section->output_offset);
-	  /* R_X86_64_IRELATIVE comes last.  */
-	  plt_index = htab->next_irelative_index--;
 	}
       else
 	{
 	  rela.r_info = htab->r_info (h->dynindx, R_X86_64_JUMP_SLOT);
 	  rela.r_addend = 0;
-	  plt_index = htab->next_jump_slot_index++;
-	}
-
-      /* Don't fill PLT entry for static executables.  */
-      if (plt == htab->elf.splt)
-	{
-	  /* Put relocation index.  */
-	  bfd_put_32 (output_bfd, plt_index,
-		      plt->contents + h->plt.offset + 7);
-	  /* Put offset for jmp .PLT0.  */
-	  bfd_put_32 (output_bfd, - (h->plt.offset + PLT_ENTRY_SIZE),
-		      plt->contents + h->plt.offset + 12);
 	}
 
       bed = get_elf_backend_data (output_bfd);
