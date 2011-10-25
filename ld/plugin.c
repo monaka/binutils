@@ -442,14 +442,18 @@ release_input_file (const void *handle)
 /* Return TRUE if a defined symbol might be reachable from outside the
    universe of claimed objects.  */
 static inline bfd_boolean
-is_visible_from_outside (struct ld_plugin_symbol *lsym,
+is_visible_from_outside (struct ld_plugin_symbol *lsym, asection *section,
 			 struct bfd_link_hash_entry *blhe)
 {
   struct bfd_sym_chain *sym;
 
+  /* Section's owner may be NULL if it is the absolute
+     section, fortunately is_ir_dummy_bfd handles that.  */
+  if (!is_ir_dummy_bfd (section->owner))
+    return TRUE;
   if (link_info.relocatable)
     return TRUE;
-  if (link_info.export_dynamic || !link_info.executable)
+  if (link_info.export_dynamic || link_info.shared)
     {
       /* Check if symbol is hidden by version script.  */
       if (bfd_hide_sym_by_version (link_info.version_info,
@@ -576,7 +580,7 @@ get_symbols (const void *handle, int nsyms, struct ld_plugin_symbol *syms,
 	     symbol is externally visible.  */
 	  if (blhe->non_ir_ref)
 	    res = LDPR_PREVAILING_DEF;
-	  else if (is_visible_from_outside (&syms[n], blhe))
+	  else if (is_visible_from_outside (&syms[n], owner_sec, blhe))
 	    res = def_ironly_exp;
 	}
 
@@ -697,7 +701,7 @@ set_tv_header (struct ld_plugin_tv *tv)
 	case LDPT_LINKER_OUTPUT:
 	  TVU(val) = (link_info.relocatable
 		      ? LDPO_REL
-		      : link_info.executable ? LDPO_EXEC : LDPO_DYN);
+		      : (link_info.shared ? LDPO_DYN : LDPO_EXEC));
 	  break;
 	case LDPT_OUTPUT_NAME:
 	  TVU(string) = output_filename;
@@ -1013,15 +1017,4 @@ plugin_notice (struct bfd_link_info *info,
     return (*orig_callbacks->notice) (info, h,
 				      abfd, section, value, flags, string);
   return TRUE;
-}
-
-/* Return true if bfd is a dynamic library that should be reloaded.  */
-
-bfd_boolean
-plugin_should_reload (bfd *abfd)
-{
-  return ((abfd->flags & DYNAMIC) != 0
-	  && bfd_get_flavour (abfd) == bfd_target_elf_flavour
-	  && bfd_get_format (abfd) == bfd_object
-	  && (elf_dyn_lib_class (abfd) & DYN_AS_NEEDED) != 0);
 }
