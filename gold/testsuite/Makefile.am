@@ -1510,20 +1510,6 @@ unused.o: unused.c
 unused.c:
 	@cp /dev/null $@
 
-check_SCRIPTS += plugin_final_layout.sh
-check_DATA += plugin_final_layout.stdout
-plugin_final_layout.o: plugin_final_layout.cc
-	$(CXXCOMPILE) -O0 -c -ffunction-sections  -fdata-sections -g -o $@ $<
-plugin_final_layout: plugin_final_layout.o plugin_section_order.so gcctestdir/ld
-	$(CXXLINK) -Bgcctestdir/ -Wl,--plugin,"./plugin_section_order.so" plugin_final_layout.o
-plugin_final_layout.stdout: plugin_final_layout
-	$(TEST_NM) -n plugin_final_layout > plugin_final_layout.stdout
-
-plugin_section_order.so: plugin_section_order.o
-	$(LINK) -Bgcctestdir/ -shared plugin_section_order.o
-plugin_section_order.o: plugin_section_order.c
-	$(COMPILE) -O0 -c -fpic -o $@ $<
-
 endif PLUGINS
 
 check_PROGRAMS += exclude_libs_test
@@ -2521,24 +2507,18 @@ pr12826_2.o: pr12826_2.s
 	$(TEST_AS) -o $@ $<
 
 check_SCRIPTS += arm_unaligned_reloc.sh
-check_DATA += arm_unaligned_reloc.stdout arm_unaligned_reloc_r.stdout
+check_DATA += arm_unaligned_reloc.stdout
 
 arm_unaligned_reloc.stdout: arm_unaligned_reloc
 	$(TEST_OBJDUMP) -D $< > $@
 
-arm_unaligned_reloc_r.stdout: arm_unaligned_reloc_r
-	$(TEST_OBJDUMP) -Dr $< > $@
-
 arm_unaligned_reloc: arm_unaligned_reloc.o ../ld-new
 	../ld-new -o $@ $<
-
-arm_unaligned_reloc_r: arm_unaligned_reloc.o ../ld-new
-	../ld-new -r -o $@ $<
 
 arm_unaligned_reloc.o: arm_unaligned_reloc.s
 	$(TEST_AS) -o $@ $<
 
-MOSTLYCLEANFILES += arm_unaligned_reloc arm_unaligned_reloc_r
+MOSTLYCLEANFILES += arm_unaligned_reloc
 
 # Check ARM to ARM farcall veneers
 

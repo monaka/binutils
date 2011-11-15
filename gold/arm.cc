@@ -2075,8 +2075,7 @@ class Arm_scan_relocatable_relocs :
 	  case elfcpp::R_ARM_TARGET1:
 	  case elfcpp::R_ARM_TARGET2:
 	    gold_unreachable();
-	  // Relocations that write full 32 bits and
-          // have alignment of 1.
+	  // Relocations that write full 32 bits.
 	  case elfcpp::R_ARM_ABS32:
 	  case elfcpp::R_ARM_REL32:
 	  case elfcpp::R_ARM_SBREL32:
@@ -2094,7 +2093,7 @@ class Arm_scan_relocatable_relocs :
 	  case elfcpp::R_ARM_TLS_LDO32:
 	  case elfcpp::R_ARM_TLS_IE32:
 	  case elfcpp::R_ARM_TLS_LE32:
-	    return Relocatable_relocs::RELOC_ADJUST_FOR_SECTION_4_UNALIGNED;
+	    return Relocatable_relocs::RELOC_ADJUST_FOR_SECTION_4;
 	  default:
 	    // For all other static relocations, return RELOC_SPECIAL.
 	    return Relocatable_relocs::RELOC_SPECIAL;
@@ -9348,7 +9347,7 @@ Target_arm<big_endian>::Relocate::relocate_tls(
 	      
               // Relocate the field with the PC relative offset of the pair of
               // GOT entries.
-	      RelocFuncs::pcrel32_unaligned(view, got_entry, address);
+	      RelocFuncs::pcrel32(view, got_entry, address);
               return ArmRelocFuncs::STATUS_OKAY;
             }
         }
@@ -9367,13 +9366,13 @@ Target_arm<big_endian>::Relocate::relocate_tls(
 
           // Relocate the field with the PC relative offset of the pair of
           // GOT entries.
-          RelocFuncs::pcrel32_unaligned(view, got_entry, address);
+          RelocFuncs::pcrel32(view, got_entry, address);
 	  return ArmRelocFuncs::STATUS_OKAY;
         }
       break;
 
     case elfcpp::R_ARM_TLS_LDO32:	// Alternate local-dynamic
-      RelocFuncs::rel32_unaligned(view, value);
+      RelocFuncs::rel32(view, value);
       return ArmRelocFuncs::STATUS_OKAY;
 
     case elfcpp::R_ARM_TLS_IE32:	// Initial-exec
@@ -9402,7 +9401,7 @@ Target_arm<big_endian>::Relocate::relocate_tls(
 	    target->got_plt_section()->address() + got_offset;
 
           // Relocate the field with the PC relative offset of the GOT entry.
-	  RelocFuncs::pcrel32_unaligned(view, got_entry, address);
+	  RelocFuncs::pcrel32(view, got_entry, address);
 	  return ArmRelocFuncs::STATUS_OKAY;
         }
       break;
@@ -9418,7 +9417,7 @@ Target_arm<big_endian>::Relocate::relocate_tls(
 	  // need to add TCB size to the offset.
 	  Arm_address aligned_tcb_size =
 	    align_address(ARM_TCB_SIZE, tls_segment->maximum_alignment());
-          RelocFuncs::rel32_unaligned(view, value + aligned_tcb_size);
+          RelocFuncs::rel32(view, value + aligned_tcb_size);
 
         }
       return ArmRelocFuncs::STATUS_OKAY;
@@ -10008,10 +10007,7 @@ Target_arm<big_endian>::do_make_elf_object(
     off_t offset, const elfcpp::Ehdr<32, big_endian>& ehdr)
 {
   int et = ehdr.get_e_type();
-  // ET_EXEC files are valid input for --just-symbols/-R,
-  // and we treat them as relocatable objects.
-  if (et == elfcpp::ET_REL
-      || (et == elfcpp::ET_EXEC && input_file->just_symbols()))
+  if (et == elfcpp::ET_REL)
     {
       Arm_relobj<big_endian>* obj =
         new Arm_relobj<big_endian>(name, input_file, offset, ehdr);
