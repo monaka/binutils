@@ -1,6 +1,8 @@
 /* Parser for linespec for the GNU debugger, GDB.
 
-   Copyright (C) 1986-2005, 2007-2012 Free Software Foundation, Inc.
+   Copyright (C) 1986, 1987, 1988, 1989, 1990, 1991, 1992, 1993, 1994, 1995,
+   1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2007, 2008,
+   2009, 2010, 2011 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -830,7 +832,7 @@ keep_name_info (char *p, int on_boundary)
    lack of single quotes.  FIXME: write a linespec_completer which we
    can use as appropriate instead of make_symbol_completion_list.  */
 
-static struct symtabs_and_lines
+struct symtabs_and_lines
 decode_line_internal (struct linespec_state *self, char **argptr)
 {
   char *p;
@@ -894,42 +896,30 @@ decode_line_internal (struct linespec_state *self, char **argptr)
   first_half = p = locate_first_half (argptr, &is_quote_enclosed);
 
   /* First things first: if ARGPTR starts with a filename, get its
-     symtab and strip the filename from ARGPTR.
-     Avoid calling symtab_from_filename if we know can,
-     it can be expensive.  */
-
-  if (*p != '\0')
+     symtab and strip the filename from ARGPTR.  */
+  TRY_CATCH (file_exception, RETURN_MASK_ERROR)
     {
-      TRY_CATCH (file_exception, RETURN_MASK_ERROR)
-	{
-	  self->file_symtabs = symtabs_from_filename (argptr, p,
-						      is_quote_enclosed,
-						      &self->user_filename);
-	}
-
-      if (file_exception.reason >= 0)
-	{
-	  /* Check for single quotes on the non-filename part.  */
-	  is_quoted = (**argptr
-		       && strchr (get_gdb_completer_quote_characters (),
-				  **argptr) != NULL);
-	  if (is_quoted)
-	    end_quote = skip_quoted (*argptr);
-
-	  /* Locate the next "half" of the linespec.  */
-	  first_half = p = locate_first_half (argptr, &is_quote_enclosed);
-	}
-
-      if (VEC_empty (symtab_p, self->file_symtabs))
-	{
-	  /* A NULL entry means to use GLOBAL_DEFAULT_SYMTAB.  */
-	  VEC_safe_push (symtab_p, self->file_symtabs, NULL);
-	}
+      self->file_symtabs = symtabs_from_filename (argptr, p, is_quote_enclosed,
+						  &self->user_filename);
     }
-  else
+
+  if (VEC_empty (symtab_p, self->file_symtabs))
     {
       /* A NULL entry means to use GLOBAL_DEFAULT_SYMTAB.  */
       VEC_safe_push (symtab_p, self->file_symtabs, NULL);
+    }
+
+  if (file_exception.reason >= 0)
+    {
+      /* Check for single quotes on the non-filename part.  */
+      is_quoted = (**argptr
+		   && strchr (get_gdb_completer_quote_characters (),
+			      **argptr) != NULL);
+      if (is_quoted)
+	end_quote = skip_quoted (*argptr);
+
+      /* Locate the next "half" of the linespec.  */
+      first_half = p = locate_first_half (argptr, &is_quote_enclosed);
     }
 
   /* Check if this is an Objective-C method (anything that starts with
@@ -963,44 +953,33 @@ decode_line_internal (struct linespec_state *self, char **argptr)
 	
       if (p[0] == '.' || p[1] == ':')
 	{
-	 /* We only perform this check for the languages where it might
-	    make sense.  For instance, Ada does not use this type of
-	    syntax, and trying to apply this logic on an Ada linespec
-	    may trigger a spurious error (for instance, decode_compound
-	    does not like expressions such as `ops."<"', which is a
-	    valid function name in Ada).  */
-	  if (current_language->la_language == language_c
-	      || current_language->la_language == language_cplus
-	      || current_language->la_language == language_java)
+	  struct symtabs_and_lines values;
+	  volatile struct gdb_exception ex;
+	  char *saved_argptr = *argptr;
+
+	  if (is_quote_enclosed)
+	    ++saved_arg;
+
+	  /* Initialize it just to avoid a GCC false warning.  */
+	  memset (&values, 0, sizeof (values));
+
+	  TRY_CATCH (ex, RETURN_MASK_ERROR)
 	    {
-	      struct symtabs_and_lines values;
-	      volatile struct gdb_exception ex;
-	      char *saved_argptr = *argptr;
-
-	      if (is_quote_enclosed)
-		++saved_arg;
-
-	      /* Initialize it just to avoid a GCC false warning.  */
-	      memset (&values, 0, sizeof (values));
-
-	      TRY_CATCH (ex, RETURN_MASK_ERROR)
-		{
-		  values = decode_compound (self, argptr, saved_arg, p);
-		}
-	      if ((is_quoted || is_squote_enclosed) && **argptr == '\'')
-		*argptr = *argptr + 1;
-
-	      if (ex.reason >= 0)
-		{
-		  do_cleanups (cleanup);
-		  return values;
-		}
-
-	      if (ex.error != NOT_FOUND_ERROR)
-		throw_exception (ex);
-
-	      *argptr = saved_argptr;
+	      values = decode_compound (self, argptr, saved_arg, p);
 	    }
+	  if ((is_quoted || is_squote_enclosed) && **argptr == '\'')
+	    *argptr = *argptr + 1;
+
+	  if (ex.reason >= 0)
+	    {
+	      do_cleanups (cleanup);
+	      return values;
+	    }
+
+	  if (ex.error != NOT_FOUND_ERROR)
+	    throw_exception (ex);
+
+	  *argptr = saved_argptr;
 	}
       else
 	{
@@ -1351,24 +1330,6 @@ locate_first_half (char **argptr, int *is_quote_enclosed)
   char *ii;
   char *p, *p1;
   int has_comma;
-
-  /* Check if the linespec starts with an Ada operator (such as "+",
-     or ">", for instance).  */
-  p = *argptr;
-  if (p[0] == '"'
-      && current_language->la_language == language_ada)
-    {
-      const struct ada_opname_map *op;
-
-      for (op = ada_opname_table; op->encoded != NULL; op++)
-        if (strncmp (op->decoded, p, strlen (op->decoded)) == 0)
-	  break;
-      if (op->encoded != NULL)
-	{
-	  *is_quote_enclosed = 0;
-	  return p + strlen (op->decoded);
-	}
-    }
 
   /* Maybe we were called with a line range FILENAME:LINENUM,FILENAME:LINENUM
      and we must isolate the first half.  Outer layers will call again later
@@ -2698,10 +2659,19 @@ collect_symbols (struct symbol *sym, void *data)
   struct collect_info *info = data;
   struct symtab_and_line sal;
 
-  if (symbol_to_sal (&sal, info->state->funfirstline, sym)
-      && maybe_add_address (info->state->addr_set,
-			    SYMTAB_PSPACE (SYMBOL_SYMTAB (sym)),
-			    sal.pc))
+  if ((SYMBOL_CLASS (sym) == LOC_STATIC
+       && !info->state->funfirstline
+       && !maybe_add_address (info->state->addr_set,
+			      SYMTAB_PSPACE (SYMBOL_SYMTAB (sym)),
+			      SYMBOL_VALUE_ADDRESS (sym)))
+      || (SYMBOL_CLASS (sym) == LOC_BLOCK
+	  && !maybe_add_address (info->state->addr_set,
+				 SYMTAB_PSPACE (SYMBOL_SYMTAB (sym)),
+				 BLOCK_START (SYMBOL_BLOCK_VALUE (sym)))))
+    {
+      /* Nothing.  */
+    }
+  else if (symbol_to_sal (&sal, info->state->funfirstline, sym))
     add_sal_to_sals (info->state, &info->result, &sal,
 		     SYMBOL_NATURAL_NAME (sym));
 
@@ -2733,8 +2703,7 @@ minsym_found (struct linespec_state *self, struct objfile *objfile,
   if (self->funfirstline)
     skip_prologue_sal (&sal);
 
-  if (maybe_add_address (self->addr_set, objfile->pspace, sal.pc))
-    add_sal_to_sals (self, result, &sal, SYMBOL_NATURAL_NAME (msymbol));
+  add_sal_to_sals (self, result, &sal, SYMBOL_NATURAL_NAME (msymbol));
 }
 
 /* A helper struct which just holds a minimal symbol and the object
@@ -2758,9 +2727,6 @@ struct collect_minsyms
 
   /* The funfirstline setting from the initial call.  */
   int funfirstline;
-
-  /* The list_mode setting from the initial call.  */
-  int list_mode;
 
   /* The resulting symbols.  */
   VEC (minsym_and_objfile_d) *msyms;
@@ -2812,29 +2778,6 @@ add_minsym (struct minimal_symbol *minsym, void *d)
   struct collect_minsyms *info = d;
   minsym_and_objfile_d mo;
 
-  /* Exclude data symbols when looking for breakpoint locations.   */
-  if (!info->list_mode)
-    switch (minsym->type)
-      {
-	case mst_slot_got_plt:
-	case mst_data:
-	case mst_bss:
-	case mst_abs:
-	case mst_file_data:
-	case mst_file_bss:
-	  {
-	    /* Make sure this minsym is not a function descriptor
-	       before we decide to discard it.  */
-	    struct gdbarch *gdbarch = info->objfile->gdbarch;
-	    CORE_ADDR addr = gdbarch_convert_from_func_ptr_addr
-			       (gdbarch, SYMBOL_VALUE_ADDRESS (minsym),
-				&current_target);
-
-	    if (addr == SYMBOL_VALUE_ADDRESS (minsym))
-	      return;
-	  }
-      }
-
   mo.minsym = minsym;
   mo.objfile = info->objfile;
   VEC_safe_push (minsym_and_objfile_d, info->msyms, &mo);
@@ -2865,7 +2808,6 @@ search_minsyms_for_name (struct collect_info *info, const char *name,
 
     memset (&local, 0, sizeof (local));
     local.funfirstline = info->state->funfirstline;
-    local.list_mode = info->state->list_mode;
 
     cleanup = make_cleanup (VEC_cleanup (minsym_and_objfile_d),
 			    &local.msyms);
@@ -2900,8 +2842,11 @@ search_minsyms_for_name (struct collect_info *info, const char *name,
 	    if (classify_mtype (MSYMBOL_TYPE (item->minsym)) != classification)
 	      break;
 
-	    minsym_found (info->state, item->objfile, item->minsym,
-			  &info->result);
+	    if (maybe_add_address (info->state->addr_set, 
+				   item->objfile->pspace,
+				   SYMBOL_VALUE_ADDRESS (item->minsym)))
+	      minsym_found (info->state, item->objfile, item->minsym,
+			    &info->result);
 	  }
       }
 
