@@ -1387,13 +1387,11 @@ Output_data_got<size, big_endian>::Got_entry::write(unsigned char* pov) const
 
     default:
       {
-	const Relobj* object = this->u_.object;
+	const Sized_relobj_file<size, big_endian>* object = this->u_.object;
         const unsigned int lsi = this->local_sym_index_;
+        const Symbol_value<size>* symval = object->local_symbol(lsi);
 	if (!this->use_plt_offset_)
-	  {
-	    uint64_t lval = object->local_symbol_value(lsi, 0);
-	    val = convert_types<Valtype, uint64_t>(lval);
-	  }
+	  val = symval->value(this->u_.object, 0);
 	else
 	  {
 	    uint64_t plt_address =
@@ -1450,7 +1448,7 @@ void
 Output_data_got<size, big_endian>::add_global_with_rel(
     Symbol* gsym,
     unsigned int got_type,
-    Output_data_reloc_generic* rel_dyn,
+    Rel_dyn* rel_dyn,
     unsigned int r_type)
 {
   if (gsym->has_got_offset(got_type))
@@ -1458,7 +1456,23 @@ Output_data_got<size, big_endian>::add_global_with_rel(
 
   unsigned int got_offset = this->add_got_entry(Got_entry());
   gsym->set_got_offset(got_type, got_offset);
-  rel_dyn->add_global_generic(gsym, r_type, this, got_offset, 0);
+  rel_dyn->add_global(gsym, r_type, this, got_offset);
+}
+
+template<int size, bool big_endian>
+void
+Output_data_got<size, big_endian>::add_global_with_rela(
+    Symbol* gsym,
+    unsigned int got_type,
+    Rela_dyn* rela_dyn,
+    unsigned int r_type)
+{
+  if (gsym->has_got_offset(got_type))
+    return;
+
+  unsigned int got_offset = this->add_got_entry(Got_entry());
+  gsym->set_got_offset(got_type, got_offset);
+  rela_dyn->add_global(gsym, r_type, this, got_offset, 0);
 }
 
 // Add a pair of entries for a global symbol to the GOT, and add
@@ -1469,7 +1483,7 @@ void
 Output_data_got<size, big_endian>::add_global_pair_with_rel(
     Symbol* gsym,
     unsigned int got_type,
-    Output_data_reloc_generic* rel_dyn,
+    Rel_dyn* rel_dyn,
     unsigned int r_type_1,
     unsigned int r_type_2)
 {
@@ -1478,11 +1492,30 @@ Output_data_got<size, big_endian>::add_global_pair_with_rel(
 
   unsigned int got_offset = this->add_got_entry_pair(Got_entry(), Got_entry());
   gsym->set_got_offset(got_type, got_offset);
-  rel_dyn->add_global_generic(gsym, r_type_1, this, got_offset, 0);
+  rel_dyn->add_global(gsym, r_type_1, this, got_offset);
 
   if (r_type_2 != 0)
-    rel_dyn->add_global_generic(gsym, r_type_2, this,
-				got_offset + size / 8, 0);
+    rel_dyn->add_global(gsym, r_type_2, this, got_offset + size / 8);
+}
+
+template<int size, bool big_endian>
+void
+Output_data_got<size, big_endian>::add_global_pair_with_rela(
+    Symbol* gsym,
+    unsigned int got_type,
+    Rela_dyn* rela_dyn,
+    unsigned int r_type_1,
+    unsigned int r_type_2)
+{
+  if (gsym->has_got_offset(got_type))
+    return;
+
+  unsigned int got_offset = this->add_got_entry_pair(Got_entry(), Got_entry());
+  gsym->set_got_offset(got_type, got_offset);
+  rela_dyn->add_global(gsym, r_type_1, this, got_offset, 0);
+
+  if (r_type_2 != 0)
+    rela_dyn->add_global(gsym, r_type_2, this, got_offset + size / 8, 0);
 }
 
 // Add an entry for a local symbol to the GOT.  This returns true if
@@ -1492,7 +1525,7 @@ Output_data_got<size, big_endian>::add_global_pair_with_rel(
 template<int size, bool big_endian>
 bool
 Output_data_got<size, big_endian>::add_local(
-    Relobj* object,
+    Sized_relobj_file<size, big_endian>* object,
     unsigned int symndx,
     unsigned int got_type)
 {
@@ -1510,7 +1543,7 @@ Output_data_got<size, big_endian>::add_local(
 template<int size, bool big_endian>
 bool
 Output_data_got<size, big_endian>::add_local_plt(
-    Relobj* object,
+    Sized_relobj_file<size, big_endian>* object,
     unsigned int symndx,
     unsigned int got_type)
 {
@@ -1529,10 +1562,10 @@ Output_data_got<size, big_endian>::add_local_plt(
 template<int size, bool big_endian>
 void
 Output_data_got<size, big_endian>::add_local_with_rel(
-    Relobj* object,
+    Sized_relobj_file<size, big_endian>* object,
     unsigned int symndx,
     unsigned int got_type,
-    Output_data_reloc_generic* rel_dyn,
+    Rel_dyn* rel_dyn,
     unsigned int r_type)
 {
   if (object->local_has_got_offset(symndx, got_type))
@@ -1540,7 +1573,24 @@ Output_data_got<size, big_endian>::add_local_with_rel(
 
   unsigned int got_offset = this->add_got_entry(Got_entry());
   object->set_local_got_offset(symndx, got_type, got_offset);
-  rel_dyn->add_local_generic(object, symndx, r_type, this, got_offset, 0);
+  rel_dyn->add_local(object, symndx, r_type, this, got_offset);
+}
+
+template<int size, bool big_endian>
+void
+Output_data_got<size, big_endian>::add_local_with_rela(
+    Sized_relobj_file<size, big_endian>* object,
+    unsigned int symndx,
+    unsigned int got_type,
+    Rela_dyn* rela_dyn,
+    unsigned int r_type)
+{
+  if (object->local_has_got_offset(symndx, got_type))
+    return;
+
+  unsigned int got_offset = this->add_got_entry(Got_entry());
+  object->set_local_got_offset(symndx, got_type, got_offset);
+  rela_dyn->add_local(object, symndx, r_type, this, got_offset, 0);
 }
 
 // Add a pair of entries for a local symbol to the GOT, and add
@@ -1549,11 +1599,11 @@ Output_data_got<size, big_endian>::add_local_with_rel(
 template<int size, bool big_endian>
 void
 Output_data_got<size, big_endian>::add_local_pair_with_rel(
-    Relobj* object,
+    Sized_relobj_file<size, big_endian>* object,
     unsigned int symndx,
     unsigned int shndx,
     unsigned int got_type,
-    Output_data_reloc_generic* rel_dyn,
+    Rel_dyn* rel_dyn,
     unsigned int r_type_1,
     unsigned int r_type_2)
 {
@@ -1565,11 +1615,35 @@ Output_data_got<size, big_endian>::add_local_pair_with_rel(
 			       Got_entry(object, symndx, false));
   object->set_local_got_offset(symndx, got_type, got_offset);
   Output_section* os = object->output_section(shndx);
-  rel_dyn->add_output_section_generic(os, r_type_1, this, got_offset, 0);
+  rel_dyn->add_output_section(os, r_type_1, this, got_offset);
 
   if (r_type_2 != 0)
-    rel_dyn->add_output_section_generic(os, r_type_2, this,
-					got_offset + size / 8, 0);
+    rel_dyn->add_output_section(os, r_type_2, this, got_offset + size / 8);
+}
+
+template<int size, bool big_endian>
+void
+Output_data_got<size, big_endian>::add_local_pair_with_rela(
+    Sized_relobj_file<size, big_endian>* object,
+    unsigned int symndx,
+    unsigned int shndx,
+    unsigned int got_type,
+    Rela_dyn* rela_dyn,
+    unsigned int r_type_1,
+    unsigned int r_type_2)
+{
+  if (object->local_has_got_offset(symndx, got_type))
+    return;
+
+  unsigned int got_offset =
+      this->add_got_entry_pair(Got_entry(),
+			       Got_entry(object, symndx, false));
+  object->set_local_got_offset(symndx, got_type, got_offset);
+  Output_section* os = object->output_section(shndx);
+  rela_dyn->add_output_section(os, r_type_1, this, got_offset, 0);
+
+  if (r_type_2 != 0)
+    rela_dyn->add_output_section(os, r_type_2, this, got_offset + size / 8, 0);
 }
 
 // Reserve a slot in the GOT for a local symbol or the second slot of a pair.
@@ -1578,11 +1652,11 @@ template<int size, bool big_endian>
 void
 Output_data_got<size, big_endian>::reserve_local(
     unsigned int i,
-    Relobj* object,
+    Sized_relobj<size, big_endian>* object,
     unsigned int sym_index,
     unsigned int got_type)
 {
-  this->do_reserve_slot(i);
+  this->reserve_slot(i);
   object->set_local_got_offset(sym_index, got_type, this->got_offset(i));
 }
 
@@ -1595,7 +1669,7 @@ Output_data_got<size, big_endian>::reserve_global(
     Symbol* gsym,
     unsigned int got_type)
 {
-  this->do_reserve_slot(i);
+  this->reserve_slot(i);
   gsym->set_got_offset(got_type, this->got_offset(i));
 }
 
@@ -2414,10 +2488,7 @@ Output_section::add_input_section(Layout* layout,
       || layout->is_section_ordering_specified())
     {
       Input_section isecn(object, shndx, input_section_size, addralign);
-      /* If section ordering is requested by specifying a ordering file,
-	 using --section-ordering-file, match the section name with
-	 a pattern.  */
-      if (parameters->options().section_ordering_file())
+      if (layout->is_section_ordering_specified())
         {
           unsigned int section_order_index =
             layout->find_section_order_index(std::string(secname));
@@ -3426,7 +3497,7 @@ Output_section::Input_section_sort_section_order_index_compare::operator()(
 
 void
 Output_section::update_section_layout(
-  const Section_layout_order* order_map)
+  const Section_layout_order& order_map)
 {
   for (Input_section_list::iterator p = this->input_sections_.begin();
        p != this->input_sections_.end();
@@ -3440,8 +3511,8 @@ Output_section::update_section_layout(
 		         : p->relaxed_input_section()->relobj());
 	  unsigned int shndx = p->shndx();
 	  Section_layout_order::const_iterator it
-	    = order_map->find(Section_id(obj, shndx));
-	  if (it == order_map->end())
+	    = order_map.find(Section_id(obj, shndx));
+	  if (it == order_map.end())
 	    continue;
 	  unsigned int section_order_index = it->second;
 	  if (section_order_index != 0)

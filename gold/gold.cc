@@ -45,7 +45,6 @@
 #include "gc.h"
 #include "icf.h"
 #include "incremental.h"
-#include "timer.h"
 
 namespace gold
 {
@@ -488,10 +487,6 @@ queue_middle_tasks(const General_options& options,
 		   Workqueue* workqueue,
 		   Mapfile* mapfile)
 {
-  Timer* timer = parameters->timer();
-  if (timer != NULL)
-    timer->stamp(0);
-
   // Add any symbols named with -u options to the symbol table.
   symtab->add_undefined_symbols_from_command_line(layout);
 
@@ -542,20 +537,6 @@ queue_middle_tasks(const General_options& options,
           Task_lock_obj<Object> tlo(task, *p);
           (*p)->layout(symtab, layout, NULL);
         }
-    }
-
-  /* If plugins have specified a section order, re-arrange input sections
-     according to a specified section order.  If --section-ordering-file is
-     also specified, do not do anything here.  */
-  if (parameters->options().has_plugins()
-      && layout->is_section_ordering_specified()
-      && !parameters->options().section_ordering_file ())
-    {
-      for (Layout::Section_list::const_iterator p
-	     = layout->section_list().begin();
-           p != layout->section_list().end();
-           ++p)
-        (*p)->update_section_layout(layout->get_section_order_map());
     }
 
   // Layout deferred objects due to plugins.
@@ -791,10 +772,6 @@ queue_final_tasks(const General_options& options,
 		  Workqueue* workqueue,
 		  Output_file* of)
 {
-  Timer* timer = parameters->timer();
-  if (timer != NULL)
-    timer->stamp(1);
-
   int thread_count = options.thread_count_final();
   if (thread_count == 0)
     thread_count = std::max(2, input_objects->number_of_input_objects());

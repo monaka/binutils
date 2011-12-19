@@ -1121,47 +1121,32 @@ General_options::finalize()
                  program_name);
 #endif
 
-  std::string libpath;
   if (this->user_set_Y())
     {
-      libpath = this->Y();
-      if (libpath.compare(0, 2, "P,") == 0)
-	libpath.erase(0, 2);
-    }
-  else if (!this->nostdlib())
-    {
-#ifndef NATIVE_LINKER
-#define NATIVE_LINKER 0
-#endif
-      const char* p = LIB_PATH;
-      if (strcmp(p, "::DEFAULT::") != 0)
-	libpath = p;
-      else if (NATIVE_LINKER
-	       || this->user_set_sysroot()
-	       || *TARGET_SYSTEM_ROOT != '\0')
-	{
-	  this->add_to_library_path_with_sysroot("/lib");
-	  this->add_to_library_path_with_sysroot("/usr/lib");
-	}
-      else
-	this->add_to_library_path_with_sysroot(TOOLLIBDIR);
-    }
+      std::string s = this->Y();
+      if (s.compare(0, 2, "P,") == 0)
+	s.erase(0, 2);
 
-  if (!libpath.empty())
-    {
       size_t pos = 0;
       size_t next_pos;
       do
 	{
-	  next_pos = libpath.find(':', pos);
+	  next_pos = s.find(':', pos);
 	  size_t len = (next_pos == std::string::npos
 			? next_pos
 			: next_pos - pos);
 	  if (len != 0)
-	    this->add_to_library_path_with_sysroot(libpath.substr(pos, len));
+	    this->add_to_library_path_with_sysroot(s.substr(pos, len).c_str());
 	  pos = next_pos + 1;
 	}
       while (next_pos != std::string::npos);
+    }
+  else if (!this->nostdlib())
+    {
+      // Even if they don't specify it, we add -L /lib and -L /usr/lib.
+      // FIXME: We should only do this when configured in native mode.
+      this->add_to_library_path_with_sysroot("/lib");
+      this->add_to_library_path_with_sysroot("/usr/lib");
     }
 
   // Parse the contents of -retain-symbols-file into a set.
