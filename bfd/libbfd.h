@@ -8,7 +8,7 @@
 
    Copyright 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998,
    1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-   2010, 2011, 2012
+   2010, 2011
    Free Software Foundation, Inc.
 
    Written by Cygnus Support.
@@ -69,17 +69,16 @@ struct section_hash_entry
 /* tdata for an archive.  For an input archive, cache
    needs to be free()'d.  For an output archive, symdefs do.  */
 
-struct artdata
-{
+struct artdata {
   file_ptr first_file_filepos;
   /* Speed up searching the armap */
   htab_t cache;
-  bfd *archive_head;		/* Only interesting in output routines.  */
-  carsym *symdefs;		/* The symdef entries.  */
-  symindex symdef_count;	/* How many there are.  */
-  char *extended_names;		/* Clever intel extension.  */
-  bfd_size_type extended_names_size; /* Size of extended names.  */
-  /* When more compilers are standard C, this can be a time_t.  */
+  bfd *archive_head;		/* Only interesting in output routines */
+  carsym *symdefs;		/* the symdef entries */
+  symindex symdef_count;	/* how many there are */
+  char *extended_names;		/* clever intel extension */
+  bfd_size_type extended_names_size; /* Size of extended names */
+  /* when more compilers are standard C, this can be a time_t */
   long  armap_timestamp;	/* Timestamp value written into armap.
 				   This is used for BSD archives to check
 				   that the timestamp is recent enough
@@ -94,13 +93,12 @@ struct artdata
 #define bfd_ardata(bfd) ((bfd)->tdata.aout_ar_data)
 
 /* Goes in bfd's arelt_data slot */
-struct areltdata
-{
-  char * arch_header;		/* It's actually a string.  */
-  bfd_size_type parsed_size;	/* Octets of filesize not including ar_hdr.  */
-  bfd_size_type extra_size;	/* BSD4.4: extra bytes after the header.  */
-  char *filename;		/* Null-terminated.  */
-  file_ptr origin;		/* For element of a thin archive.  */
+struct areltdata {
+  char * arch_header;		/* it's actually a string */
+  unsigned int parsed_size;	/* octets of filesize not including ar_hdr */
+  unsigned int extra_size;	/* BSD4.4: extra bytes after the header.  */
+  char *filename;		/* null-terminated */
+  file_ptr origin;		/* for element of a thin archive */
 };
 
 #define arelt_size(bfd) (((struct areltdata *)((bfd)->arelt_data))->parsed_size)
@@ -210,8 +208,6 @@ extern void *_bfd_generic_read_ar_hdr
   (bfd *);
 extern void _bfd_ar_spacepad
   (char *, size_t, const char *, long);
-extern bfd_boolean _bfd_ar_sizepad
-  (char *, size_t, bfd_size_type);
 
 extern void *_bfd_generic_read_ar_hdr_mag
   (bfd *, const char *);
@@ -530,21 +526,10 @@ extern bfd_boolean _bfd_dwarf1_find_nearest_line
   (bfd *, asection *, asymbol **, bfd_vma, const char **,
    const char **, unsigned int *);
 
-struct dwarf_debug_section
-{
-  const char *uncompressed_name;
-  const char *compressed_name;
-};
-
-/* Map of uncompressed DWARF debug section name to compressed one.  It
-   is terminated by NULL uncompressed_name.  */
-
-extern const struct dwarf_debug_section dwarf_debug_sections[];
-
 /* Find the nearest line using DWARF 2 debugging information.  */
 extern bfd_boolean _bfd_dwarf2_find_nearest_line
-  (bfd *, const struct dwarf_debug_section *, asection *, asymbol **, bfd_vma,
-   const char **, const char **, unsigned int *, unsigned int, void **);
+  (bfd *, asection *, asymbol **, bfd_vma, const char **, const char **,
+   unsigned int *, unsigned int, void **);
 
 /* Find the line using DWARF 2 debugging information.  */
 extern bfd_boolean _bfd_dwarf2_find_line
@@ -557,15 +542,7 @@ bfd_boolean _bfd_generic_find_line
 /* Find inliner info after calling bfd_find_nearest_line. */
 extern bfd_boolean _bfd_dwarf2_find_inliner_info
   (bfd *, const char **, const char **, unsigned int *, void **);
-
-/* Read DWARF 2 debugging information. */
-extern bfd_boolean _bfd_dwarf2_slurp_debug_info
-  (bfd *, bfd *, const struct dwarf_debug_section *, asymbol **, void **);
-
-/* Clean up the data used to handle DWARF 2 debugging information. */
-extern void _bfd_dwarf2_cleanup_debug_info
-  (bfd *, void **);
-
+  
 /* Create a new section entry.  */
 extern struct bfd_hash_entry *bfd_section_hash_newfunc
   (struct bfd_hash_entry *, struct bfd_hash_table *, const char *);
@@ -839,6 +816,17 @@ extern void bfd_section_already_linked_table_traverse
 
 extern bfd_vma read_unsigned_leb128 (bfd *, bfd_byte *, unsigned int *);
 extern bfd_signed_vma read_signed_leb128 (bfd *, bfd_byte *, unsigned int *);
+
+struct dwarf_debug_section
+{
+  const char *uncompressed_name;
+  const char *compressed_name;
+};
+
+/* Map of uncompressed DWARF debug section name to compressed one.  It
+   is terminated by NULL uncompressed_name.  */
+
+extern const struct dwarf_debug_section dwarf_debug_sections[];
 /* Extracted from init.c.  */
 /* Extracted from libbfd.c.  */
 bfd_boolean bfd_write_bigendian_4byte_int (bfd *, unsigned int);
@@ -1853,38 +1841,6 @@ static const char *const bfd_reloc_code_real_names[] = { "@@uninitialized@@",
   "BFD_RELOC_AVR_LDI",
   "BFD_RELOC_AVR_6",
   "BFD_RELOC_AVR_6_ADIW",
-  "BFD_RELOC_RL78_NEG8",
-  "BFD_RELOC_RL78_NEG16",
-  "BFD_RELOC_RL78_NEG24",
-  "BFD_RELOC_RL78_NEG32",
-  "BFD_RELOC_RL78_16_OP",
-  "BFD_RELOC_RL78_24_OP",
-  "BFD_RELOC_RL78_32_OP",
-  "BFD_RELOC_RL78_8U",
-  "BFD_RELOC_RL78_16U",
-  "BFD_RELOC_RL78_24U",
-  "BFD_RELOC_RL78_DIR3U_PCREL",
-  "BFD_RELOC_RL78_DIFF",
-  "BFD_RELOC_RL78_GPRELB",
-  "BFD_RELOC_RL78_GPRELW",
-  "BFD_RELOC_RL78_GPRELL",
-  "BFD_RELOC_RL78_SYM",
-  "BFD_RELOC_RL78_OP_SUBTRACT",
-  "BFD_RELOC_RL78_OP_NEG",
-  "BFD_RELOC_RL78_OP_AND",
-  "BFD_RELOC_RL78_OP_SHRA",
-  "BFD_RELOC_RL78_ABS8",
-  "BFD_RELOC_RL78_ABS16",
-  "BFD_RELOC_RL78_ABS16_REV",
-  "BFD_RELOC_RL78_ABS32",
-  "BFD_RELOC_RL78_ABS32_REV",
-  "BFD_RELOC_RL78_ABS16U",
-  "BFD_RELOC_RL78_ABS16UW",
-  "BFD_RELOC_RL78_ABS16UL",
-  "BFD_RELOC_RL78_RELAX",
-  "BFD_RELOC_RL78_HI16",
-  "BFD_RELOC_RL78_HI8",
-  "BFD_RELOC_RL78_LO16",
   "BFD_RELOC_RX_NEG8",
   "BFD_RELOC_RX_NEG16",
   "BFD_RELOC_RX_NEG24",
@@ -2527,13 +2483,6 @@ static const char *const bfd_reloc_code_real_names[] = { "@@uninitialized@@",
   "BFD_RELOC_TILEGX_TLS_DTPMOD32",
   "BFD_RELOC_TILEGX_TLS_DTPOFF32",
   "BFD_RELOC_TILEGX_TLS_TPOFF32",
-  "BFD_RELOC_EPIPHANY_SIMM8",
-  "BFD_RELOC_EPIPHANY_SIMM24",
-  "BFD_RELOC_EPIPHANY_HIGH",
-  "BFD_RELOC_EPIPHANY_LOW",
-  "BFD_RELOC_EPIPHANY_SIMM11",
-  "BFD_RELOC_EPIPHANY_IMM11",
-  "BFD_RELOC_EPIPHANY_IMM8",
  "@@overflow: BFD_RELOC_UNUSED@@",
 };
 #endif
