@@ -1,7 +1,8 @@
 /* PPC GNU/Linux native support.
 
-   Copyright (C) 1988-1989, 1991-1992, 1994, 1996, 2000-2012 Free
-   Software Foundation, Inc.
+   Copyright (C) 1988, 1989, 1991, 1992, 1994, 1996, 2000, 2001, 2002, 2003,
+   2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011
+   Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -2151,9 +2152,9 @@ ppc_linux_remove_watchpoint (CORE_ADDR addr, int len, int rw,
 }
 
 static void
-ppc_linux_new_thread (struct lwp_info *lp)
+ppc_linux_new_thread (ptid_t ptid)
 {
-  int tid = TIDGET (lp->ptid);
+  int tid = TIDGET (ptid);
 
   if (have_ptrace_booke_interface ())
     {
