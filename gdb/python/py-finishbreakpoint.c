@@ -1,6 +1,6 @@
 /* Python interface to finish breakpoints
 
-   Copyright (C) 2011-2012 Free Software Foundation, Inc.
+   Copyright (C) 2011 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -277,7 +277,7 @@ bpfinishpy_init (PyObject *self, PyObject *args, PyObject *kwargs)
     {
       /* Set a breakpoint on the return address.  */
       finish_pc = get_frame_pc (prev_frame);
-      xsnprintf (small_buf, sizeof (small_buf), "*%s", hex_string (finish_pc));
+      sprintf (small_buf, "*%s", hex_string (finish_pc));
       addr_str = small_buf;
 
       create_breakpoint (python_gdbarch,

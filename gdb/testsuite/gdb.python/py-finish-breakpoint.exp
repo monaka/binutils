@@ -1,4 +1,4 @@
-# Copyright (C) 2011-2012 Free Software Foundation, Inc.
+# Copyright (C) 2011 Free Software Foundation, Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -15,6 +15,10 @@
 
 # This file is part of the GDB testsuite.  It tests the mechanism
 # exposing values to Python.
+
+if $tracelevel then {
+    strace $tracelevel
+}
 
 if {[skip_shlib_tests]} {
 	untested py-finish-breakpoint.exp
@@ -114,8 +118,7 @@ if ![runto_main] then {
 
 gdb_test "print do_nothing" "no debug info.*" "ensure that shared lib has no debug info"
 gdb_breakpoint "do_nothing" {temporary}
-gdb_test "continue" "Temporary breakpoint .*in \\.?do_nothing.*" \
-         "continue to do_nothing"
+gdb_test "continue" "Temporary breakpoint .*in do_nothing.*" "continue to do_nothing"
 
 gdb_test "python finishBP = SimpleFinishBreakpoint(gdb.newest_frame())" \
          "SimpleFinishBreakpoint init" \
@@ -244,7 +247,6 @@ if ![runto "test_exec_exit"] then {
     return 0
 }
 
-gdb_test_no_output "set var self_exec = 0" "switch to exit() test"
 gdb_test "python SimpleFinishBreakpoint(gdb.newest_frame())" "SimpleFinishBreakpoint init" "set FinishBP after the exit()"
 gdb_test "continue" "SimpleFinishBreakpoint out of scope.*" "catch out of scope after exit"
 
@@ -257,6 +259,7 @@ if ![runto "test_exec_exit"] then {
     return 0
 }     
 
+gdb_test_no_output "set var do_exit = 0" "switch to execve() test"
 gdb_test "python SimpleFinishBreakpoint(gdb.newest_frame())" "SimpleFinishBreakpoint init" "set FinishBP after the exec"
 gdb_test "catch exec" "Catchpoint.*\(exec\).*" "catch exec"
 gdb_test "continue" "SimpleFinishBreakpoint out of scope.*" "catch out of scope after exec"

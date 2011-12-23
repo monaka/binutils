@@ -1,6 +1,6 @@
 /* This testcase is part of GDB, the GNU debugger.
 
-   Copyright 2011-2012 Free Software Foundation, Inc.
+   Copyright 2011 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -59,12 +59,12 @@ call_longjmp (jmp_buf *buf)
 }
 
 void
-test_exec_exit (const char *self_exec)
+test_exec_exit (int do_exit)
 {
-  if (self_exec == NULL)
+  if (do_exit)
     exit (0);
   else
-    execl (self_exec, self_exec, "exit", (char *)0);
+    execl ("/bin/echo", "echo", "-1", (char *)0);
 }
 
 int main (int argc, char *argv[])
@@ -73,9 +73,6 @@ int main (int argc, char *argv[])
   int foo = 5;
   int bar = 42;
   int i, j;
-
-  if (argc == 2 && strcmp (argv[1], "exit") == 0)
-    return 0;
 
   do_nothing ();
 
@@ -97,7 +94,7 @@ int main (int argc, char *argv[])
   else
     j += 1; /* after longjmp.  */
 
-  test_exec_exit (argv[0]);
+  test_exec_exit (1);
 
   return j; /* Break at end.  */
 }
