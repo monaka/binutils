@@ -1,6 +1,6 @@
 /* X86-64 specific support for ELF
    Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-   2010, 2011
+   2010, 2011, 2012
    Free Software Foundation, Inc.
    Contributed by Jan Hubicka <jh@suse.cz>.
 
@@ -508,7 +508,7 @@ elf_x86_64_write_core_note (bfd *abfd, char *buf, int *bufsiz,
    section.  */
 
 #define ELF64_DYNAMIC_INTERPRETER "/lib/ld64.so.1"
-#define ELF32_DYNAMIC_INTERPRETER "/lib/ldx32.so.1"
+#define ELF32_DYNAMIC_INTERPRETER "/lib/ld32.so.1"
 
 /* If ELIMINATE_COPY_RELOCS is non-zero, the linker will try to avoid
    copying dynamic variables from a shared lib into an app's dynbss
@@ -3472,6 +3472,7 @@ elf_x86_64_relocate_section (bfd *output_bfd,
 	case R_X86_64_PC16:
 	case R_X86_64_PC32:
 	  if (info->shared
+	      && ABI_64_P (output_bfd)
 	      && (input_section->flags & SEC_ALLOC) != 0
 	      && (input_section->flags & SEC_READONLY) != 0
 	      && h != NULL)
