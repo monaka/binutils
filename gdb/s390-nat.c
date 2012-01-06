@@ -1,6 +1,6 @@
 /* S390 native-dependent code for GDB, the GNU debugger.
-   Copyright (C) 2001, 2003-2007, 2009, 2012 Free Software Foundation,
-   Inc.
+   Copyright (C) 2001, 2003, 2004, 2005, 2006, 2007, 2009
+   Free Software Foundation, Inc.
 
    Contributed by D.J. Barrow (djbarrow@de.ibm.com,barrow_dj@yahoo.com)
    for IBM Deutschland Entwicklung GmbH, IBM Corporation.
@@ -472,7 +472,7 @@ s390_stopped_by_watchpoint (void)
 }
 
 static void
-s390_fix_watch_points (struct lwp_info *lp)
+s390_fix_watch_points (ptid_t ptid)
 {
   int tid;
 
@@ -482,9 +482,9 @@ s390_fix_watch_points (struct lwp_info *lp)
   CORE_ADDR watch_lo_addr = (CORE_ADDR)-1, watch_hi_addr = 0;
   struct watch_area *area;
 
-  tid = TIDGET (lp->ptid);
+  tid = TIDGET (ptid);
   if (tid == 0)
-    tid = PIDGET (lp->ptid);
+    tid = PIDGET (ptid);
 
   for (area = watch_base; area; area = area->next)
     {
@@ -532,7 +532,7 @@ s390_insert_watchpoint (CORE_ADDR addr, int len, int type,
   watch_base = area;
 
   ALL_LWPS (lp)
-    s390_fix_watch_points (lp);
+    s390_fix_watch_points (lp->ptid);
   return 0;
 }
 
@@ -560,7 +560,7 @@ s390_remove_watchpoint (CORE_ADDR addr, int len, int type,
   xfree (area);
 
   ALL_LWPS (lp)
-    s390_fix_watch_points (lp);
+    s390_fix_watch_points (lp->ptid);
   return 0;
 }
 
