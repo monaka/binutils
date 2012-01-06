@@ -23,6 +23,10 @@
 # TODO: we should also test explicitly changing threads with the "thread"
 # command.
 
+if $tracelevel then {
+	strace $tracelevel
+}
+
 set testfile "switch-threads"
 set srcfile ${testfile}.c
 set binfile ${objdir}/${subdir}/${testfile}

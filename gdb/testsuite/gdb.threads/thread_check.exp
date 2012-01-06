@@ -31,6 +31,10 @@
 # - delete all breakpoints 
 # - exit gdb.
 
+if $tracelevel then {
+        strace $tracelevel
+}
+
 
 set testfile "thread_check"
 set srcfile ${testfile}.c

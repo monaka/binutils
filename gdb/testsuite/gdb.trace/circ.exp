@@ -15,6 +15,10 @@
 
 load_lib "trace-support.exp"
 
+if $tracelevel then {
+	strace $tracelevel
+}
+
 
 set testfile "circ"
 set srcfile ${testfile}.c
@@ -188,6 +192,10 @@ gdb_start
 gdb_reinitialize_dir $srcdir/$subdir
 gdb_load $binfile
  
+if [target_info exists gdb_stub] {
+    gdb_step_for_stub;
+}
+
 gdb_test_no_output "set circular-trace-buffer on" \
     "set circular-trace-buffer on"
 

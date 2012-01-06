@@ -18,6 +18,10 @@
 
 set NR_THREADS 4
 
+if $tracelevel then {
+	strace $tracelevel
+}
+
 set testfile "hand-call-in-threads"
 set srcfile ${testfile}.c
 set binfile ${objdir}/${subdir}/${testfile}

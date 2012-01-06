@@ -29,6 +29,10 @@ if {![istarget *-*-linux*]
     return
 }
 
+if $tracelevel then {
+    strace $tracelevel
+}
+
 set testfile "py-section-script"
 set srcfile ${testfile}.c
 set binfile ${objdir}/${subdir}/${testfile}

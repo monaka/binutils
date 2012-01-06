@@ -33,6 +33,10 @@
 ### killing and restarting
 ### quitting gracefully
 
+if $tracelevel then {
+	strace $tracelevel
+}
+
 
 # This only works with Linux configurations.
 if ![istarget *-*-linux-gnu*] then {

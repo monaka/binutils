@@ -16,6 +16,10 @@
 # This file is part of the GDB testsuite.  It tests the mechanism
 # of exposing types to Python.
 
+if $tracelevel then {
+    strace $tracelevel
+}
+
 load_lib gdb-python.exp
 
 set testfile "py-type"
@@ -189,10 +193,7 @@ proc test_template {} {
     gdb_test "python print isinstance(ttype.template_argument(1), gdb.Value)" \
 	"True"
 
-    if {[test_compiler_info {gcc-[0-3]-*}]
-	|| [test_compiler_info {gcc-4-[0-5]-*}]} {
-	setup_xfail "gcc/46955" *-*-*
-    }
+    setup_kfail "gcc/41736" *-*-*
     gdb_test "python print ttype.template_argument(2)" "&C::c"
 }
 

@@ -18,6 +18,10 @@
 # GDB reported a SIGTRAP signal in a random thread when hitting
 # a breakpoint.
 
+if $tracelevel then {
+	strace $tracelevel
+}
+
 set testfile "bp_in_thread"
 set srcfile ${testfile}.c
 set binfile ${objdir}/${subdir}/${testfile}

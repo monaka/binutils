@@ -23,6 +23,10 @@ if ![supports_reverse] {
     return
 }
 
+if $tracelevel {
+    strace $tracelevel
+}
+
 
 if ![istarget "*86*-*linux*"] then {
     verbose "Skipping i386 reverse tests."

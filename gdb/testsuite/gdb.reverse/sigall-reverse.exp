@@ -22,6 +22,10 @@ if ![supports_reverse] {
     return
 }
 
+if $tracelevel then {
+	strace $tracelevel
+}
+
 
 gdb_exit
 gdb_start

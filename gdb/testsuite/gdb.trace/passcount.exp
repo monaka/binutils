@@ -17,6 +17,10 @@
 
 load_lib "trace-support.exp";
 
+if $tracelevel then {
+    strace $tracelevel
+}
+
 
 gdb_exit
 gdb_start
