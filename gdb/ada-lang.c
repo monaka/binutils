@@ -1,7 +1,7 @@
 /* Ada language support routines for GDB, the GNU debugger.
 
-   Copyright (C) 1992-1994, 1997-2000, 2003-2005, 2007-2012 Free
-   Software Foundation, Inc.
+   Copyright (C) 1992, 1993, 1994, 1997, 1998, 1999, 2000, 2003, 2004,
+   2005, 2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -63,7 +63,6 @@
 #include "mi/mi-common.h"
 #include "arch-utils.h"
 #include "exceptions.h"
-#include "cli/cli-utils.h"
 
 /* Define whether or not the C operator '/' truncates towards zero for
    differently signed operands (truncation direction is undefined in C).
@@ -3612,7 +3611,8 @@ get_selections (int *choices, int n_choices, int max_results,
       char *args2;
       int choice, j;
 
-      args = skip_spaces (args);
+      while (isspace (*args))
+        args += 1;
       if (*args == '\0' && n_chosen == 0)
         error_no_arg (_("one or more choice numbers"));
       else if (*args == '\0')
@@ -4161,18 +4161,6 @@ cache_symbol (const char *name, domain_enum namespace, struct symbol *sym,
 
                                 /* Symbol Lookup */
 
-/* Return nonzero if wild matching should be used when searching for
-   all symbols matching LOOKUP_NAME.
-
-   LOOKUP_NAME is expected to be a symbol name after transformation
-   for Ada lookups (see ada_name_for_lookup).  */
-
-static int
-should_use_wild_match (const char *lookup_name)
-{
-  return (strstr (lookup_name, "__") == NULL);
-}
-
 /* Return the result of a standard (literal, C-like) lookup of NAME in
    given DOMAIN, visible from lexical block BLOCK.  */
 
@@ -4338,17 +4326,15 @@ ada_lookup_simple_minsym (const char *name)
 {
   struct objfile *objfile;
   struct minimal_symbol *msymbol;
-  const int wild_match = should_use_wild_match (name);
+  int wild_match;
 
-  /* Special case: If the user specifies a symbol name inside package
-     Standard, do a non-wild matching of the symbol name without
-     the "standard__" prefix.  This was primarily introduced in order
-     to allow the user to specifically access the standard exceptions
-     using, for instance, Standard.Constraint_Error when Constraint_Error
-     is ambiguous (due to the user defining its own Constraint_Error
-     entity inside its program).  */
   if (strncmp (name, "standard__", sizeof ("standard__") - 1) == 0)
-    name += sizeof ("standard__") - 1;
+    {
+      name += sizeof ("standard__") - 1;
+      wild_match = 0;
+    }
+  else
+    wild_match = (strstr (name, "__") == NULL);
 
   ALL_MSYMBOLS (objfile, msymbol)
   {
@@ -4936,8 +4922,8 @@ add_nonlocal_symbols (struct obstack *obstackp, const char *name,
   struct objfile *objfile;
   struct match_data data;
 
-  memset (&data, 0, sizeof data);
   data.obstackp = obstackp;
+  data.arg_sym = NULL;
 
   ALL_OBJFILES (objfile)
     {
@@ -4992,7 +4978,7 @@ ada_lookup_symbol_list (const char *name0, const struct block *block0,
   struct symbol *sym;
   struct block *block;
   const char *name;
-  const int wild_match = should_use_wild_match (name0);
+  int wild_match;
   int cacheIfUnique;
   int ndefns;
 
@@ -5003,6 +4989,7 @@ ada_lookup_symbol_list (const char *name0, const struct block *block0,
 
   /* Search specified block and its superiors.  */
 
+  wild_match = (strstr (name0, "__") == NULL);
   name = name0;
   block = (struct block *) block0;      /* FIXME: No cast ought to be
                                            needed, but adding const will
@@ -5017,6 +5004,7 @@ ada_lookup_symbol_list (const char *name0, const struct block *block0,
      entity inside its program).  */
   if (strncmp (name0, "standard__", sizeof ("standard__") - 1) == 0)
     {
+      wild_match = 0;
       block = NULL;
       name = name0 + sizeof ("standard__") - 1;
     }
@@ -5166,7 +5154,6 @@ ada_lookup_symbol_nonlocal (const char *name,
 
    [.$][0-9]+       [nested subprogram suffix, on platforms such as GNU/Linux]
    ___[0-9]+        [nested subprogram suffix, on platforms such as HP/UX]
-   TKB              [subprogram suffix for task bodies]
    _E[0-9]+[bs]$    [protected object entry suffixes]
    (X[nb]*)?((\$|__)[0-9](_?[0-9]+)|___(JM|LJM|X([FDBUP].*|R[^T]?)))?$
 
@@ -5211,11 +5198,6 @@ is_name_suffix (const char *str)
       if (matching[0] == '\0')
         return 1;
     }
-
-  /* "TKB" suffixes are used for subprograms implementing task bodies.  */
-
-  if (strcmp (str, "TKB") == 0)
-    return 1;
 
 #if 0
   /* FIXME: brobecker/2005-09-23: Protected Object subprograms end
@@ -10943,7 +10925,7 @@ static CORE_ADDR
 ada_exception_name_addr (enum exception_catchpoint_kind ex,
                          struct breakpoint *b)
 {
-  volatile struct gdb_exception e;
+  struct gdb_exception e;
   CORE_ADDR result = 0;
 
   TRY_CATCH (e, RETURN_MASK_ERROR)
@@ -11538,13 +11520,19 @@ ada_get_next_arg (char **argsp)
   char *end;
   char *result;
 
-  args = skip_spaces (args);
+  /* Skip any leading white space.  */
+
+  while (isspace (*args))
+    args++;
+
   if (args[0] == '\0')
     return NULL; /* No more arguments.  */
   
   /* Find the end of the current argument.  */
 
-  end = skip_to_space (args);
+  end = args;
+  while (*end != '\0' && !isspace (*end))
+    end++;
 
   /* Adjust ARGSP to point to the start of the next argument.  */
 
@@ -11578,7 +11566,8 @@ catch_ada_exception_command_split (char *args,
   /* Check that we do not have any more arguments.  Anything else
      is unexpected.  */
 
-  args = skip_spaces (args);
+  while (isspace (*args))
+    args++;
 
   if (args[0] != '\0')
     error (_("Junk at end of expression"));
@@ -11811,7 +11800,8 @@ ada_decode_assert_location (char *args, char **addr_string,
 
   if (args != NULL)
     {
-      args = skip_spaces (args);
+      while (isspace (*args))
+        args++;
       if (*args != '\0')
         error (_("Junk at end of arguments."));
     }
