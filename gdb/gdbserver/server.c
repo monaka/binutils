@@ -1,6 +1,7 @@
 /* Main code for remote server for GDB.
-   Copyright (C) 1989, 1993-1995, 1997-2000, 2002-2012 Free Software
-   Foundation, Inc.
+   Copyright (C) 1989, 1993, 1994, 1995, 1997, 1998, 1999, 2000, 2002, 2003,
+   2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011
+   Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -284,7 +285,7 @@ start_inferior (char **argv)
       resume_info.kind = resume_continue;
       resume_info.sig = 0;
 
-      last_ptid = mywait (pid_to_ptid (signal_pid), &last_status, 0, 0);
+      mywait (pid_to_ptid (signal_pid), &last_status, 0, 0);
 
       if (last_status.kind != TARGET_WAITKIND_STOPPED)
 	return signal_pid;
@@ -293,7 +294,7 @@ start_inferior (char **argv)
 	{
 	  (*the_target->resume) (&resume_info, 1);
 
- 	  last_ptid = mywait (pid_to_ptid (signal_pid), &last_status, 0, 0);
+ 	  mywait (pid_to_ptid (signal_pid), &last_status, 0, 0);
 	  if (last_status.kind != TARGET_WAITKIND_STOPPED)
 	    return signal_pid;
 
@@ -337,10 +338,6 @@ attach_inferior (int pid)
      attach function, so that it can be the main thread instead of
      whichever we were told to attach to.  */
   signal_pid = pid;
-
-  /* Clear this so the backend doesn't get confused, thinking
-     CONT_THREAD died, and it needs to resume all threads.  */
-  cont_thread = null_ptid;
 
   if (!non_stop)
     {
@@ -2144,7 +2141,7 @@ handle_v_requests (char *own_buf, int packet_len, int *new_packet_len)
 
   if (strncmp (own_buf, "vAttach;", 8) == 0)
     {
-      if ((!extended_protocol || !multi_process) && target_running ())
+      if (!multi_process && target_running ())
 	{
 	  fprintf (stderr, "Already debugging a process\n");
 	  write_enn (own_buf);
@@ -2156,7 +2153,7 @@ handle_v_requests (char *own_buf, int packet_len, int *new_packet_len)
 
   if (strncmp (own_buf, "vRun;", 5) == 0)
     {
-      if ((!extended_protocol || !multi_process) && target_running ())
+      if (!multi_process && target_running ())
 	{
 	  fprintf (stderr, "Already debugging a process\n");
 	  write_enn (own_buf);
@@ -2609,13 +2606,6 @@ main (int argc, char *argv[])
 		}
 	    }
 	}
-      else if (strcmp (*next_arg, "-") == 0)
-	{
-	  /* "-" specifies a stdio connection and is a form of port
-	     specification.  */
-	  *next_arg = STDIO_CONNECTION_NAME;
-	  break;
-	}
       else if (strcmp (*next_arg, "--disable-randomization") == 0)
 	disable_randomization = 1;
       else if (strcmp (*next_arg, "--no-disable-randomization") == 0)
@@ -2645,12 +2635,6 @@ main (int argc, char *argv[])
       gdbserver_usage (stderr);
       exit (1);
     }
-
-  /* We need to know whether the remote connection is stdio before
-     starting the inferior.  Inferiors created in this scenario have
-     stdin,stdout redirected.  So do this here before we call
-     start_inferior.  */
-  remote_prepare (port);
 
   bad_attach = 0;
   pid = 0;
@@ -2723,16 +2707,6 @@ main (int argc, char *argv[])
 
   if (setjmp (toplevel))
     {
-      /* If something fails and longjmps while detaching or killing
-	 inferiors, we'd end up here again, stuck in an infinite loop
-	 trap.  Be sure that if that happens, we exit immediately
-	 instead.  */
-      if (setjmp (toplevel))
-	{
-	  fprintf (stderr, "Detach or kill failed.  Exiting\n");
-	  exit (1);
-	}
-
       detach_or_kill_for_exit ();
       exit (1);
     }
@@ -2748,6 +2722,8 @@ main (int argc, char *argv[])
       fprintf (stderr, "No program to debug.  GDBserver exiting.\n");
       exit (1);
     }
+
+  remote_prepare (port);
 
   while (1)
     {
