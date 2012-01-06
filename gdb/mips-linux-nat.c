@@ -885,14 +885,14 @@ write_watchpoint_regs (void)
  register values for the new thread.  */
 
 static void
-mips_linux_new_thread (struct lwp_info *lp)
+mips_linux_new_thread (ptid_t ptid)
 {
   int tid;
 
   if (!mips_linux_read_watch_registers (0))
     return;
 
-  tid = ptid_get_lwp (lp->ptid);
+  tid = ptid_get_lwp (ptid);
   if (ptrace (PTRACE_SET_WATCH_REGS, tid, &watch_mirror) == -1)
     perror_with_name (_("Couldn't write debug register"));
 }

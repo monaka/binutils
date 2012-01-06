@@ -22,6 +22,10 @@
 
 # Call to template instantiations.
 
+if $tracelevel then {
+    strace $tracelevel
+}
+
 if { [skip_cplus_tests] } { continue }
 
 set testfile "cttiadd"

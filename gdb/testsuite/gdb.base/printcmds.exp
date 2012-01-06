@@ -21,6 +21,10 @@
 
 # This file was written by Fred Fish. (fnf@cygnus.com)
 
+if $tracelevel then {
+	strace $tracelevel
+}
+
 set testfile "printcmds"
 set srcfile ${testfile}.c
 set binfile ${objdir}/${subdir}/${testfile}
@@ -697,8 +701,6 @@ proc test_print_array_constants {} {
 proc test_print_enums {} {
     # Regression test for PR11827.
     gdb_test "print some_volatile_enum" "enumvolval1"
-
-    gdb_test "print three" " = \\\(ONE \\| TWO\\\)"
 }
 
 proc test_printf {} {

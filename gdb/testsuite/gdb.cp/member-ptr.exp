@@ -22,6 +22,10 @@
 
 set vhn "\\$\[0-9\]+"
 
+if $tracelevel then {
+    strace $tracelevel
+}
+
 if { [skip_cplus_tests] } { continue }
 
 

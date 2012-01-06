@@ -15,6 +15,10 @@
 
 # This is a test for the gdb invocation option --args.
 
+if $tracelevel then {
+    strace $tracelevel
+}
+
 
 global GDBFLAGS
 

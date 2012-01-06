@@ -15,6 +15,10 @@
 
 # Test resolving of an opaque type from the loaded shared library.
 
+if $tracelevel then {
+    strace $tracelevel
+}
+
 set testfile type-opaque-main
 set libfile type-opaque-lib
 set srcfile ${testfile}.c

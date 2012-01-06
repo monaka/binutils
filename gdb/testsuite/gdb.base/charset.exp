@@ -20,6 +20,10 @@
 
 # Test GDB's character set support.
 
+if $tracelevel then {
+	strace $tracelevel
+}
+
 
 set testfile "charset"
 set srcfile ${testfile}.c

@@ -26,6 +26,10 @@
 # ".debug-id/ab/cdef.debug" file.
 
 
+if $tracelevel then {
+    strace $tracelevel
+}
+
 #
 # test running programs
 #
@@ -41,7 +45,7 @@ if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {deb
 
 # Note: the procedure gdb_gnu_strip_debug will produce an executable called
 # ${binfile}, which is just like the executable ($binfile) but without
-# the debuginfo. Instead $binfile has a .gnu_debuglink section which contains
+# the debuginfo. Instead $binfile has a .gnudebuglink section which contains
 # the name of a debuginfo only file. This file will be stored in the
 # gdb.base/ subdirectory.
 
@@ -51,31 +55,17 @@ if [gdb_gnu_strip_debug $binfile] {
     return -1
 }
 
-#
-# PR gdb/9538.  Verify that symlinked executable still finds the separate
-# debuginfo.
-#
-set old_subdir ${subdir}
-set subdir ${subdir}/pr9538
-
-# Cleanup any stale state.
-remote_exec build "rm -rf ${subdir}"
-
-remote_exec build "mkdir ${subdir}"
-remote_exec build "ln -s ${binfile} ${subdir}"
-clean_restart ${testfile}${EXEEXT}
+gdb_exit
+gdb_start
+gdb_reinitialize_dir $srcdir/$subdir
+gdb_load ${binfile}
 if { $gdb_file_cmd_debug_info != "debug" } then {
     fail "No debug information found."
 }
 
-# Restore subdir
-set subdir ${old_subdir}
-
-clean_restart ${testfile}${EXEEXT}
-if { $gdb_file_cmd_debug_info != "debug" } then {
-    fail "No debug information found."
+if [target_info exists gdb_stub] {
+    gdb_step_for_stub;
 }
-
 #
 # test simple breakpoint setting commands
 #
@@ -153,7 +143,14 @@ gdb_test "break multi_line_while_conditional" \
 set bp_location5 [gdb_get_line_number "set breakpoint 5 here"]
 set bp_location6 [gdb_get_line_number "set breakpoint 6 here"]
 
-set main_line $bp_location6
+#
+# check to see what breakpoints are set
+#
+if [target_info exists gdb_stub] {
+    set main_line $bp_location5
+} else {
+    set main_line $bp_location6
+}
 
 set bp_location7 [gdb_get_line_number "set breakpoint 7 here"]
 set bp_location8 [gdb_get_line_number "set breakpoint 8 here"]
@@ -382,7 +379,14 @@ gdb_test_multiple "break $bp_location1" \
 	}
 }
 
-gdb_test "commands $expect_out(1,string)\nsilent\nend" ">end" "set silent break bp_location1"
+send_gdb "commands $expect_out(1,string)\n"
+send_gdb "silent\n"
+send_gdb "end\n"
+gdb_expect {
+  -re ".*$gdb_prompt $"\
+          {pass "set silent break bp_location1"}
+  timeout {fail "(timeout) set silent break bp_location1"}
+}
 
 gdb_test "info break $expect_out(1,string)" \
     "\[0-9\]*\[ \t\]*breakpoint.*:$bp_location1\r\n\[ \t\]*silent.*" \
@@ -667,6 +671,10 @@ proc test_different_dir {type test_different_dir xfail} {
     gdb_test_no_output "set debug-file-directory ${test_different_dir}" \
 	"set separate debug location"
     gdb_load ${binfile}
+
+    if [target_info exists gdb_stub] {
+	gdb_step_for_stub;
+    }
 
     #
     # test break at function

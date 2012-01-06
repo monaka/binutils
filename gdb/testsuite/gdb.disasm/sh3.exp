@@ -15,6 +15,10 @@
 
 # This file was written by Jeff Law. (law@cs.utah.edu)
 
+if $tracelevel then {
+	strace $tracelevel
+}
+
 if ![istarget "sh3*-*-*"] {
     verbose "Tests ignored for all but sh3 based targets."
     return

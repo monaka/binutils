@@ -19,6 +19,10 @@
 # Crank up gdb.
 gdb_start
 
+if $tracelevel then {
+    strace $tracelevel
+}
+
 #
 # test the echo command
 #

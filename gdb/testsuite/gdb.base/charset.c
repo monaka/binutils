@@ -123,6 +123,10 @@ extern void malloc_stub (void);
 
 int main ()
 {
+#ifdef usestubs
+  set_debug_traps();
+  breakpoint();
+#endif
 
   malloc_stub ();
 

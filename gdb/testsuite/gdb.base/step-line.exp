@@ -20,6 +20,10 @@
 # step-line.exp -- Expect script to test stepping in files with
 # #line directives.
 
+if $tracelevel then {
+    strace $tracelevel
+}
+
 set testfile step-line
 set srcfile ${testfile}.c
 set linefile ${testfile}.inp

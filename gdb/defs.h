@@ -439,10 +439,6 @@ extern struct cleanup *make_bpstat_clear_actions_cleanup (void);
 
 extern int producer_is_gcc_ge_4 (const char *producer);
 
-#ifdef HAVE_WAITPID
-extern pid_t wait_to_die_with_timeout (pid_t pid, int *status, int timeout);
-#endif
-
 
 /* Annotation stuff.  */
 
@@ -751,35 +747,6 @@ extern struct command_line *read_command_lines_1 (char * (*) (void), int,
 						  void *);
 
 extern void free_command_lines (struct command_line **);
-
-/* Parameters of the "info proc" command.  */
-
-enum info_proc_what
-  {
-    /* Display the default cmdline, cwd and exe outputs.  */
-    IP_MINIMAL,
-
-    /* Display `info proc mappings'.  */
-    IP_MAPPINGS,
-
-    /* Display `info proc status'.  */
-    IP_STATUS,
-
-    /* Display `info proc stat'.  */
-    IP_STAT,
-
-    /* Display `info proc cmdline'.  */
-    IP_CMDLINE,
-
-    /* Display `info proc exe'.  */
-    IP_EXE,
-
-    /* Display `info proc cwd'.  */
-    IP_CWD,
-
-    /* Display all of the above.  */
-    IP_ALL
-  };
 
 /* String containing the current directory (what getwd would return).  */
 

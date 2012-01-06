@@ -15,6 +15,10 @@
 
 # This tests the find command.
 
+if $tracelevel then {
+    strace $tracelevel
+}
+
 set testfile "find"
 set srcfile ${testfile}.c
 set binfile ${objdir}/${subdir}/${testfile}

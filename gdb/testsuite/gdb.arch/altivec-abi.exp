@@ -18,6 +18,10 @@
 # Tests for Powerpc AltiVec ABI
 
 
+if $tracelevel then {
+    strace $tracelevel
+}
+
 #
 # This file uses altivec-abi.c for input.
 #

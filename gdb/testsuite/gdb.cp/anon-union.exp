@@ -19,6 +19,10 @@
 
 # This file is part of the gdb testsuite
 
+if $tracelevel then {
+        strace $tracelevel
+        }
+
 #
 # test running programs
 #

@@ -15,6 +15,10 @@
 #
 # This file is part of the gdb testsuite.
 
+if $tracelevel {
+    strace $tracelevel
+}
+
 
 # Test handling of nullified instructions for the pa target.
 

@@ -153,7 +153,7 @@ struct quick_symbol_functions
   /* Expand and iterate over each "partial" symbol table in OBJFILE
      where the source file is named NAME.
 
-     If NAME is not absolute, a match after a '/' in the symbol
+     If there is no '/' in the name, a match after a '/' in the symbol
      table's file name will also work.  FULL_PATH is the absolute file
      name, and REAL_PATH is the same, run through gdb_realpath.
 
@@ -261,9 +261,10 @@ struct quick_symbol_functions
      
      If even KIND matches, then NAME_MATCHER is called for each symbol
      defined in the file.  The current language, the symbol name and
-     DATA are passed to NAME_MATCHER.  The symbol "search" name should
-     be passed to NAME_MATCHER (see la_symbol_name_compare in struct
-     language_defn for more details on this).
+     DATA are passed to NAME_MATCHER.  The symbol "natural" name should
+     be passed to NAME_MATCHER for all languages except Ada, where
+     the encoded name is passed instead (see la_symbol_name_compare in
+     struct language_defn for more details on this).
 
      If NAME_MATCHER returns zero, then this symbol is skipped.
 

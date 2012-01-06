@@ -38,6 +38,11 @@ Enum1 e1 = Val11;
 int main(void) 
 {
 
+  #ifdef usestubs
+     set_debug_traps();
+     breakpoint();
+  #endif
+
   f1 (s1, e1, i1);
 
 }

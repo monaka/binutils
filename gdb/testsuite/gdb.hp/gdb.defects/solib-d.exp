@@ -44,6 +44,10 @@
 #
 #
 
+if $tracelevel {
+    strace $tracelevel
+}
+
 if { [skip_hp_tests] } { continue }
 
 

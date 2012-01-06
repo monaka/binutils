@@ -142,6 +142,10 @@ proc operate_and_get_next {name args} {
 }
 
 
+if $tracelevel {
+  strace $tracelevel
+}
+
 gdb_start
 gdb_reinitialize_dir $srcdir/$subdir
 

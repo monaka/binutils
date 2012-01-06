@@ -33,10 +33,11 @@
 #include "demangle.h"
 #include "complaints.h"
 #include "gdbcmd.h"
+#include "wrapper.h"
 #include "cp-abi.h"
 #include "gdb_assert.h"
 #include "hashtab.h"
-#include "exceptions.h"
+
 
 /* Initialize BADNESS constants.  */
 
@@ -1674,20 +1675,14 @@ static struct type *
 safe_parse_type (struct gdbarch *gdbarch, char *p, int length)
 {
   struct ui_file *saved_gdb_stderr;
-  struct type *type = NULL; /* Initialize to keep gcc happy.  */
-  volatile struct gdb_exception except;
+  struct type *type;
 
   /* Suppress error messages.  */
   saved_gdb_stderr = gdb_stderr;
   gdb_stderr = ui_file_new ();
 
   /* Call parse_and_eval_type() without fear of longjmp()s.  */
-  TRY_CATCH (except, RETURN_MASK_ERROR)
-    {
-      type = parse_and_eval_type (p, length);
-    }
-
-  if (except.reason < 0)
+  if (!gdb_parse_and_eval_type (p, length, &type))
     type = builtin_type (gdbarch)->builtin_void;
 
   /* Stop suppressing error messages.  */
@@ -2900,6 +2895,8 @@ print_cplus_stuff (struct type *type, int spaces)
 		    TYPE_N_BASECLASSES (type));
   printfi_filtered (spaces, "nfn_fields %d\n",
 		    TYPE_NFN_FIELDS (type));
+  printfi_filtered (spaces, "nfn_fields_total %d\n",
+		    TYPE_NFN_FIELDS_TOTAL (type));
   if (TYPE_N_BASECLASSES (type) > 0)
     {
       printfi_filtered (spaces, "virtual_field_bits (%d bits at *",

@@ -18,6 +18,10 @@
 
 # This file is part of the gdb testsuite.
 
+if $tracelevel {
+    strace $tracelevel
+}
+
 # Test that GDB can see the sizes of symbols.
 
 if {(![istarget "x86_64-*-*"] && ![istarget "i?86-*-*"]) || ![is_ilp32_target] } then {

@@ -778,13 +778,6 @@ variable:	block COLONCOLON name
 			  if (sym == 0)
 			    error (_("No symbol \"%s\" in specified context."),
 				   copy_name ($3));
-			  if (symbol_read_needs_frame (sym))
-			    {
-			      if (innermost_block == 0
-				  || contained_in (block_found,
-						   innermost_block))
-				innermost_block = block_found;
-			    }
 
 			  write_exp_elt_opcode (OP_VAR_VALUE);
 			  /* block_found is set by lookup_symbol.  */
@@ -1218,11 +1211,11 @@ const_or_volatile_noopt:  	const_and_volatile
 operator:	OPERATOR NEW
 			{ $$ = operator_stoken (" new"); }
 	|	OPERATOR DELETE
-			{ $$ = operator_stoken (" delete "); }
+			{ $$ = operator_stoken (" delete"); }
 	|	OPERATOR NEW '[' ']'
 			{ $$ = operator_stoken (" new[]"); }
 	|	OPERATOR DELETE '[' ']'
-			{ $$ = operator_stoken (" delete[] "); }
+			{ $$ = operator_stoken (" delete[]"); }
 	|	OPERATOR '+'
 			{ $$ = operator_stoken ("+"); }
 	|	OPERATOR '-'

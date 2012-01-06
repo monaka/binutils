@@ -18,6 +18,10 @@
 # Test GDB's "source" command - reads in a GDB script.
 
 
+if $tracelevel then {
+	strace $tracelevel
+}
+
 
 set testfile "structs"
 set srcfile ${testfile}.c

@@ -39,7 +39,7 @@ extern int entry_values_debug;
 struct objfile *dwarf2_per_cu_objfile (struct dwarf2_per_cu_data *cu);
 
 /* Return the address size given in the compilation unit header for CU.  */
-int dwarf2_per_cu_addr_size (struct dwarf2_per_cu_data *cu);
+CORE_ADDR dwarf2_per_cu_addr_size (struct dwarf2_per_cu_data *cu);
 
 /* Return the DW_FORM_ref_addr size given in the compilation unit header for
    CU.  */

@@ -46,6 +46,12 @@
 #
 
 
+if $tracelevel then {
+        strace $tracelevel
+        }
+
+
+global usestubs
 
 #
 # test running programs

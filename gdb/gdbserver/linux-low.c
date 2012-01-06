@@ -568,19 +568,6 @@ linux_create_inferior (char *program, char **allargs)
 
       setpgid (0, 0);
 
-      /* If gdbserver is connected to gdb via stdio, redirect the inferior's
-	 stdout to stderr so that inferior i/o doesn't corrupt the connection.
-	 Also, redirect stdin to /dev/null.  */
-      if (remote_connection_is_stdio ())
-	{
-	  close (0);
-	  open ("/dev/null", O_RDONLY);
-	  dup2 (2, 1);
-	  if (write (2, "stdin/stdout redirected\n",
-		     sizeof ("stdin/stdout redirected\n") - 1) < 0)
-	    /* Errors ignored.  */;
-	}
-
       execv (program, allargs);
       if (errno == ENOENT)
 	execvp (program, allargs);
@@ -930,8 +917,6 @@ linux_detach_one_lwp (struct inferior_list_entry *entry, void *args)
 			   get_lwp_thread (lwp));
 
   /* Finally, let it resume.  */
-  if (the_low_target.prepare_to_resume != NULL)
-    the_low_target.prepare_to_resume (lwp);
   ptrace (PTRACE_DETACH, lwpid_of (lwp), 0, 0);
 
   delete_lwp (lwp);
@@ -1578,7 +1563,8 @@ linux_wait_for_event_1 (ptid_t ptid, int *wstat, int options)
 
   /* Check for a lwp with a pending status.  */
 
-  if (ptid_equal (ptid, minus_one_ptid) || ptid_is_pid (ptid))
+  if (ptid_equal (ptid, minus_one_ptid)
+      || ptid_equal (pid_to_ptid (ptid_get_pid (ptid)), ptid))
     {
       event_child = (struct lwp_info *)
 	find_inferior (&all_lwps, status_pending_p_callback, &ptid);

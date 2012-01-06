@@ -60,7 +60,7 @@ static int exec_file_hook_count = 0;		/* Size of array.  */
 
 bfd *core_bfd = NULL;
 
-/* corelow.c target.  It is never NULL after GDB initialization.  */
+/* corelow.c target (if included for this gdb target).  */
 
 struct target_ops *core_target;
 
@@ -72,7 +72,8 @@ core_file_command (char *filename, int from_tty)
 {
   dont_repeat ();		/* Either way, seems bogus.  */
 
-  gdb_assert (core_target != NULL);
+  if (core_target == NULL)
+    error (_("GDB can't read core files on this machine."));
 
   if (!filename)
     (core_target->to_detach) (core_target, filename, from_tty);
@@ -131,9 +132,26 @@ specify_exec_file_hook (void (*hook) (char *))
     deprecated_exec_file_display_hook = hook;
 }
 
+/* The exec file must be closed before running an inferior.
+   If it is needed again after the inferior dies, it must
+   be reopened.  */
+
+void
+close_exec_file (void)
+{
+#if 0				/* FIXME */
+  if (exec_bfd)
+    bfd_tempclose (exec_bfd);
+#endif
+}
+
 void
 reopen_exec_file (void)
 {
+#if 0				/* FIXME */
+  if (exec_bfd)
+    bfd_reopen (exec_bfd);
+#else
   char *filename;
   int res;
   struct stat st;
@@ -157,6 +175,7 @@ reopen_exec_file (void)
     bfd_cache_close_all ();
 
   do_cleanups (cleanups);
+#endif
 }
 
 /* If we have both a core file and an exec file,

@@ -16,6 +16,10 @@
 # relocate.exp -- Expect script to test loading symbols from unrelocated
 #		  object files.
 
+if $tracelevel then {
+    strace $tracelevel
+}
+
 set testfile relocate
 set srcfile ${testfile}.c
 set binfile ${objdir}/${subdir}/${testfile}.o

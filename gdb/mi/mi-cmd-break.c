@@ -98,13 +98,13 @@ mi_cmd_break_insert (char *command, char **argv, int argc)
 
   /* Parse arguments. It could be -r or -h or -t, <location> or ``--''
      to denote the end of the option list. */
-  int oind = 0;
-  char *oarg;
+  int optind = 0;
+  char *optarg;
 
   while (1)
     {
       int opt = mi_getopt ("-break-insert", argc, argv,
-			   opts, &oind, &oarg);
+			   opts, &optind, &optarg);
       if (opt < 0)
 	break;
       switch ((enum opt) opt)
@@ -116,13 +116,13 @@ mi_cmd_break_insert (char *command, char **argv, int argc)
 	  hardware = 1;
 	  break;
 	case CONDITION_OPT:
-	  condition = oarg;
+	  condition = optarg;
 	  break;
 	case IGNORE_COUNT_OPT:
-	  ignore_count = atol (oarg);
+	  ignore_count = atol (optarg);
 	  break;
 	case THREAD_OPT:
-	  thread = atol (oarg);
+	  thread = atol (optarg);
 	  break;
 	case PENDING_OPT:
 	  pending = 1;
@@ -136,11 +136,11 @@ mi_cmd_break_insert (char *command, char **argv, int argc)
 	}
     }
 
-  if (oind >= argc)
+  if (optind >= argc)
     error (_("-break-insert: Missing <location>"));
-  if (oind < argc - 1)
+  if (optind < argc - 1)
     error (_("-break-insert: Garbage following <location>"));
-  address = argv[oind];
+  address = argv[optind];
 
   /* Now we have what we need, let's insert the breakpoint! */
   if (! mi_breakpoint_observers_installed)
@@ -228,13 +228,13 @@ mi_cmd_break_watch (char *command, char **argv, int argc)
   };
 
   /* Parse arguments. */
-  int oind = 0;
-  char *oarg;
+  int optind = 0;
+  char *optarg;
 
   while (1)
     {
       int opt = mi_getopt ("-break-watch", argc, argv,
-			   opts, &oind, &oarg);
+			   opts, &optind, &optarg);
 
       if (opt < 0)
 	break;
@@ -248,11 +248,11 @@ mi_cmd_break_watch (char *command, char **argv, int argc)
 	  break;
 	}
     }
-  if (oind >= argc)
+  if (optind >= argc)
     error (_("-break-watch: Missing <expression>"));
-  if (oind < argc - 1)
+  if (optind < argc - 1)
     error (_("-break-watch: Garbage following <expression>"));
-  expr = argv[oind];
+  expr = argv[optind];
 
   /* Now we have what we need, let's insert the watchpoint! */
   switch (type)

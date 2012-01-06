@@ -15,6 +15,10 @@
 
 # until.exp -- Expect script to test 'until' in gdb
 
+if $tracelevel then {
+    strace $tracelevel
+}
+
 set srcfile break.c
 if { [prepare_for_testing until.exp "until" {break.c break1.c} {debug nowarnings}] } {
     return -1

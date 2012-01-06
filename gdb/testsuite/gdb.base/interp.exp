@@ -15,6 +15,10 @@
 
 # interp.exp   Test interpreter-exec command
 
+if $tracelevel then {
+    strace $tracelevel
+}
+
 set testfile "interp"
 
 if { [prepare_for_testing ${testfile}.exp ${testfile} ${testfile}.c {debug}] } {

@@ -15,6 +15,10 @@
 
 # This file was written by Pierre Muller. (muller@ics.u-strasbg.fr)
 
+if $tracelevel then {
+    strace $tracelevel
+}
+
 
 set testfile "watchpoints"
 set srcfile ${testfile}.c

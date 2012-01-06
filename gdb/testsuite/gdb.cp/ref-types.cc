@@ -40,6 +40,10 @@ int main(void)
     as[2] = 2;
     as[3] = 3;
 
+   #ifdef usestubs
+       set_debug_traps();
+       breakpoint();
+    #endif
     marker1();
 
     main2();

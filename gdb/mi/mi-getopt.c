@@ -25,29 +25,29 @@ int
 mi_getopt (const char *prefix,
 	   int argc, char **argv,
 	   const struct mi_opt *opts,
-	   int *oind, char **oarg)
+	   int *optind, char **optarg)
 {
   char *arg;
   const struct mi_opt *opt;
 
   /* We assume that argv/argc are ok. */
-  if (*oind > argc || *oind < 0)
+  if (*optind > argc || *optind < 0)
     internal_error (__FILE__, __LINE__,
-		    _("mi_getopt_long: oind out of bounds"));
-  if (*oind == argc)
+		    _("mi_getopt_long: optind out of bounds"));
+  if (*optind == argc)
     return -1;
-  arg = argv[*oind];
+  arg = argv[*optind];
   /* ``--''? */
   if (strcmp (arg, "--") == 0)
     {
-      *oind += 1;
-      *oarg = NULL;
+      *optind += 1;
+      *optarg = NULL;
       return -1;
     }
   /* End of option list. */
   if (arg[0] != '-')
     {
-      *oarg = NULL;
+      *optarg = NULL;
       return -1;
     }
   /* Look the option up. */
@@ -57,17 +57,17 @@ mi_getopt (const char *prefix,
 	continue;
       if (opt->arg_p)
 	{
-	  /* A non-simple oarg option. */
-	  if (argc < *oind + 2)
+	  /* A non-simple optarg option. */
+	  if (argc < *optind + 2)
 	    error (_("%s: Option %s requires an argument"), prefix, arg);
-	  *oarg = argv[(*oind) + 1];
-	  *oind = (*oind) + 2;
+	  *optarg = argv[(*optind) + 1];
+	  *optind = (*optind) + 2;
 	  return opt->index;
 	}
       else
 	{
-	  *oarg = NULL;
-	  *oind = (*oind) + 1;
+	  *optarg = NULL;
+	  *optind = (*optind) + 1;
 	  return opt->index;
 	}
     }
@@ -77,14 +77,14 @@ mi_getopt (const char *prefix,
 int 
 mi_valid_noargs (const char *prefix, int argc, char **argv) 
 {
-  int oind = 0;
-  char *oarg;
+  int optind = 0;
+  char *optarg;
   static const struct mi_opt opts[] =
   {
     { 0, 0, 0 }
   };
 
-  if (mi_getopt (prefix, argc, argv, opts, &oind, &oarg) == -1)
+  if (mi_getopt (prefix, argc, argv, opts, &optind, &optarg) == -1)
     return 1;
   else
     return 0;

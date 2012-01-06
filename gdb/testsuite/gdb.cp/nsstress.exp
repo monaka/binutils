@@ -15,6 +15,10 @@
 
 # Stress test namespace lookup
 
+if $tracelevel then {
+    strace $tracelevel
+}
+
 
 set testfile nsstress
 set srcfile ${testfile}.cc

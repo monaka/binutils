@@ -29,7 +29,6 @@
 #include "gdbthread.h"
 #include "continuations.h"
 #include "interps.h"
-#include "top.h"
 
 static int fetch_inferior_event_wrapper (gdb_client_data client_data);
 
@@ -107,7 +106,10 @@ inferior_event_handler (enum inferior_event_type event_type,
 	{
 	  volatile struct gdb_exception e;
 
-	  check_frame_language_change ();
+	  if (info_verbose
+	      && current_language != expected_language
+	      && language_mode == language_mode_auto)
+	    language_info (1);	/* Print what changed.  */
 
 	  /* Don't propagate breakpoint commands errors.  Either we're
 	     stopping or some command resumes the inferior.  The user will

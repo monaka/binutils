@@ -694,7 +694,9 @@ jit_object_close_impl (struct gdb_symbol_callbacks *cb,
   objfile = allocate_objfile (NULL, 0);
   objfile->gdbarch = target_gdbarch;
 
-  terminate_minimal_symbol_table (objfile);
+  objfile->msymbols = obstack_alloc (&objfile->objfile_obstack,
+                                     sizeof (struct minimal_symbol));
+  memset (objfile->msymbols, 0, sizeof (struct minimal_symbol));
 
   xfree (objfile->name);
   objfile->name = xstrdup ("<< JIT compiled code >>");

@@ -17,6 +17,10 @@
 # Test support for stepping over longjmp.
 #
 
+if $tracelevel then {
+    strace $tracelevel
+}
+
 
 set testfile "longjmp"
 set srcfile ${testfile}.c

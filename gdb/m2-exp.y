@@ -113,10 +113,20 @@ static int yylex (void);
 
 void yyerror (char *);
 
+#if 0
+static char *make_qualname (char *, char *);
+#endif
+
 static int parse_number (int);
 
 /* The sign of the number being parsed.  */
 static int number_sign = 1;
+
+/* The block that the module specified by the qualifer on an identifer is
+   contained in, */
+#if 0
+static struct block *modblock=0;
+#endif
 
 %}
 
@@ -578,13 +588,6 @@ variable:	block COLONCOLON NAME
 			  if (sym == 0)
 			    error (_("No symbol \"%s\" in specified context."),
 				   copy_name ($3));
-			  if (symbol_read_needs_frame (sym))
-			    {
-			      if (innermost_block == 0
-				  || contained_in (block_found,
-						   innermost_block))
-				innermost_block = block_found;
-			    }
 
 			  write_exp_elt_opcode (OP_VAR_VALUE);
 			  /* block_found is set by lookup_symbol.  */
@@ -655,7 +658,8 @@ type
 /*** Needs some error checking for the float case ***/
 
 static int
-parse_number (int olen)
+parse_number (olen)
+     int olen;
 {
   char *p = lexptr;
   LONGEST n = 0;
@@ -1065,8 +1069,23 @@ yylex (void)
  }
 }
 
+#if 0		/* Unused */
+static char *
+make_qualname(mod,ident)
+   char *mod, *ident;
+{
+   char *new = malloc(strlen(mod)+strlen(ident)+2);
+
+   strcpy(new,mod);
+   strcat(new,".");
+   strcat(new,ident);
+   return new;
+}
+#endif  /* 0 */
+
 void
-yyerror (char *msg)
+yyerror (msg)
+     char *msg;
 {
   if (prev_lexptr)
     lexptr = prev_lexptr;

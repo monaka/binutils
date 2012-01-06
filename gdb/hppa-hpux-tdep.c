@@ -956,6 +956,7 @@ hppa64_hpux_search_dummy_call_sequence (struct gdbarch *gdbarch, CORE_ADDR pc,
   struct hppa_objfile_private *priv;
   CORE_ADDR addr;
   struct minimal_symbol *msym;
+  int i;
 
   sec = find_pc_section (pc);
   obj = sec->objfile;
@@ -978,7 +979,7 @@ hppa64_hpux_search_dummy_call_sequence (struct gdbarch *gdbarch, CORE_ADDR pc,
      scheme; try to read in blocks of code, and look for a "bve,n (rp)" 
      instruction.  These are likely to occur at the end of functions, so
      we only look at the last two instructions of each function.  */
-  ALL_OBJFILE_MSYMBOLS (obj, msym)
+  for (i = 0, msym = obj->msymbols; i < obj->minimal_symbol_count; i++, msym++)
     {
       CORE_ADDR begin, end;
       char *name;
@@ -1086,6 +1087,7 @@ hppa_hpux_find_dummy_bpaddr (CORE_ADDR addr)
   struct unwind_table_entry *u;
   struct minimal_symbol *msym;
   CORE_ADDR func;
+  int i;
 
   sec = find_pc_section (addr);
   if (sec)
@@ -1105,7 +1107,9 @@ hppa_hpux_find_dummy_bpaddr (CORE_ADDR addr)
 	 work.  */
 
       find_pc_partial_function (addr, NULL, &func, NULL);
-      ALL_OBJFILE_MSYMBOLS (sec->objfile, msym)
+      for (i = 0, msym = sec->objfile->msymbols;
+      	   i < sec->objfile->minimal_symbol_count;
+	   i++, msym++)
 	{
 	  u = find_unwind_entry (SYMBOL_VALUE_ADDRESS (msym));
 	  if (func != SYMBOL_VALUE_ADDRESS (msym) 

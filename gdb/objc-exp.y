@@ -648,13 +648,6 @@ variable:	block COLONCOLON name
 			  if (sym == 0)
 			    error (_("No symbol \"%s\" in specified context."),
 				   copy_name ($3));
-			  if (symbol_read_needs_frame (sym))
-			    {
-			      if (innermost_block == 0
-				  || contained_in (block_found,
-						   innermost_block))
-				innermost_block = block_found;
-			    }
 
 			  write_exp_elt_opcode (OP_VAR_VALUE);
 			  /* block_found is set by lookup_symbol.  */
@@ -992,7 +985,11 @@ name_not_typename :	NAME
 /*** Needs some error checking for the float case.  ***/
 
 static int
-parse_number (char *p, int len, int parsed_float, YYSTYPE *putithere)
+parse_number (p, len, parsed_float, putithere)
+     char *p;
+     int len;
+     int parsed_float;
+     YYSTYPE *putithere;
 {
   /* FIXME: Shouldn't these be unsigned?  We don't deal with negative
      values here, and we do kind of silly things like cast to
@@ -1415,6 +1412,9 @@ yylex (void)
     case '^':
     case '~':
     case '!':
+#if 0
+    case '@':		/* Moved out below.  */
+#endif
     case '<':
     case '>':
     case '[':
@@ -1776,7 +1776,8 @@ yylex (void)
 }
 
 void
-yyerror (char *msg)
+yyerror (msg)
+     char *msg;
 {
   if (*lexptr == '\0')
     error(_("A %s near end of expression."),  (msg ? msg : "error"));

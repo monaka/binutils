@@ -23,6 +23,10 @@
 
 
 
+if $tracelevel then {
+	strace $tracelevel
+	}
+
 #
 # test running programs
 #

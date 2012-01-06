@@ -58,6 +58,10 @@ zed ()
 
 int main()
 {
+#ifdef usestubs
+  set_debug_traps();
+  breakpoint();
+#endif
   int i;
 
   Fun(foo);	

@@ -5494,7 +5494,7 @@ insert_exception_resume_breakpoint (struct thread_info *tp,
 				    struct frame_info *frame,
 				    struct symbol *sym)
 {
-  volatile struct gdb_exception e;
+  struct gdb_exception e;
 
   /* We want to ignore errors here.  */
   TRY_CATCH (e, RETURN_MASK_ERROR)
@@ -5532,7 +5532,7 @@ static void
 check_exception_resume (struct execution_control_state *ecs,
 			struct frame_info *frame, struct symbol *func)
 {
-  volatile struct gdb_exception e;
+  struct gdb_exception e;
 
   TRY_CATCH (e, RETURN_MASK_ERROR)
     {
@@ -5639,7 +5639,7 @@ keep_going (struct execution_control_state *ecs)
 	}
       else
 	{
-	  volatile struct gdb_exception e;
+	  struct gdb_exception e;
 
 	  /* Stop stepping when inserting breakpoints
 	     has failed.  */
@@ -6068,8 +6068,7 @@ done:
       || last.kind == TARGET_WAITKIND_SIGNALLED
       || last.kind == TARGET_WAITKIND_EXITED
       || last.kind == TARGET_WAITKIND_NO_RESUMED
-      || (!(inferior_thread ()->step_multi
-	    && inferior_thread ()->control.stop_step)
+      || (!inferior_thread ()->step_multi
 	  && !(inferior_thread ()->control.stop_bpstat
 	       && inferior_thread ()->control.proceed_to_finish)
 	  && !inferior_thread ()->control.in_infcall))

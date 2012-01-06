@@ -16,6 +16,10 @@
 load_lib mi-support.exp
 set MIFLAGS "-i=mi"
 
+if $tracelevel then {
+    strace $tracelevel
+}
+
 #
 # test running programs
 #
@@ -51,6 +55,10 @@ mi_gdb_start
 mi_gdb_reinitialize_dir $srcdir/$subdir
 mi_gdb_load ${binfile}
 mi_load_shlibs $lib_sl
+
+if [target_info exists gdb_stub] {
+    gdb_step_for_stub;
+}
 
 # Set pending breakpoint via MI
 mi_gdb_test "-break-insert -f pendfunc1" \

@@ -359,7 +359,7 @@ free_private_thread_info (struct private_thread_info *info)
 static int
 remote_multi_process_p (struct remote_state *rs)
 {
-  return rs->multi_process_aware;
+  return rs->extended && rs->multi_process_aware;
 }
 
 /* This data could be associated with a target, but we do not always
@@ -1238,7 +1238,6 @@ enum {
   PACKET_vFile_pwrite,
   PACKET_vFile_close,
   PACKET_vFile_unlink,
-  PACKET_vFile_readlink,
   PACKET_qXfer_auxv,
   PACKET_qXfer_features,
   PACKET_qXfer_libraries,
@@ -1714,7 +1713,7 @@ set_general_process (void)
   struct remote_state *rs = get_remote_state ();
 
   /* If the remote can't handle multiple processes, don't bother.  */
-  if (!rs->extended || !remote_multi_process_p (rs))
+  if (!remote_multi_process_p (rs))
     return;
 
   /* We only need to change the remote current thread if it's pointing
@@ -3254,10 +3253,6 @@ remote_start_remote (int from_tty, struct target_ops *target, int extended_p)
 
   if (!non_stop)
     {
-      ptid_t ptid;
-      int fake_pid_p = 0;
-      struct inferior *inf;
-
       if (rs->buf[0] == 'W' || rs->buf[0] == 'X')
 	{
 	  if (!extended_p)
@@ -3277,37 +3272,19 @@ remote_start_remote (int from_tty, struct target_ops *target, int extended_p)
       /* Let the stub know that we want it to return the thread.  */
       set_continue_thread (minus_one_ptid);
 
-      inferior_ptid = minus_one_ptid;
+      /* Without this, some commands which require an active target
+	 (such as kill) won't work.  This variable serves (at least)
+	 double duty as both the pid of the target process (if it has
+	 such), and as a flag indicating that a target is active.
+	 These functions should be split out into seperate variables,
+	 especially since GDB will someday have a notion of debugging
+	 several processes.  */
+      inferior_ptid = magic_null_ptid;
 
       /* Now, if we have thread information, update inferior_ptid.  */
-      ptid = remote_current_thread (inferior_ptid);
-      if (!ptid_equal (ptid, minus_one_ptid))
-	{
-	  if (ptid_get_pid (ptid) == -1)
-	    {
-	      ptid = ptid_build (ptid_get_pid (magic_null_ptid),
-				 ptid_get_lwp (ptid),
-				 ptid_get_tid (ptid));
-	      fake_pid_p = 1;
-	    }
+      inferior_ptid = remote_current_thread (inferior_ptid);
 
-	  inferior_ptid = ptid;
-	}
-      else
-	{
-	  /* Without this, some commands which require an active
-	     target (such as kill) won't work.  This variable serves
-	     (at least) double duty as both the pid of the target
-	     process (if it has such), and as a flag indicating that a
-	     target is active.  These functions should be split out
-	     into seperate variables, especially since GDB will
-	     someday have a notion of debugging several processes.  */
-	  inferior_ptid = magic_null_ptid;
-	  fake_pid_p = 1;
-	}
-
-      inf = remote_add_inferior (ptid_get_pid (inferior_ptid), -1);
-      inf->fake_pid_p = fake_pid_p;
+      remote_add_inferior (ptid_get_pid (inferior_ptid), -1);
 
       /* Always add the main thread.  */
       add_thread_silent (inferior_ptid);
@@ -3886,7 +3863,8 @@ remote_query_supported (void)
       char *q = NULL;
       struct cleanup *old_chain = make_cleanup (free_current_contents, &q);
 
-      q = remote_query_supported_append (q, "multiprocess+");
+      if (rs->extended)
+	q = remote_query_supported_append (q, "multiprocess+");
 
       if (remote_support_xml)
 	q = remote_query_supported_append (q, remote_support_xml);
@@ -7440,7 +7418,7 @@ extended_remote_kill (struct target_ops *ops)
   struct remote_state *rs = get_remote_state ();
 
   res = remote_vkill (pid, rs);
-  if (res == -1 && !(rs->extended && remote_multi_process_p (rs)))
+  if (res == -1 && !remote_multi_process_p (rs))
     {
       /* Don't try 'k' on a multi-process aware stub -- it has no way
 	 to specify the pid.  */
@@ -8832,7 +8810,7 @@ remote_pid_to_str (struct target_ops *ops, ptid_t ptid)
     {
       if (ptid_equal (magic_null_ptid, ptid))
 	xsnprintf (buf, sizeof buf, "Thread <main>");
-      else if (rs->extended && remote_multi_process_p (rs))
+      else if (remote_multi_process_p (rs))
 	xsnprintf (buf, sizeof buf, "Thread %d.%ld",
 		   ptid_get_pid (ptid), ptid_get_tid (ptid));
       else
@@ -9359,44 +9337,6 @@ remote_hostio_unlink (const char *filename, int *remote_errno)
 				     remote_errno, NULL, NULL);
 }
 
-/* Read value of symbolic link FILENAME on the remote target.  Return
-   a null-terminated string allocated via xmalloc, or NULL if an error
-   occurs (and set *REMOTE_ERRNO).  */
-
-static char *
-remote_hostio_readlink (const char *filename, int *remote_errno)
-{
-  struct remote_state *rs = get_remote_state ();
-  char *p = rs->buf;
-  char *attachment;
-  int left = get_remote_packet_size ();
-  int len, attachment_len;
-  int read_len;
-  char *ret;
-
-  remote_buffer_add_string (&p, &left, "vFile:readlink:");
-
-  remote_buffer_add_bytes (&p, &left, (const gdb_byte *) filename,
-			   strlen (filename));
-
-  len = remote_hostio_send_command (p - rs->buf, PACKET_vFile_readlink,
-				    remote_errno, &attachment,
-				    &attachment_len);
-
-  if (len < 0)
-    return NULL;
-
-  ret = xmalloc (len + 1);
-
-  read_len = remote_unescape_input (attachment, attachment_len,
-				    ret, len);
-  if (read_len != len)
-    error (_("Readlink returned %d, but %d bytes."), len, read_len);
-
-  ret[len] = '\0';
-  return ret;
-}
-
 static int
 remote_fileio_errno_to_host (int errnum)
 {
@@ -9811,11 +9751,7 @@ remote_supports_multi_process (void)
 {
   struct remote_state *rs = get_remote_state ();
 
-  /* Only extended-remote handles being attached to multiple
-     processes, even though plain remote can use the multi-process
-     thread id extensions, so that GDB knows the target process's
-     PID.  */
-  return rs->extended && remote_multi_process_p (rs);
+  return remote_multi_process_p (rs);
 }
 
 int
@@ -10713,12 +10649,6 @@ Specify the serial device it is connected to\n\
   remote_ops.to_supports_multi_process = remote_supports_multi_process;
   remote_ops.to_supports_disable_randomization
     = remote_supports_disable_randomization;
-  remote_ops.to_fileio_open = remote_hostio_open;
-  remote_ops.to_fileio_pwrite = remote_hostio_pwrite;
-  remote_ops.to_fileio_pread = remote_hostio_pread;
-  remote_ops.to_fileio_close = remote_hostio_close;
-  remote_ops.to_fileio_unlink = remote_hostio_unlink;
-  remote_ops.to_fileio_readlink = remote_hostio_readlink;
   remote_ops.to_supports_enable_disable_tracepoint = remote_supports_enable_disable_tracepoint;
   remote_ops.to_supports_string_tracing = remote_supports_string_tracing;
   remote_ops.to_trace_init = remote_trace_init;
@@ -11216,9 +11146,6 @@ Show the maximum size of the address (in bits) in a memory packet."), NULL,
 
   add_packet_config_cmd (&remote_protocol_packets[PACKET_vFile_unlink],
 			 "vFile:unlink", "hostio-unlink", 0);
-
-  add_packet_config_cmd (&remote_protocol_packets[PACKET_vFile_readlink],
-			 "vFile:readlink", "hostio-readlink", 0);
 
   add_packet_config_cmd (&remote_protocol_packets[PACKET_vAttach],
 			 "vAttach", "attach", 0);

@@ -23,6 +23,10 @@ if {[skip_shlib_tests]} {
     return 0
 }
 
+if $tracelevel then {
+    strace $tracelevel
+}
+
 #
 # This file uses shreloc.c, shreloc1.c and shreloc2.c
 #

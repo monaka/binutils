@@ -60,8 +60,7 @@ gdb_test_multiple $test $test {
 	pass $test
     }
     -re "Symbol \"A::func\\(\\)\" is a function at address .*\r\n$gdb_prompt $" {
-	setup_xfail gcc/45682 "*-*-*"
-	fail $test
+	kfail gcc/45682 $test
 	set have_gcc_45682_fixed 0
     }
 }
@@ -88,22 +87,22 @@ foreach test $methods {
     # with the filename pre-pended.
     if {[string compare $test "xxx::${ans}::A::func"] == 0
 	&& !$have_gcc_45682_fixed} {
-	setup_xfail gcc/45682 "*-*-*"
+	setup_kfail gcc/45682 "*-*-*"
     }
     gdb_test "list ${srcfile}:$test" $result
     if {[string compare $test "xxx::${ans}::A::func"] == 0
 	&& !$have_gcc_45682_fixed} {
-	setup_xfail gcc/45682 "*-*-*"
+	setup_kfail gcc/45682 "*-*-*"
     }
     gdb_test "list '${srcfile}:$test'" $result
     if {[string compare $test "xxx::${ans}::A::func"] == 0
 	&& !$have_gcc_45682_fixed} {
-	setup_xfail gcc/45682 "*-*-*"
+	setup_kfail gcc/45682 "*-*-*"
     }
     gdb_test "list '${srcfile}':'$test'" $result
     if {[string compare $test "xxx::${ans}::A::func"] == 0
 	&& !$have_gcc_45682_fixed} {
-	setup_xfail gcc/45682 "*-*-*"
+	setup_kfail gcc/45682 "*-*-*"
     }
     gdb_test "list ${srcfile}:'$test'" $result
 

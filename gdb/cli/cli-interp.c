@@ -19,6 +19,7 @@
 
 #include "defs.h"
 #include "interps.h"
+#include "wrapper.h"
 #include "event-top.h"
 #include "ui-out.h"
 #include "cli-out.h"

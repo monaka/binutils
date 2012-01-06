@@ -568,6 +568,10 @@ void use_methods ()
 int
 main()
 {
+#ifdef usestubs
+  set_debug_traps();
+  breakpoint();
+#endif
   dummy();
   inheritance1 ();
   inheritance3 ();

@@ -21,6 +21,10 @@
 #
 # PR c++/9489.
 
+if $tracelevel then {
+    strace $tracelevel
+}
+
 if { [skip_cplus_tests] } { continue }
 if { [skip_shlib_tests] } { continue }
 
