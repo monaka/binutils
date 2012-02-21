@@ -7,9 +7,6 @@
 /* Define if building universal (internal helper macro) */
 #undef AC_APPLE_UNIVERSAL_BUILD
 
-/* Directory of programs. */
-#undef BINDIR
-
 /* Define to the number of bits in type 'ptrdiff_t'. */
 #undef BITSIZEOF_PTRDIFF_T
 
@@ -263,9 +260,6 @@
 /* Define to 1 if the system has the type `long long int'. */
 #undef HAVE_LONG_LONG_INT
 
-/* Define to 1 if you have the `lstat' function. */
-#undef HAVE_LSTAT
-
 /* Define if <sys/procfs.h> has lwpid_t. */
 #undef HAVE_LWPID_T
 
@@ -324,9 +318,6 @@
 /* Define to 1 if you have the `posix_madvise' function. */
 #undef HAVE_POSIX_MADVISE
 
-/* Define to 1 if you have the `pread' function. */
-#undef HAVE_PREAD
-
 /* Define to 1 if you have the `pread64' function. */
 #undef HAVE_PREAD64
 
@@ -383,9 +374,6 @@
 
 /* Define if sys/ptrace.h defines the PT_GETXMMREGS request. */
 #undef HAVE_PT_GETXMMREGS
-
-/* Define to 1 if you have the `pwrite' function. */
-#undef HAVE_PWRITE
 
 /* Define if Python interpreter is being linked in. */
 #undef HAVE_PYTHON
@@ -473,9 +461,6 @@
 
 /* Define to 1 if wcwidth is declared even after undefining macros. */
 #undef HAVE_RAW_DECL_WCWIDTH
-
-/* Define to 1 if you have the `readlink' function. */
-#undef HAVE_READLINK
 
 /* Define to 1 if you have the `realpath' function. */
 #undef HAVE_REALPATH
@@ -868,12 +853,6 @@
 /* Define if the system-gdbinit directory should be relocated when GDB is
    moved. */
 #undef SYSTEM_GDBINIT_RELOCATABLE
-
-/* search for usr/lib et al within DIR */
-#undef TARGET_SYSTEM_ROOT
-
-/* Define if the sysroot directory should be relocated when GDB is moved. */
-#undef TARGET_SYSTEM_ROOT_RELOCATABLE
 
 /* Define if <thread_db.h> has the TD_NOTALLOC error code. */
 #undef THREAD_DB_HAS_TD_NOTALLOC
