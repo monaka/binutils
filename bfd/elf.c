@@ -3071,7 +3071,7 @@ assign_section_numbers (bfd *abfd, struct bfd_link_info *link_info)
 	      if (link_info != NULL)
 		{
 		  /* Check discarded linkonce section.  */
-		  if (elf_discarded_section (s))
+		  if (discarded_section (s))
 		    {
 		      asection *kept;
 		      (*_bfd_error_handler)
@@ -7476,8 +7476,7 @@ _bfd_elf_find_nearest_line (bfd *abfd,
       return TRUE;
     }
 
-  if (_bfd_dwarf2_find_nearest_line (abfd, dwarf_debug_sections,
-                                     section, symbols, offset,
+  if (_bfd_dwarf2_find_nearest_line (abfd, section, symbols, offset,
 				     filename_ptr, functionname_ptr,
 				     line_ptr, 0,
 				     &elf_tdata (abfd)->dwarf2_find_line_info))
@@ -7698,12 +7697,11 @@ _bfd_elf_validate_reloc (bfd *abfd, arelent *areloc)
 bfd_boolean
 _bfd_elf_close_and_cleanup (bfd *abfd)
 {
-  struct elf_obj_tdata *tdata = elf_tdata (abfd);
-  if (bfd_get_format (abfd) == bfd_object && tdata != NULL)
+  if (bfd_get_format (abfd) == bfd_object)
     {
-      if (elf_shstrtab (abfd) != NULL)
+      if (elf_tdata (abfd) != NULL && elf_shstrtab (abfd) != NULL)
 	_bfd_elf_strtab_free (elf_shstrtab (abfd));
-      _bfd_dwarf2_cleanup_debug_info (abfd, &tdata->dwarf2_find_line_info);
+      _bfd_dwarf2_cleanup_debug_info (abfd);
     }
 
   return _bfd_generic_close_and_cleanup (abfd);
@@ -7981,18 +7979,6 @@ static bfd_boolean
 elfcore_grok_s390_prefix (bfd *abfd, Elf_Internal_Note *note)
 {
   return elfcore_make_note_pseudosection (abfd, ".reg-s390-prefix", note);
-}
-
-static bfd_boolean
-elfcore_grok_s390_last_break (bfd *abfd, Elf_Internal_Note *note)
-{
-  return elfcore_make_note_pseudosection (abfd, ".reg-s390-last-break", note);
-}
-
-static bfd_boolean
-elfcore_grok_s390_system_call (bfd *abfd, Elf_Internal_Note *note)
-{
-  return elfcore_make_note_pseudosection (abfd, ".reg-s390-system-call", note);
 }
 
 static bfd_boolean
@@ -8417,20 +8403,6 @@ elfcore_grok_note (bfd *abfd, Elf_Internal_Note *note)
       if (note->namesz == 6
           && strcmp (note->namedata, "LINUX") == 0)
         return elfcore_grok_s390_prefix (abfd, note);
-      else
-        return TRUE;
-
-    case NT_S390_LAST_BREAK:
-      if (note->namesz == 6
-          && strcmp (note->namedata, "LINUX") == 0)
-        return elfcore_grok_s390_last_break (abfd, note);
-      else
-        return TRUE;
-
-    case NT_S390_SYSTEM_CALL:
-      if (note->namesz == 6
-          && strcmp (note->namedata, "LINUX") == 0)
-        return elfcore_grok_s390_system_call (abfd, note);
       else
         return TRUE;
 
@@ -8890,6 +8862,7 @@ elfcore_write_note (bfd *abfd,
   return buf;
 }
 
+#if defined (HAVE_PRPSINFO_T) || defined (HAVE_PSINFO_T)
 char *
 elfcore_write_prpsinfo (bfd  *abfd,
 			char *buf,
@@ -8897,6 +8870,7 @@ elfcore_write_prpsinfo (bfd  *abfd,
 			const char *fname,
 			const char *psargs)
 {
+  const char *note_name = "CORE";
   const struct elf_backend_data *bed = get_elf_backend_data (abfd);
 
   if (bed->elf_backend_write_core_note != NULL)
@@ -8908,7 +8882,6 @@ elfcore_write_prpsinfo (bfd  *abfd,
 	return ret;
     }
 
-#if defined (HAVE_PRPSINFO_T) || defined (HAVE_PSINFO_T)
 #if defined (HAVE_PRPSINFO32_T) || defined (HAVE_PSINFO32_T)
   if (bed->s->elfclass == ELFCLASS32)
     {
@@ -8924,7 +8897,7 @@ elfcore_write_prpsinfo (bfd  *abfd,
       strncpy (data.pr_fname, fname, sizeof (data.pr_fname));
       strncpy (data.pr_psargs, psargs, sizeof (data.pr_psargs));
       return elfcore_write_note (abfd, buf, bufsiz,
-				 "CORE", note_type, &data, sizeof (data));
+				 note_name, note_type, &data, sizeof (data));
     }
   else
 #endif
@@ -8941,14 +8914,12 @@ elfcore_write_prpsinfo (bfd  *abfd,
       strncpy (data.pr_fname, fname, sizeof (data.pr_fname));
       strncpy (data.pr_psargs, psargs, sizeof (data.pr_psargs));
       return elfcore_write_note (abfd, buf, bufsiz,
-				 "CORE", note_type, &data, sizeof (data));
+				 note_name, note_type, &data, sizeof (data));
     }
+}
 #endif	/* PSINFO_T or PRPSINFO_T */
 
-  free (buf);
-  return NULL;
-}
-
+#if defined (HAVE_PRSTATUS_T)
 char *
 elfcore_write_prstatus (bfd *abfd,
 			char *buf,
@@ -8957,6 +8928,7 @@ elfcore_write_prstatus (bfd *abfd,
 			int cursig,
 			const void *gregs)
 {
+  const char *note_name = "CORE";
   const struct elf_backend_data *bed = get_elf_backend_data (abfd);
 
   if (bed->elf_backend_write_core_note != NULL)
@@ -8969,7 +8941,6 @@ elfcore_write_prstatus (bfd *abfd,
 	return ret;
     }
 
-#if defined (HAVE_PRSTATUS_T)
 #if defined (HAVE_PRSTATUS32_T)
   if (bed->s->elfclass == ELFCLASS32)
     {
@@ -8979,7 +8950,7 @@ elfcore_write_prstatus (bfd *abfd,
       prstat.pr_pid = pid;
       prstat.pr_cursig = cursig;
       memcpy (&prstat.pr_reg, gregs, sizeof (prstat.pr_reg));
-      return elfcore_write_note (abfd, buf, bufsiz, "CORE",
+      return elfcore_write_note (abfd, buf, bufsiz, note_name,
 				 NT_PRSTATUS, &prstat, sizeof (prstat));
     }
   else
@@ -8991,14 +8962,11 @@ elfcore_write_prstatus (bfd *abfd,
       prstat.pr_pid = pid;
       prstat.pr_cursig = cursig;
       memcpy (&prstat.pr_reg, gregs, sizeof (prstat.pr_reg));
-      return elfcore_write_note (abfd, buf, bufsiz, "CORE",
+      return elfcore_write_note (abfd, buf, bufsiz, note_name,
 				 NT_PRSTATUS, &prstat, sizeof (prstat));
     }
-#endif /* HAVE_PRSTATUS_T */
-
-  free (buf);
-  return NULL;
 }
+#endif /* HAVE_PRSTATUS_T */
 
 #if defined (HAVE_LWPSTATUS_T)
 char *
@@ -9199,32 +9167,6 @@ elfcore_write_s390_prefix (bfd *abfd,
 }
 
 char *
-elfcore_write_s390_last_break (bfd *abfd,
-			       char *buf,
-			       int *bufsiz,
-			       const void *s390_last_break,
-			       int size)
-{
-  char *note_name = "LINUX";
-  return elfcore_write_note (abfd, buf, bufsiz,
-                             note_name, NT_S390_LAST_BREAK,
-			     s390_last_break, size);
-}
-
-char *
-elfcore_write_s390_system_call (bfd *abfd,
-				char *buf,
-				int *bufsiz,
-				const void *s390_system_call,
-				int size)
-{
-  char *note_name = "LINUX";
-  return elfcore_write_note (abfd, buf, bufsiz,
-                             note_name, NT_S390_SYSTEM_CALL,
-			     s390_system_call, size);
-}
-
-char *
 elfcore_write_arm_vfp (bfd *abfd,
 		       char *buf,
 		       int *bufsiz,
@@ -9266,10 +9208,6 @@ elfcore_write_register_note (bfd *abfd,
     return elfcore_write_s390_ctrs (abfd, buf, bufsiz, data, size);
   if (strcmp (section, ".reg-s390-prefix") == 0)
     return elfcore_write_s390_prefix (abfd, buf, bufsiz, data, size);
-  if (strcmp (section, ".reg-s390-last-break") == 0)
-    return elfcore_write_s390_last_break (abfd, buf, bufsiz, data, size);
-  if (strcmp (section, ".reg-s390-system-call") == 0)
-    return elfcore_write_s390_system_call (abfd, buf, bufsiz, data, size);
   if (strcmp (section, ".reg-arm-vfp") == 0)
     return elfcore_write_arm_vfp (abfd, buf, bufsiz, data, size);
   return NULL;
@@ -9452,7 +9390,7 @@ _bfd_elf_rela_local_sym (bfd *abfd,
 		+ sym->st_value);
   if ((sec->flags & SEC_MERGE)
       && ELF_ST_TYPE (sym->st_info) == STT_SECTION
-      && sec->sec_info_type == ELF_INFO_TYPE_MERGE)
+      && sec->sec_info_type == SEC_INFO_TYPE_MERGE)
     {
       rel->r_addend =
 	_bfd_merged_section_offset (abfd, psec,
@@ -9483,7 +9421,7 @@ _bfd_elf_rel_local_sym (bfd *abfd,
 {
   asection *sec = *psec;
 
-  if (sec->sec_info_type != ELF_INFO_TYPE_MERGE)
+  if (sec->sec_info_type != SEC_INFO_TYPE_MERGE)
     return sym->st_value + addend;
 
   return _bfd_merged_section_offset (abfd, psec,
@@ -9499,10 +9437,10 @@ _bfd_elf_section_offset (bfd *abfd,
 {
   switch (sec->sec_info_type)
     {
-    case ELF_INFO_TYPE_STABS:
+    case SEC_INFO_TYPE_STABS:
       return _bfd_stab_section_offset (sec, elf_section_data (sec)->sec_info,
 				       offset);
-    case ELF_INFO_TYPE_EH_FRAME:
+    case SEC_INFO_TYPE_EH_FRAME:
       return _bfd_elf_eh_frame_section_offset (abfd, info, sec, offset);
     default:
       if ((sec->flags & SEC_ELF_REVERSE_COPY) != 0)

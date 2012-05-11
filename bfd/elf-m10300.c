@@ -1499,10 +1499,7 @@ mn10300_elf_relocate_section (bfd *output_bfd,
 	       obscure cases sec->output_section will be NULL.  */
 	    relocation = 0;
 
-	  else if (!info->relocatable && unresolved_reloc
-		   && _bfd_elf_section_offset (output_bfd, info, input_section,
-					       rel->r_offset) != (bfd_vma) -1)
-
+	  else if (!info->relocatable && unresolved_reloc)
 	    (*_bfd_error_handler)
 	      (_("%B(%A+0x%lx): unresolvable %s relocation against symbol `%s'"),
 	       input_bfd,
@@ -1512,7 +1509,7 @@ mn10300_elf_relocate_section (bfd *output_bfd,
 	       h->root.root.root.string);
 	}
 
-      if (sec != NULL && elf_discarded_section (sec))
+      if (sec != NULL && discarded_section (sec))
 	RELOC_AGAINST_DISCARDED_SECTION (info, input_bfd, input_section,
 					 rel, relend, howto, contents);
 
@@ -2766,7 +2763,7 @@ mn10300_elf_relax_section (bfd *abfd,
 						      isym->st_name);
 
 	  if ((sym_sec->flags & SEC_MERGE)
-	      && sym_sec->sec_info_type == ELF_INFO_TYPE_MERGE)
+	      && sym_sec->sec_info_type == SEC_INFO_TYPE_MERGE)
 	    {
 	      symval = isym->st_value;
 
@@ -3604,8 +3601,8 @@ mn10300_elf_relax_section (bfd *abfd,
 			&& (value & 0x8000))
 		      continue;
 
-		    /* "mov imm16, an" zero-extends the immediate.  */
-		    if ((code & 0xfc) == 0xdc
+		    /* mov imm16, an zero-extends the immediate.  */
+		    if (code == 0xdc
 			&& (long) value < 0)
 		      continue;
 

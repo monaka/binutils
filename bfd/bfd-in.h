@@ -31,8 +31,6 @@ extern "C" {
 
 #include "ansidecl.h"
 #include "symcat.h"
-#include <sys/stat.h>
-
 #if defined (__STDC__) || defined (ALMOST_STDC) || defined (HAVE_STRINGIZE)
 #ifndef SABER
 /* This hack is to avoid a problem with some strict ANSI C preprocessors.
@@ -297,11 +295,14 @@ typedef struct bfd_section *sec_ptr;
     ? (sec)->rawsize : (sec)->size) / bfd_octets_per_byte (bfd))
 
 /* Return TRUE if input section SEC has been discarded.  */
-#define elf_discarded_section(sec)				\
+#define discarded_section(sec)					\
   (!bfd_is_abs_section (sec)					\
    && bfd_is_abs_section ((sec)->output_section)		\
-   && (sec)->sec_info_type != ELF_INFO_TYPE_MERGE		\
-   && (sec)->sec_info_type != ELF_INFO_TYPE_JUST_SYMS)
+   && (sec)->sec_info_type != SEC_INFO_TYPE_MERGE		\
+   && (sec)->sec_info_type != SEC_INFO_TYPE_JUST_SYMS)
+
+/* Forward define.  */
+struct stat;
 
 typedef enum bfd_print_symbol
 {

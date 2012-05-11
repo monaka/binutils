@@ -2812,7 +2812,7 @@ elf32_frv_relocate_section (output_bfd, info, input_bfd, input_section,
 	  name = h->root.root.string;
 	}
 
-      if (sec != NULL && elf_discarded_section (sec))
+      if (sec != NULL && discarded_section (sec))
 	RELOC_AGAINST_DISCARDED_SECTION (info, input_bfd, input_section,
 					 rel, relend, howto, contents);
 
@@ -2896,10 +2896,7 @@ elf32_frv_relocate_section (output_bfd, info, input_bfd, input_section,
 	default:
 	non_fdpic:
 	  picrel = NULL;
-	  if (h
-	      && ! FRVFDPIC_SYM_LOCAL (info, h)
-	      && _bfd_elf_section_offset (output_bfd, info, input_section,
-					  rel->r_offset) != (bfd_vma) -1)
+	  if (h && ! FRVFDPIC_SYM_LOCAL (info, h))
 	    {
 	      info->callbacks->einfo
 		(_("%H: relocation references symbol"
@@ -5681,7 +5678,7 @@ frvfdpic_elf_discard_info (bfd *ibfd,
 
   /* Account for relaxation of .eh_frame section.  */
   for (s = ibfd->sections; s; s = s->next)
-    if (s->sec_info_type == ELF_INFO_TYPE_EH_FRAME)
+    if (s->sec_info_type == SEC_INFO_TYPE_EH_FRAME)
       {
 	if (!_frvfdpic_check_discarded_relocs (ibfd, s, info, &changed))
 	  return FALSE;

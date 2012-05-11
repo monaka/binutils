@@ -1807,8 +1807,7 @@ extern void bfd_elf_set_group_contents
   (bfd *, asection *, void *);
 extern asection *_bfd_elf_check_kept_section
   (asection *, struct bfd_link_info *);
-extern void _bfd_elf_link_just_syms
-  (asection *, struct bfd_link_info *);
+#define _bfd_elf_link_just_syms _bfd_generic_link_just_syms
 extern void _bfd_elf_copy_link_hash_symbol_type
   (bfd *, struct bfd_link_hash_entry *, struct bfd_link_hash_entry *);
 extern bfd_boolean _bfd_elf_size_group_sections
@@ -2132,6 +2131,9 @@ extern unsigned int _bfd_elf_common_section_index
 extern asection *_bfd_elf_common_section
   (asection *);
 
+extern void _bfd_dwarf2_cleanup_debug_info
+  (bfd *);
+
 extern bfd_vma _bfd_elf_default_got_elt_size
 (bfd *, struct bfd_link_info *, struct elf_link_hash_entry *, bfd *,
  unsigned long);
@@ -2233,10 +2235,6 @@ extern char *elfcore_write_s390_todpreg
 extern char *elfcore_write_s390_ctrs
   (bfd *, char *, int *, const void *, int);
 extern char *elfcore_write_s390_prefix
-  (bfd *, char *, int *, const void *, int);
-extern char *elfcore_write_s390_last_break
-  (bfd *, char *, int *, const void *, int);
-extern char *elfcore_write_s390_system_call
   (bfd *, char *, int *, const void *, int);
 extern char *elfcore_write_arm_vfp
   (bfd *, char *, int *, const void *, int);
