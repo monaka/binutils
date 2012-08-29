@@ -2270,7 +2270,7 @@ gdb_loc (ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *CONST obj
       struct symtabs_and_lines sals;
       int nelts;
 
-      sals = decode_line_spec (Tcl_GetStringFromObj (objv[1], NULL), 1);
+      sals = decode_line_with_current_source (Tcl_GetStringFromObj (objv[1], NULL), 1);
 
       nelts = sals.nelts;
       sal = sals.sals[0];
