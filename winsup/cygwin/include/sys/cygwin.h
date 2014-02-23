@@ -146,7 +146,10 @@ typedef enum
     CW_FREE_DRIVE_MAP,
     CW_SETENT,
     CW_GETENT,
-    CW_ENDENT
+    CW_ENDENT,
+    CW_GETNSSSEP,
+    CW_GETPWSID,
+    CW_GETGRSID
   } cygwin_getinfo_types;
 
 #define CW_LOCK_PINFO CW_LOCK_PINFO
@@ -200,6 +203,9 @@ typedef enum
 #define CW_SETENT CW_SETENT
 #define CW_GETENT CW_GETENT
 #define CW_ENDENT CW_ENDENT
+#define CW_GETNSSSEP CW_GETNSSSEP
+#define CW_GETPWSID CW_GETPWSID
+#define CW_GETGRSID CW_GETGRSID
 
 /* Token type for CW_SET_EXTERNAL_TOKEN */
 enum

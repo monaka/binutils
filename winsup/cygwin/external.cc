@@ -554,45 +554,22 @@ cygwin_internal (cygwin_getinfo_types t, ...)
 	}
 	break;
 
-      case CW_SETENT:
-	{
-	  int group = va_arg (arg, int);
-	  int enums = va_arg (arg, int);
-	  PCWSTR enum_tdoms = va_arg (arg, PCWSTR);
-	  if (group)
-	    res = (uintptr_t) setgrent_filtered (enums, enum_tdoms);
-	  else
-	    res = (uintptr_t) setpwent_filtered (enums, enum_tdoms);
-	}
-	break;
+      case CW_GETPWSID:
+        {
+          va_arg (arg, int);
+          PSID psid = va_arg (arg, PSID);
+          cygpsid sid (psid);
+          res = (uintptr_t) internal_getpwsid (sid);
+        }
+        break;
 
-      case CW_GETENT:
-	{
-	  int group = va_arg (arg, int);
-	  void *obj = va_arg (arg, void *);
-	  if (obj)
-	    {
-	      if (group)
-		res = (uintptr_t) getgrent_filtered (obj);
-	      else
-		res = (uintptr_t) getpwent_filtered (obj);
-	    }
-	}
-	break;
-
-      case CW_ENDENT:
-	{
-	  int group = va_arg (arg, int);
-	  void *obj = va_arg (arg, void *);
-	  if (obj)
-	    {
-	      if (group)
-		endgrent_filtered (obj);
-	      else
-		endpwent_filtered (obj);
-	      res = 0;
-	    }
-	}
+      case CW_GETGRSID:
+        {
+          va_arg (arg, int);
+          PSID psid = va_arg (arg, PSID);
+          cygpsid sid (psid);
+          res = (uintptr_t) internal_getgrsid (sid);
+        }
 	break;
 
       default:
