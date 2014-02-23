@@ -1,7 +1,7 @@
 /* grp.cc
 
    Copyright 1996, 1997, 1998, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007,
-   2008, 2009, 2011, 2012, 2013, 2014 Red Hat, Inc.
+   2008, 2009, 2011, 2012, 2013 Red Hat, Inc.
 
    Original stubs by Jason Molenda of Cygnus Support, crash@cygnus.com
    First implementation by Gunther Ebert, gunther.ebert@ixos-leipzig.de
@@ -13,7 +13,6 @@ Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
 #include "winsup.h"
-#include <lm.h>
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,166 +23,134 @@ details. */
 #include "dtable.h"
 #include "cygheap.h"
 #include "ntdll.h"
-#include "miscfuncs.h"
-#include "ldap.h"
-#include "tls_pbuf.h"
+#include "pwdgrp.h"
 
+static group *group_buf;
+static pwdgrp gr (group_buf);
 static char * NO_COPY_RO null_ptr;
 
 bool
 pwdgrp::parse_group ()
 {
-  pg_grp &grp = group ()[curr_lines];
-  grp.g.gr_name = next_str (':');
-  if (!*grp.g.gr_name)
+  group &grp = (*group_buf)[curr_lines];
+  grp.gr_name = next_str (':');
+  if (!*grp.gr_name)
     return false;
-  grp.g.gr_passwd = next_str (':');
-  if (!next_num (grp.g.gr_gid))
+
+  grp.gr_passwd = next_str (':');
+
+  if (!next_num (grp.gr_gid))
     return false;
+
   int n;
   char *dp = raw_ptr ();
   for (n = 0; *next_str (','); n++)
     continue;
-  grp.g.gr_mem = &null_ptr;
+
+  grp.gr_mem = &null_ptr;
   if (n)
     {
-      char **namearray = (char **) ccalloc (HEAP_BUF, n + 1, sizeof (char *));
+      char **namearray = (char **) calloc (n + 1, sizeof (char *));
       if (namearray)
 	{
 	  for (int i = 0; i < n; i++, dp = strchr (dp, '\0') + 1)
 	    namearray[i] = dp;
-	  grp.g.gr_mem = namearray;
+	  grp.gr_mem = namearray;
 	}
     }
-  grp.sid.getfromgr (&grp.g);
+
   return true;
+}
+
+/* Cygwin internal */
+/* Read in /etc/group and save contents in the group cache */
+/* This sets group_in_memory_p to 1 so functions in this file can
+   tell that /etc/group has been read in */
+void
+pwdgrp::read_group ()
+{
+  for (int i = 0; i < gr.curr_lines; i++)
+    if ((*group_buf)[i].gr_mem != &null_ptr)
+      free ((*group_buf)[i].gr_mem);
+
+  load (L"\\etc\\group");
+
+  /* Complete /etc/group in memory if needed */
+  if (!internal_getgrgid (myself->gid))
+    {
+      static char linebuf [200];
+      char group_name [UNLEN + 1] = "mkgroup";
+      char strbuf[128] = "";
+      struct group *gr;
+
+      cygheap->user.groups.pgsid.string (strbuf);
+      if ((gr = internal_getgrsid (cygheap->user.groups.pgsid)))
+	snprintf (group_name, sizeof (group_name),
+		  "passwd/group_GID_clash(%u/%u)", myself->gid, gr->gr_gid);
+      if (myself->uid == UNKNOWN_UID)
+	strcpy (group_name, "mkpasswd"); /* Feedback... */
+      snprintf (linebuf, sizeof (linebuf), "%s:%s:%u:%s",
+		group_name, strbuf, myself->gid, cygheap->user.name ());
+      debug_printf ("Completing /etc/group: %s", linebuf);
+      add_line (linebuf);
+    }
+  static char NO_COPY pretty_ls[] = "????????::-1:";
+  add_line (pretty_ls);
 }
 
 muto NO_COPY pwdgrp::pglock;
 
-void
-pwdgrp::init_grp ()
+pwdgrp::pwdgrp (passwd *&pbuf) :
+  pwdgrp_buf_elem_size (sizeof (*pbuf)), passwd_buf (&pbuf)
 {
-  pwdgrp_buf_elem_size = sizeof (pg_grp);
+  read = &pwdgrp::read_passwd;
+  parse = &pwdgrp::parse_passwd;
+  pglock.init ("pglock");
+}
+
+pwdgrp::pwdgrp (group *&gbuf) :
+  pwdgrp_buf_elem_size (sizeof (*gbuf)), group_buf (&gbuf)
+{
+  read = &pwdgrp::read_group;
   parse = &pwdgrp::parse_group;
-}
-
-pwdgrp *
-pwdgrp::prep_tls_grbuf ()
-{
-  if (!_my_tls.locals.grbuf)
-    {
-      _my_tls.locals.grbuf = ccalloc_abort (HEAP_BUF, 1,
-					    sizeof (pwdgrp) + sizeof (pg_grp));
-      pwdgrp *gr = (pwdgrp *) _my_tls.locals.grbuf;
-      gr->init_grp ();
-      gr->pwdgrp_buf = (void *) (gr + 1);
-      gr->max_lines = 1;
-    }
-  pwdgrp *gr = (pwdgrp *) _my_tls.locals.grbuf;
-  if (gr->curr_lines)
-    {
-      cfree (gr->group ()[0].g.gr_name);
-      gr->curr_lines = 0;
-    }
-  return gr;
-}         
-
-struct group *
-pwdgrp::find_group (cygpsid &sid)
-{
-  for (ULONG i = 0; i < curr_lines; i++)
-    if (sid == group ()[i].sid)
-      return &group ()[i].g;
-  return NULL;
-}
-
-struct group *
-pwdgrp::find_group (const char *name)
-{
-  for (ULONG i = 0; i < curr_lines; i++)
-    if (strcasematch (group ()[i].g.gr_name, name))
-      return &group ()[i].g;
-  return NULL;
-}
-
-struct group *
-pwdgrp::find_group (gid_t gid)
-{
-  for (ULONG i = 0; i < curr_lines; i++)
-    if (gid == group ()[i].g.gr_gid)
-      return &group ()[i].g;
-  return NULL;
+  pglock.init ("pglock");
 }
 
 struct group *
 internal_getgrsid (cygpsid &sid)
 {
-  struct group *ret;
+  char sid_string[128];
 
-  cygheap->pg.nss_init ();
-  if (cygheap->pg.nss_grp_files ())
-    {
-      cygheap->pg.grp_cache.file.check_file (true);
-      if ((ret = cygheap->pg.grp_cache.file.find_group (sid)))
-	return ret;
-      if ((ret = cygheap->pg.grp_cache.file.add_group_from_file (sid)))
-	return ret;
-    }
-  if (cygheap->pg.nss_grp_db ())
-    {
-      if ((ret = cygheap->pg.grp_cache.win.find_group (sid)))
-	return ret;
-      return cygheap->pg.grp_cache.win.add_group_from_windows (sid);
-    }
+  gr.refresh (false);
+
+  if (sid.string (sid_string))
+    for (int i = 0; i < gr.curr_lines; i++)
+      if (!strcmp (sid_string, group_buf[i].gr_passwd))
+	return group_buf + i;
   return NULL;
 }
 
 struct group *
-internal_getgrnam (const char *name)
+internal_getgrgid (gid_t gid, bool check)
 {
-  struct group *ret;
+  gr.refresh (check);
 
-  cygheap->pg.nss_init ();
-  if (cygheap->pg.nss_grp_files ())
-    {
-      cygheap->pg.grp_cache.file.check_file (true);
-      if ((ret = cygheap->pg.grp_cache.file.find_group (name)))
-	return ret;
-      if ((ret = cygheap->pg.grp_cache.file.add_group_from_file (name)))
-	return ret;
-    }
-  if (cygheap->pg.nss_grp_db ())
-    {
-      if ((ret = cygheap->pg.grp_cache.win.find_group (name)))
-	return ret;
-      return cygheap->pg.grp_cache.win.add_group_from_windows (name);
-    }
+  for (int i = 0; i < gr.curr_lines; i++)
+    if (group_buf[i].gr_gid == gid)
+      return group_buf + i;
   return NULL;
 }
 
 struct group *
-internal_getgrgid (gid_t gid)
+internal_getgrnam (const char *name, bool check)
 {
-  struct group *ret;
+  gr.refresh (check);
 
-  cygheap->pg.nss_init ();
-  if (cygheap->pg.nss_grp_files ())
-    {
-      cygheap->pg.grp_cache.file.check_file (true);
-      if ((ret = cygheap->pg.grp_cache.file.find_group (gid)))
-	return ret;
-      if ((ret = cygheap->pg.grp_cache.file.add_group_from_file (gid)))
-	return ret;
-    }
-  if (cygheap->pg.nss_grp_db ())
-    {
-      if ((ret = cygheap->pg.grp_cache.win.find_group (gid)))
-	return ret;
-      return cygheap->pg.grp_cache.win.add_group_from_windows (gid);
-    }
-  else if (gid == ILLEGAL_GID)
-    return cygheap->pg.grp_cache.win.add_group_from_windows (gid);
+  for (int i = 0; i < gr.curr_lines; i++)
+    if (strcasematch (group_buf[i].gr_name, name))
+      return group_buf + i;
+
+  /* Didn't find requested group */
   return NULL;
 }
 
@@ -214,7 +181,7 @@ getgrgid_r (gid_t gid, struct group *grp, char *buffer, size_t bufsize,
   if (!grp || !buffer)
     return ERANGE;
 
-  struct group *tempgr = internal_getgrgid (gid);
+  struct group *tempgr = internal_getgrgid (gid, true);
   pthread_testcancel ();
   if (!tempgr)
     return 0;
@@ -244,7 +211,7 @@ getgrgid_r (gid_t gid, struct group *grp, char *buffer, size_t bufsize,
 extern "C" struct group *
 getgrgid32 (gid_t gid)
 {
-  return internal_getgrgid (gid);
+  return internal_getgrgid (gid, true);
 }
 
 #ifdef __x86_64__
@@ -268,7 +235,7 @@ getgrnam_r (const char *nam, struct group *grp, char *buffer,
   if (!grp || !buffer)
     return ERANGE;
 
-  struct group *tempgr = internal_getgrnam (nam);
+  struct group *tempgr = internal_getgrnam (nam, true);
   pthread_testcancel ();
   if (!tempgr)
     return 0;
@@ -298,7 +265,7 @@ getgrnam_r (const char *nam, struct group *grp, char *buffer,
 extern "C" struct group *
 getgrnam32 (const char *name)
 {
-  return internal_getgrnam (name);
+  return internal_getgrnam (name, true);
 }
 
 #ifdef __x86_64__
@@ -313,102 +280,21 @@ getgrnam (const char *name)
 }
 #endif
 
-/* getgrent functions are not reentrant. */
-static gr_ent grent;
-
-void *
-gr_ent::enumerate_caches ()
-{
-  if (!max && from_files)
-    {
-      pwdgrp &grf = cygheap->pg.grp_cache.file;
-      grf.check_file (true);
-      if (cnt < grf.cached_groups ())
-        return &grf.group ()[cnt++].g;
-      cnt = 0;
-      max = 1;
-    }
-  if (from_db && cygheap->pg.nss_db_caching ())
-    {
-      pwdgrp &grw = cygheap->pg.grp_cache.win;
-      if (cnt < grw.cached_groups ())
-        return &grw.group ()[cnt++].g;
-    }
-  cnt = max = 0;
-  return NULL;
-}
-
-void *
-gr_ent::enumerate_local ()
-{
-  while (true)
-    {
-      if (!cnt)
-	{
-	  DWORD total;
-	  NET_API_STATUS ret;
-
-	  if (buf)
-	    {
-	      NetApiBufferFree (buf);
-	      buf = NULL;
-	    }
-	  if (resume == ULONG_MAX)
-	    ret = ERROR_NO_MORE_ITEMS;
-	  else
-	    ret = NetLocalGroupEnum (NULL, 0, (PBYTE *) &buf,
-				     MAX_PREFERRED_LENGTH,
-				     &max, &total, &resume);
-	  if (ret == NERR_Success)
-	    resume = ULONG_MAX;
-	  else if (ret != ERROR_MORE_DATA)
-	    {
-	      cnt = max = resume = 0;
-	      return NULL;
-	    }
-	}
-      while (cnt < max)
-	{
-	  cygsid sid;
-	  DWORD slen = MAX_SID_LEN;
-	  WCHAR dom[DNLEN + 1];
-	  DWORD dlen = DNLEN + 1;
-	  SID_NAME_USE acc_type;
-
-	  LookupAccountNameW (NULL,
-			      ((PLOCALGROUP_INFO_0) buf)[cnt++].lgrpi0_name,
-			      sid, &slen, dom, &dlen, &acc_type);
-	  fetch_user_arg_t arg;
-	  arg.type = SID_arg;
-	  arg.sid = &sid;
-	  char *line = pg.fetch_account_from_windows (arg, true);
-	  if (line)
-	    return pg.add_account_post_fetch (line, false);
-	}
-      cnt = 0;
-    }
-}
-
-struct group *
-gr_ent::getgrent (void)
-{
-  if (state == rewound)
-    setent (true);
-  else
-    clear_cache ();
-  return (struct group *) getent ();
-}
-
 extern "C" void
-setgrent ()
+endgrent ()
 {
-  grent.setgrent ();
+  _my_tls.locals.grp_pos = 0;
 }
 
 extern "C" struct group *
-getgrent32 (void)
+getgrent32 ()
 {
-  return grent.getgrent ();
+  if (_my_tls.locals.grp_pos == 0)
+    gr.refresh (true);
+  if (_my_tls.locals.grp_pos < gr.curr_lines)
+    return group_buf + _my_tls.locals.grp_pos++;
+
+  return NULL;
 }
 
 #ifdef __x86_64__
@@ -424,55 +310,50 @@ getgrent ()
 #endif
 
 extern "C" void
-endgrent (void)
+setgrent ()
 {
-  grent.endgrent ();
+  _my_tls.locals.grp_pos = 0;
 }
 
-/* *_filtered functions are called from mkgroup */
-void *
-setgrent_filtered (int enums, PCWSTR enum_tdoms)
+/* Internal function. ONLY USE THIS INTERNALLY, NEVER `getgrent'!!! */
+struct group *
+internal_getgrent (int pos)
 {
-  gr_ent *gr = new gr_ent;
-  if (gr)
-    gr->setgrent (enums, enum_tdoms);
-  return (void *) gr;
-}
+  gr.refresh (false);
 
-void *
-getgrent_filtered (void *gr)
-{
-  return (void *) ((gr_ent *) gr)->getgrent ();
-}
-
-void
-endgrent_filtered (void *gr)
-{
-  ((gr_ent *) gr)->endgrent ();
+  if (pos < gr.curr_lines)
+    return group_buf + pos;
+  return NULL;
 }
 
 int
-internal_getgroups (int gidsetsize, gid_t *grouplist, cygpsid *srchsid)
+internal_getgroups (int gidsetsize, gid_t *grouplist, cygpsid * srchsid)
 {
   NTSTATUS status;
   HANDLE hToken = NULL;
   ULONG size;
   int cnt = 0;
-  struct group *grp;
+  struct group *gr;
 
   if (!srchsid && cygheap->user.groups.issetgroups ())
     {
-      for (int pg = 0; pg < cygheap->user.groups.sgsids.count (); ++pg)
-	if ((grp = internal_getgrsid (cygheap->user.groups.sgsids.sids[pg])))
-	  {
-	    if (cnt < gidsetsize)
-	      grouplist[cnt] = grp->gr_gid;
-	    ++cnt;
-	    if (gidsetsize && cnt > gidsetsize)
-	      goto error;
-	  }
+      cygsid sid;
+      for (int gidx = 0; (gr = internal_getgrent (gidx)); ++gidx)
+	if (sid.getfromgr (gr))
+	  for (int pg = 0; pg < cygheap->user.groups.sgsids.count (); ++pg)
+	    if (sid == cygheap->user.groups.sgsids.sids[pg]
+		&& sid != well_known_world_sid)
+	      {
+		if (cnt < gidsetsize)
+		  grouplist[cnt] = gr->gr_gid;
+		++cnt;
+		if (gidsetsize && cnt > gidsetsize)
+		  goto error;
+		break;
+	      }
       return cnt;
     }
+
 
   /* If impersonated, use impersonation token. */
   if (cygheap->user.issetuid ())
@@ -498,25 +379,21 @@ internal_getgroups (int gidsetsize, gid_t *grouplist, cygpsid *srchsid)
 		  break;
 	    }
 	  else
-	    {
-	      for (DWORD pg = 0; pg < groups->GroupCount; ++pg)
-		{
-		  cygpsid sid = groups->Groups[pg].Sid;
-		  if ((grp = internal_getgrsid (sid)))
-		    {
-		      if ((groups->Groups[pg].Attributes
+	    for (int gidx = 0; (gr = internal_getgrent (gidx)); ++gidx)
+	      if (sid.getfromgr (gr))
+		for (DWORD pg = 0; pg < groups->GroupCount; ++pg)
+		  if (sid == groups->Groups[pg].Sid
+		      && (groups->Groups[pg].Attributes
 			  & (SE_GROUP_ENABLED | SE_GROUP_INTEGRITY_ENABLED))
-			  && sid != well_known_world_sid)
-			{
-			  if (cnt < gidsetsize)
-			    grouplist[cnt] = grp->gr_gid;
-			  ++cnt;
-			  if (gidsetsize && cnt > gidsetsize)
-			    goto error;
-			}
+		      && sid != well_known_world_sid)
+		    {
+		      if (cnt < gidsetsize)
+			grouplist[cnt] = gr->gr_gid;
+		      ++cnt;
+		      if (gidsetsize && cnt > gidsetsize)
+			goto error;
+		      break;
 		    }
-		}
-	    }
 	}
     }
   else
@@ -566,11 +443,11 @@ get_groups (const char *user, gid_t gid, cygsidlist &gsids)
 {
   cygheap->user.deimpersonate ();
   struct passwd *pw = internal_getpwnam (user);
-  struct group *grp = internal_getgrgid (gid);
+  struct group *gr = internal_getgrgid (gid);
   cygsid usersid, grpsid;
   if (usersid.getfrompw (pw))
     get_server_groups (gsids, usersid, pw);
-  if (grpsid.getfromgr (grp))
+  if (gid != ILLEGAL_GID && grpsid.getfromgr (gr))
     gsids += grpsid;
   cygheap->user.reimpersonate ();
 }
@@ -605,7 +482,7 @@ getgrouplist (const char *user, gid_t gid, gid_t *groups, int *ngroups)
 {
   int ret = 0;
   int cnt = 0;
-  struct group *grp;
+  struct group *gr;
 
   /* Note that it's not defined if groups or ngroups may be NULL!
      GLibc does not check the pointers on entry and just uses them.
@@ -618,15 +495,17 @@ getgrouplist (const char *user, gid_t gid, gid_t *groups, int *ngroups)
   cygsidlist tmp_gsids (cygsidlist_auto, 12);
   get_groups (user, gid, tmp_gsids);
   for (int i = 0; i < tmp_gsids.count (); i++)
-    if ((grp = internal_getgrsid (tmp_gsids.sids[i])) != NULL)
+    if ((gr = internal_getgrsid (tmp_gsids.sids[i])) != NULL)
       {
 	if (groups && cnt < *ngroups)
-	  groups[cnt] = grp->gr_gid;
+	  groups[cnt] = gr->gr_gid;
 	++cnt;
       }
+  *ngroups = cnt;
   if (cnt > *ngroups)
     ret = -1;
-  *ngroups = cnt;
+  else
+    ret = cnt;
 
   syscall_printf ( "%d = getgrouplist(%s, %u, %p, %d)",
 		  ret, user, gid, groups, *ngroups);
@@ -645,15 +524,15 @@ setgroups32 (int ngroups, const gid_t *grouplist)
     }
 
   cygsidlist gsids (cygsidlist_alloc, ngroups);
-  struct group *grp;
+  struct group *gr;
 
   if (ngroups && !gsids.sids)
     return -1;
 
   for (int gidx = 0; gidx < ngroups; ++gidx)
     {
-      if ((grp = internal_getgrgid (grouplist[gidx]))
-	  && gsids.addfromgr (grp))
+      if ((gr = internal_getgrgid (grouplist[gidx]))
+	  && gsids.addfromgr (gr))
 	continue;
       debug_printf ("No sid found for gid %u", grouplist[gidx]);
       gsids.free_sids ();
