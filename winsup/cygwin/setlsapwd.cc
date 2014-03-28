@@ -17,6 +17,7 @@ details. */
 #include "cygheap.h"
 #include "security.h"
 #include "cygserver_setpwd.h"
+#include "pwdgrp.h"
 #include "ntdll.h"
 #include <ntsecapi.h>
 #include <stdlib.h>
@@ -40,7 +41,7 @@ unsigned long
 setlsapwd (const char *passwd, const char *username)
 {
   unsigned long ret = (unsigned long) -1;
-  HANDLE lsa = INVALID_HANDLE_VALUE;
+  HANDLE lsa;
   WCHAR sid[128];
   WCHAR key_name[128 + wcslen (CYGWIN_LSA_KEY_PREFIX)];
   PWCHAR data_buf = NULL;
@@ -50,7 +51,7 @@ setlsapwd (const char *passwd, const char *username)
   if (username)
     {
       cygsid psid;
-      struct passwd *pw = internal_getpwnam (username);
+      struct passwd *pw = internal_getpwnam (username, false);
 
       if (!pw || !psid.getfrompw (pw))
 	{
@@ -70,7 +71,7 @@ setlsapwd (const char *passwd, const char *username)
       if (data_buf)
 	RtlInitUnicodeString (&data, data_buf);
       /* First try it locally.  Works for admin accounts. */
-      if ((lsa = lsa_open_policy (NULL, POLICY_CREATE_SECRET)))
+      if (!(lsa = lsa_open_policy (NULL, POLICY_CREATE_SECRET)))
 	{
 	  NTSTATUS status = LsaStorePrivateData (lsa, &key,
 						 data.Length ? &data : NULL);
